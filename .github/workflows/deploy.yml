@@ -1,0 +1,31 @@
+name: Deploy cabinet to server
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            set -e
+            cd /opt/bedolaga-cabinet
+            git pull origin main
+            # Безопасная пересборка: сначала собираем НОВЫЙ образ кабинета.
+            # Если сборка упадёт (например, ошибка в коде) — set -e прервёт скрипт,
+            # и СТАРЫЙ работающий контейнер cabinet_frontend останется нетронутым (кабинет не ляжет).
+            docker compose build cabinet-frontend
+            # Только после успешной сборки переключаемся на новую версию.
+            docker compose up -d cabinet-frontend
+            # Чистим устаревшие образы, чтобы не забивать диск.
+            docker image prune -f || true
+            echo "Cabinet deploy OK: $(git rev-parse --short HEAD) at $(date)"
