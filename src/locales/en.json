@@ -246,55 +246,55 @@
       "addDevice": "Buy a device slot",
       "renew": "Renew subscription",
       "subscribe": "Get subscription",
-      "renewHintExpiring": "VPN turns off soon — renew now",
-      "renewHintGrace": "VPN works for 2 more days — renew in time",
+      "renewHintExpiring": "Ends soon — renew now",
+      "renewHintGrace": "VPN works for 2 more days",
       "subscribeHint": "More traffic and devices",
       "addDeviceHint": "Connected {{used}} of {{max}}",
-      "connectHint": "Connect your first device",
       "devicesCounter": "Connected {{used}} of {{max}}",
       "devicesCounterUnlimited": "Connected {{used}} · unlimited"
     },
     "devices": {
       "counter": "Devices: {{used}} of {{max}}",
-      "trialLimit": "Trial allows {{max}} — connected {{used}}/{{max}}"
+      "trialLimit": "Trial period limit: connected {{used}} of {{max}}"
     },
     "status": {
       "remaining": "Remaining",
       "hoursShort": "h",
       "expiredPill": "Expired",
-      "bonusAccess": "Bonus access",
+      "bonusAccess": "Gift days",
       "trafficTitle": "Traffic usage"
     },
     "banner": {
       "pendingTitle": "Payment is processing",
-      "pendingText": "Usually takes up to a minute",
-      "checkPayment": "Check payment",
+      "pendingText": "Processing takes about a minute",
+      "checkPayment": "Refresh status",
       "disabledTitle": "Subscription temporarily disabled",
       "disabledText": "Access is paused. Contact support — we'll help restore it.",
       "disabledChannelTitle": "Return to our channel",
       "disabledChannelText": "Looks like the channel subscription is off. Re-join the channel to restore access.",
       "support": "Support",
-      "restrictedTitle": "Purchases temporarily unavailable",
-      "restrictedText": "Purchases and renewal are currently restricted for your account. Contact support if this is a mistake.",
+      "restrictedTitle": "Subscription purchase unavailable",
+      "restrictedText": "Purchases are temporarily restricted for your account — contact support and we'll help.",
       "expiredTitle": "Subscription has ended",
       "expiredText": "VPN is off. Renew your subscription to reconnect.",
+      "expiredTextTrial": "VPN is off. Get a subscription to keep using it.",
       "graceTitle": "Subscription ended — but VPN still works",
       "graceText": "We kept the VPN on for 2 more days. Renew calmly, no rush.",
       "graceUntil": "Turns off on {{date}}",
       "gracePill": "+2 days",
-      "trafficResetTitle": "Traffic has run out",
-      "trafficResetText": "It will restore on the next reset",
+      "trafficResetTitle": "This period's traffic is used up",
+      "trafficResetText": "It renews at the start of the next period",
       "buyTraffic": "Buy gigabytes",
       "buyTrafficHint": "Package lasts 30 days",
-      "trialTrafficTitle": "Trial traffic has run out",
+      "trialTrafficTitle": "Trial period traffic is used up",
       "trialTrafficText": "Get a subscription to keep using the VPN"
     },
     "state": {
       "errorTitle": "Couldn't load",
       "errorText": "Check your connection and try again",
       "retry": "Retry",
-      "panelTitle": "Panel temporarily unavailable",
-      "panelText": "Device data will update shortly. The VPN keeps working."
+      "panelTitle": "Couldn't load the device list",
+      "panelText": "The VPN keeps working as usual — the list will update shortly."
     }
   },
   "dashboard": {

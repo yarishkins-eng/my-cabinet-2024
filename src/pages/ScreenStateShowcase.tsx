@@ -240,7 +240,8 @@ function StateCard({ f }: { f: Fixture }) {
           graceUntil={f.graceUntil}
         />
         <HeroZone state={state} actions={actions} />
-        <StatusCard state={state} meta={f.meta} />
+        {/* как в DashboardUnified: при overlay (платёж/отключён) карточку прячем */}
+        {!state.overlay && <StatusCard state={state} meta={f.meta} />}
       </div>
     </div>
   );

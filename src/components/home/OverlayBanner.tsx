@@ -159,7 +159,8 @@ export default function OverlayBanner({
         tone="danger"
         icon={<InfoIcon className="h-5 w-5" />}
         title={t('home.banner.expiredTitle')}
-        text={t('home.banner.expiredText')}
+        // Глагол под стать кнопке: триал → «Оформите», платная → «Продлите».
+        text={state.isTrial ? t('home.banner.expiredTextTrial') : t('home.banner.expiredText')}
       />
     );
   }

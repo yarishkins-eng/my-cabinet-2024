@@ -246,7 +246,10 @@ export default function DashboardUnified() {
                 disabledReasonHint={subscription.disabled_reason_hint ?? null}
               />
               <HeroZone state={state} actions={actions} />
-              <StatusCard state={state} meta={meta} />
+              {/* При перекрывающем состоянии (платёж обрабатывается / временно отключён)
+                  карточку «Осталось N дн.» прячем — она путала (активна? тикают ли дни?).
+                  Баннер несёт смысл. Для grace/истёкшей overlay=null → карточка остаётся. */}
+              {!state.overlay && <StatusCard state={state} meta={meta} />}
             </div>
           ) : null}
         </>
