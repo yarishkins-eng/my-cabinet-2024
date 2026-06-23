@@ -81,6 +81,9 @@ export default function Dashboard() {
     staleTime: API.BALANCE_STALE_TIME_MS,
     enabled: !isMultiTariff && subscriptionId != null,
     initialData: subscriptionId != null ? bootstrapResponse : undefined,
+    // НАМЕРЕННО без refetchOnMount:'always' (в отличие от bootstrap): свежесть
+    // наследуется от bootstrap через initialDataUpdatedAt, поэтому второго
+    // сетевого запроса нет. Добавишь сюда refetchOnMount — вернёшь двойной фетч.
     initialDataUpdatedAt: () => queryClient.getQueryState(['subscription'])?.dataUpdatedAt,
   });
 

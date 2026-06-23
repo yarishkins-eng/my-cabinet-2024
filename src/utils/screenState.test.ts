@@ -383,3 +383,33 @@ describe('traffic info', () => {
     expect(s.traffic.usedGb).toBe(55);
   });
 });
+
+// ── Boundary cases (review-driven) ───────────────────────────────────────────
+
+describe('boundary cases', () => {
+  it('days_left === 3 → expiring (P5); days_left === 4 → not expiring (P2)', () => {
+    expect(run(makeSub({ days_left: 3 }), { connectedDevices: 1 }).code).toBe('P5');
+    expect(run(makeSub({ days_left: 4 }), { connectedDevices: 1 }).code).toBe('P2');
+  });
+
+  it('purchases restricted + expired paid (P8) → renew hidden, nothing burns', () => {
+    const s = run(makeSub({ is_expired: true, status: 'expired', days_left: 0 }), {
+      connectedDevices: 2,
+      purchasesRestricted: true,
+    });
+    expect(s.code).toBe('P8');
+    expect(s.accessEnded).toBe(true);
+    expect(s.sellZone.kind).toBe('hidden');
+    expect(s.burning).toBe('none');
+  });
+
+  it('panel down on a fresh trial (T1) → no false "connect" on untrusted 0 devices', () => {
+    const s = run(
+      makeSub({ is_trial: true, traffic_limit_gb: 10, traffic_used_gb: 0, device_limit: 5 }),
+      { connectedDevices: 0, panelOk: false },
+    );
+    expect(s.panelDown).toBe(true);
+    expect(s.burning).not.toBe('connect');
+    expect(s.deviceZone.kind).toBe('hidden');
+  });
+});

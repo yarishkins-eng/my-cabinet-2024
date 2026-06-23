@@ -19,10 +19,10 @@
  *   • grace («бонус 2 дня») — отдельная задача чата 5: ветка есть, но по умолчанию выключена.
  */
 
+import { API } from '../config/constants';
+
 /** Порог «подписка заканчивается» — 3 дня по «осталось дней» с округлением вниз (§9 п.8). */
 const EXPIRING_THRESHOLD_DAYS = 3;
-/** Процент трафика, с которого подсвечиваем дробь «у предела» красным (§6). */
-const TRAFFIC_CRITICAL_PERCENT = 90;
 
 /**
  * Структурный минимум подписки, нужный для расчёта состояния. Подмножество
@@ -200,7 +200,7 @@ export function computeScreenState(input: ScreenStateInput): ScreenState {
   const trafficExhausted =
     !trafficUnlimited &&
     (sub.is_limited || (sub.traffic_limit_gb > 0 && usedGb >= sub.traffic_limit_gb));
-  const nearLimit = !trafficUnlimited && usedPercent >= TRAFFIC_CRITICAL_PERCENT;
+  const nearLimit = !trafficUnlimited && usedPercent >= API.TRAFFIC_CRITICAL_PERCENT;
 
   const traffic: TrafficInfo = {
     usedGb,
