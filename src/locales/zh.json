@@ -747,7 +747,7 @@
     "copyLink": "复制",
     "copied": "已复制！",
     "shareButton": "分享",
-    "shareMessage": "通过我的链接加入 {{botName}}，获取高达 {{percent}}% 返现！",
+    "shareMessage": "通过我的链接加入 {{botName}} — 余额充值满 {{minimum}}，即可额外获得 {{bonus}} 奖励！💸",
     "shareHint": "分享链接给朋友。当他们注册并付款后，您将获得 {{percent}}% 佣金！",
     "stats": {
       "totalReferrals": "总推荐数",
@@ -882,7 +882,8 @@
         "rejected": "已拒绝",
         "cancelled": "已取消"
       }
-    }
+    },
+    "shareMessageCashback": "通过我的链接加入 {{botName}}，获取高达 {{percent}}% 返现！"
   },
   "support": {
     "title": "支持",

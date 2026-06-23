@@ -180,10 +180,20 @@ export default function Referral() {
 
   const shareLink = () => {
     if (!referralLink) return;
-    const shareText = t('referral.shareMessage', {
-      percent: info?.commission_percent || 0,
-      botName: branding?.name || import.meta.env.VITE_APP_NAME || 'Cabinet',
-    });
+    const botName = branding?.name || import.meta.env.VITE_APP_NAME || 'Cabinet';
+    // Текст другу — как в боте: акцент на бонус новичку. Если бонус выключен (0) — запасной
+    // текст про кешбэк/комиссию (как было раньше).
+    const hasBonus = (terms?.first_topup_bonus_kopeks ?? 0) > 0;
+    const shareText = hasBonus
+      ? t('referral.shareMessage', {
+          botName,
+          minimum: `${formatAmount(terms?.minimum_topup_rubles ?? 0)} ${currencySymbol}`,
+          bonus: `${formatAmount(terms?.first_topup_bonus_rubles ?? 0)} ${currencySymbol}`,
+        })
+      : t('referral.shareMessageCashback', {
+          botName,
+          percent: info?.commission_percent || 0,
+        });
 
     if (navigator.share) {
       navigator

@@ -862,7 +862,7 @@
     "copyLink": "Copy",
     "copied": "Copied!",
     "shareButton": "Share",
-    "shareMessage": "Join me on {{botName}} and earn up to {{percent}}% cashback!",
+    "shareMessage": "Join {{botName}} via my link — top up your balance from {{minimum}} and get an extra {{bonus}} bonus! 💸",
     "shareHint": "Share this link with friends. When they sign up and make a purchase, you'll earn {{percent}}% commission!",
     "stats": {
       "totalReferrals": "Total Referrals",
@@ -997,7 +997,8 @@
         "rejected": "Rejected",
         "cancelled": "Cancelled"
       }
-    }
+    },
+    "shareMessageCashback": "Join me on {{botName}} and earn up to {{percent}}% cashback!"
   },
   "support": {
     "title": "Support",
