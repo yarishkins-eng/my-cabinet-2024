@@ -199,11 +199,13 @@ const FIXTURES: Fixture[] = [
     baseSub({ traffic_used_gb: 95, traffic_used_percent: 95 }),
     { connectedDevices: 1 },
   ),
+  // Безлимит ТРАФИКА (реальный сценарий) — у тарифа traffic_limit_gb=0. Устройства
+  // при этом с обычным лимитом: безлимит устройств в бизнесе не предлагается.
   fx(
-    'unlimited',
-    'Безлимит трафика/устройств',
-    baseSub({ traffic_limit_gb: 0, traffic_used_gb: 42, device_limit: 0 }),
-    { connectedDevices: 5 },
+    'unlimited-traffic',
+    'Безлимит трафика',
+    baseSub({ traffic_limit_gb: 0, traffic_used_gb: 42, device_limit: 3 }),
+    { connectedDevices: 1 },
   ),
 ];
 

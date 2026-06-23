@@ -258,7 +258,7 @@
       "addDevice": "Докупить устройство",
       "renew": "Продлить подписку",
       "subscribe": "Оформить подписку",
-      "renewHintExpiring": "VPN работает — продлите заранее",
+      "renewHintExpiring": "VPN скоро отключится — продлите",
       "renewHintGrace": "VPN работает ещё 2 дня — успейте продлить",
       "subscribeHint": "Полный доступ без ограничений пробного",
       "addDeviceHint": "Подключено {{used}} из {{max}}",

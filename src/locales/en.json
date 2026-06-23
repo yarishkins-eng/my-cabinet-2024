@@ -246,7 +246,7 @@
       "addDevice": "Buy a device slot",
       "renew": "Renew subscription",
       "subscribe": "Get subscription",
-      "renewHintExpiring": "VPN is on — renew ahead of time",
+      "renewHintExpiring": "VPN turns off soon — renew now",
       "renewHintGrace": "VPN works for 2 more days — renew in time",
       "subscribeHint": "Full access without trial limits",
       "addDeviceHint": "Connected {{used}} of {{max}}",

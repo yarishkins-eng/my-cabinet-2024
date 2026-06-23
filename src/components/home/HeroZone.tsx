@@ -125,6 +125,14 @@ export default function HeroZone({
   const isEnded = state.accessEnded;
   const isGrace = state.code === 'grace';
 
+  // Счётчик устройств «Подключено k из N» — общий для «Подключить» и «Подключить ещё»,
+  // чтобы пользователь ВСЕГДА видел доступный лимит устройств. Лимит (`dz.limit`)
+  // приходит с сервера (`subscription.device_limit`) → когда админ меняет лимит тарифа
+  // (напр. на пробном теперь 2/3/5), кнопка показывает новое число автоматически.
+  const deviceCounter = dz.unlimited
+    ? t('home.hero.devicesCounterUnlimited', { used: dz.connected })
+    : t('home.hero.devicesCounter', { used: dz.connected, max: dz.limit });
+
   // ── Зона устройства по deviceZone.kind ──
   let deviceNode: React.ReactNode = null;
   if (dz.kind === 'connect') {
@@ -133,7 +141,7 @@ export default function HeroZone({
         variant="burning"
         icon={<DeviceGlyph />}
         label={t('home.hero.connect')}
-        hint={t('home.hero.connectHint')}
+        hint={deviceCounter}
         onClick={actions.onConnect}
       />
     );
@@ -143,11 +151,7 @@ export default function HeroZone({
         variant="calm"
         icon={<DeviceGlyph />}
         label={t('home.hero.connectMore')}
-        hint={
-          dz.unlimited
-            ? t('home.hero.devicesCounterUnlimited', { used: dz.connected })
-            : t('home.hero.devicesCounter', { used: dz.connected, max: dz.limit })
-        }
+        hint={deviceCounter}
         onClick={actions.onConnect}
       />
     );
