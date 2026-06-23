@@ -248,7 +248,7 @@
       "subscribe": "Get subscription",
       "renewHintExpiring": "VPN turns off soon — renew now",
       "renewHintGrace": "VPN works for 2 more days — renew in time",
-      "subscribeHint": "Full access without trial limits",
+      "subscribeHint": "More traffic and devices",
       "addDeviceHint": "Connected {{used}} of {{max}}",
       "connectHint": "Connect your first device",
       "devicesCounter": "Connected {{used}} of {{max}}",

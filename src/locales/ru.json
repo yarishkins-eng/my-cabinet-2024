@@ -260,7 +260,7 @@
       "subscribe": "Оформить подписку",
       "renewHintExpiring": "VPN скоро отключится — продлите",
       "renewHintGrace": "VPN работает ещё 2 дня — успейте продлить",
-      "subscribeHint": "Полный доступ без ограничений пробного",
+      "subscribeHint": "Больше трафика и устройств",
       "addDeviceHint": "Подключено {{used}} из {{max}}",
       "connectHint": "Подключите первое устройство",
       "devicesCounter": "Подключено {{used}} из {{max}}",
