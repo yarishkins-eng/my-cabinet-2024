@@ -274,6 +274,8 @@
       "disabledChannelTitle": "Return to our channel",
       "disabledChannelText": "Looks like the channel subscription is off. Re-join the channel to restore access.",
       "support": "Support",
+      "restrictedTitle": "Purchases temporarily unavailable",
+      "restrictedText": "Purchases and renewal are currently restricted for your account. Contact support if this is a mistake.",
       "expiredTitle": "Subscription has ended",
       "expiredText": "VPN is off. Renew your subscription to reconnect.",
       "graceTitle": "Subscription ended — but VPN still works",

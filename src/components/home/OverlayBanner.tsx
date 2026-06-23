@@ -199,5 +199,24 @@ export default function OverlayBanner({
     );
   }
 
+  // ── Покупки запрещены админ-ограничением (§4 ур.1 п.3) ──
+  // Сами продающие кнопки уже спрятаны в useScreenState; здесь объясняем ПОЧЕМУ,
+  // чтобы экран не выглядел «просто без кнопок». Показываем только в активном
+  // состоянии (для pending/disabled/истекла уже есть свой баннер выше).
+  if (state.purchasesRestricted) {
+    return (
+      <Banner
+        tone="neutral"
+        icon={<InfoIcon className="h-5 w-5" />}
+        title={t('home.banner.restrictedTitle')}
+        text={t('home.banner.restrictedText')}
+      >
+        <PillButton tone="neutral" onClick={actions.onSupport}>
+          {t('home.banner.support')}
+        </PillButton>
+      </Banner>
+    );
+  }
+
   return null;
 }
