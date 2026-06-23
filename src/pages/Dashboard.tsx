@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate } from 'react-router';
 import { useTranslation } from 'react-i18next';
@@ -21,6 +21,7 @@ import { promoApi } from '../api/promo';
 import PendingGiftCard from '../components/dashboard/PendingGiftCard';
 import SubscriptionListCard from '../components/subscription/SubscriptionListCard';
 import { API } from '../config/constants';
+import { useTrafficRefresh } from '../hooks/useTrafficRefresh';
 import { ChevronRightIcon, StarIcon } from '@/components/icons';
 
 export default function Dashboard() {
@@ -121,75 +122,11 @@ export default function Dashboard() {
     },
   });
 
-  // Traffic refresh state and mutation
-  const [trafficRefreshCooldown, setTrafficRefreshCooldown] = useState(0);
-  const [trafficData, setTrafficData] = useState<{
-    traffic_used_gb: number;
-    traffic_used_percent: number;
-    is_unlimited: boolean;
-  } | null>(null);
-
-  const refreshTrafficMutation = useMutation({
-    mutationFn: () => subscriptionApi.refreshTraffic(subscription?.id),
-    onSuccess: (data) => {
-      setTrafficData({
-        traffic_used_gb: data.traffic_used_gb,
-        traffic_used_percent: data.traffic_used_percent,
-        is_unlimited: data.is_unlimited,
-      });
-      localStorage.setItem(
-        `traffic_refresh_ts_${subscription?.id ?? 'default'}`,
-        Date.now().toString(),
-      );
-      if (data.rate_limited && data.retry_after_seconds) {
-        setTrafficRefreshCooldown(data.retry_after_seconds);
-      } else {
-        setTrafficRefreshCooldown(30);
-      }
-      queryClient.invalidateQueries({ queryKey: ['subscription', subscription?.id] });
-    },
-    onError: (error: {
-      response?: { status?: number; headers?: { get?: (key: string) => string } };
-    }) => {
-      if (error.response?.status === 429) {
-        const retryAfter = error.response.headers?.get?.('Retry-After');
-        setTrafficRefreshCooldown(retryAfter ? parseInt(retryAfter, 10) : 30);
-      }
-    },
+  // Свежий трафик (ручное/авто обновление) — общий хук, без дубля с детальной.
+  const { trafficData, refreshTrafficMutation, trafficRefreshCooldown } = useTrafficRefresh({
+    subscriptionId: subscription?.id,
+    enabled: !!subscription,
   });
-
-  // Cooldown timer
-  useEffect(() => {
-    if (trafficRefreshCooldown <= 0) return;
-    const timer = setInterval(() => {
-      setTrafficRefreshCooldown((prev) => Math.max(0, prev - 1));
-    }, 1000);
-    return () => clearInterval(timer);
-  }, [trafficRefreshCooldown]);
-
-  // Auto-refresh traffic on mount (with 30s caching)
-  const hasAutoRefreshed = useRef(false);
-
-  useEffect(() => {
-    if (!subscription) return;
-    if (hasAutoRefreshed.current) return;
-    hasAutoRefreshed.current = true;
-
-    const lastRefresh = localStorage.getItem(`traffic_refresh_ts_${subscription?.id ?? 'default'}`);
-    const now = Date.now();
-    const cacheMs = API.TRAFFIC_CACHE_MS;
-
-    if (lastRefresh && now - parseInt(lastRefresh, 10) < cacheMs) {
-      const elapsed = now - parseInt(lastRefresh, 10);
-      const remaining = Math.ceil((cacheMs - elapsed) / 1000);
-      if (remaining > 0) {
-        setTrafficRefreshCooldown(remaining);
-      }
-      return;
-    }
-
-    refreshTrafficMutation.mutate();
-  }, [subscription, refreshTrafficMutation]);
 
   // В multi-tariff /cabinet/subscription отключён, поэтому subscriptionResponse=undefined.
   // Используем список из /cabinet/subscriptions/list — пустой массив означает «нет подписок»,

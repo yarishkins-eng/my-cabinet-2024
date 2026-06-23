@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, useMemo, memo } from 'react';
+import { useState, useEffect, useCallback, useMemo, memo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { Navigate, useNavigate, useParams } from 'react-router';
@@ -9,6 +9,7 @@ import { useDestructiveConfirm } from '../platform/hooks/useNativeDialog';
 import TrafficProgressBar from '../components/dashboard/TrafficProgressBar';
 import { HoverBorderGradient } from '../components/ui/hover-border-gradient';
 import { useTrafficZone } from '../hooks/useTrafficZone';
+import { useTrafficRefresh } from '../hooks/useTrafficRefresh';
 import { formatTraffic } from '../utils/formatTraffic';
 import { getGlassColors } from '../utils/glassTheme';
 import { copyToClipboard } from '../utils/clipboard';
@@ -213,16 +214,8 @@ export default function Subscription() {
   const [showServerManagement, setShowServerManagement] = useState(false);
   const [selectedServersToUpdate, setSelectedServersToUpdate] = useState<string[]>([]);
 
-  // Traffic refresh state
-  const [trafficRefreshCooldown, setTrafficRefreshCooldown] = useState(0);
-
   // Revoke (reissue) cooldown state
   const [revokeCooldown, setRevokeCooldown] = useState(0);
-  const [trafficData, setTrafficData] = useState<{
-    traffic_used_gb: number;
-    traffic_used_percent: number;
-    is_unlimited: boolean;
-  } | null>(null);
 
   // Detect multi-tariff mode from cached subscriptions-list
   const { data: multiSubData } = useQuery({
@@ -248,6 +241,13 @@ export default function Subscription() {
 
   // Extract subscription from response (null if no subscription)
   const subscription = subscriptionResponse?.subscription ?? null;
+
+  // Свежий трафик (ручное/авто обновление) — общий хук, без дубля с Главной.
+  const { trafficData, refreshTrafficMutation, trafficRefreshCooldown } = useTrafficRefresh({
+    subscriptionId,
+    enabled: !!subscription,
+  });
+
   const displayedConnectionUrl = useMemo(
     () =>
       resolveConnectionUrlForUi({
@@ -370,48 +370,6 @@ export default function Subscription() {
   // (traffic packages + purchase moved into <TrafficTopupSheet>)
   // (countries query + update mutation moved into <ServerManagementSheet>)
 
-  // Traffic refresh mutation
-  const refreshTrafficMutation = useMutation({
-    mutationFn: () => subscriptionApi.refreshTraffic(subscriptionId),
-    onSuccess: (data) => {
-      setTrafficData({
-        traffic_used_gb: data.traffic_used_gb,
-        traffic_used_percent: data.traffic_used_percent,
-        is_unlimited: data.is_unlimited,
-      });
-      localStorage.setItem(
-        `traffic_refresh_ts_${subscriptionId ?? 'default'}`,
-        Date.now().toString(),
-      );
-      if (data.rate_limited && data.retry_after_seconds) {
-        setTrafficRefreshCooldown(data.retry_after_seconds);
-      } else {
-        setTrafficRefreshCooldown(30);
-      }
-      queryClient.invalidateQueries({ queryKey: ['subscription', subscriptionId] });
-    },
-    onError: (error: {
-      response?: { status?: number; headers?: { get?: (key: string) => string } };
-    }) => {
-      if (error.response?.status === 429) {
-        const retryAfter = error.response.headers?.get?.('Retry-After');
-        setTrafficRefreshCooldown(retryAfter ? parseInt(retryAfter, 10) : 30);
-      }
-    },
-  });
-
-  // Track if we've already triggered auto-refresh this session
-  const hasAutoRefreshed = useRef(false);
-
-  // Cooldown timer for traffic refresh
-  useEffect(() => {
-    if (trafficRefreshCooldown <= 0) return;
-    const timer = setInterval(() => {
-      setTrafficRefreshCooldown((prev) => Math.max(0, prev - 1));
-    }, 1000);
-    return () => clearInterval(timer);
-  }, [trafficRefreshCooldown]);
-
   // Initialize revoke cooldown from localStorage on mount
   useEffect(() => {
     const ts = localStorage.getItem(`revoke_ts_${subscriptionId ?? 'default'}`);
@@ -449,28 +407,6 @@ export default function Subscription() {
       haptic.notification('error');
     },
   });
-
-  // Auto-refresh traffic on mount (with 30s caching)
-  useEffect(() => {
-    if (!subscription) return;
-    if (hasAutoRefreshed.current) return;
-    hasAutoRefreshed.current = true;
-
-    const lastRefresh = localStorage.getItem(`traffic_refresh_ts_${subscriptionId ?? 'default'}`);
-    const now = Date.now();
-    const cacheMs = 30 * 1000;
-
-    if (lastRefresh && now - parseInt(lastRefresh, 10) < cacheMs) {
-      const elapsed = now - parseInt(lastRefresh, 10);
-      const remaining = Math.ceil((cacheMs - elapsed) / 1000);
-      if (remaining > 0) {
-        setTrafficRefreshCooldown(remaining);
-      }
-      return;
-    }
-
-    refreshTrafficMutation.mutate();
-  }, [subscription, refreshTrafficMutation, subscriptionId]);
 
   const copyUrl = () => {
     if (displayedConnectionUrl) {
