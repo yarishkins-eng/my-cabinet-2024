@@ -7,7 +7,39 @@ import HeroZone from '../components/home/HeroZone';
 import StatusCard from '../components/home/StatusCard';
 import OverlayBanner from '../components/home/OverlayBanner';
 import { HomeSkeleton, HomeError, PanelDownNotice } from '../components/home/HomeStates';
+import ConnectionLinkCard from '../components/home/ConnectionLinkCard';
+import DevicesPanel from '../components/home/DevicesPanel';
 import type { HomeMeta } from '../components/home/types';
+import type { Device } from '../types';
+
+// Демо-устройства для НИЗА витрины (Чат 3b). Чисто визуально, без сети:
+// DevicesPanel prop-driven, а ConnectionLinkCard в витрине получает subscriptionId=undefined
+// → его запрос ссылки отключён (enabled:false), ссылка рисуется из subscription_url фикстуры.
+const DEMO_DEVICES: Device[] = [
+  {
+    hwid: 'A1B2C3D4E5F6',
+    platform: 'iOS',
+    device_model: 'iPhone 15',
+    created_at: null,
+    local_name: 'Мой телефон',
+  },
+  {
+    hwid: '9F8E7D6C5B4A',
+    platform: 'Android',
+    device_model: 'Pixel 8',
+    created_at: null,
+    local_name: null,
+  },
+  {
+    hwid: '11223344AABB',
+    platform: 'Windows',
+    device_model: 'ПК',
+    created_at: null,
+    local_name: null,
+  },
+];
+const demoDevices = (n: number) =>
+  DEMO_DEVICES.slice(0, Math.max(0, Math.min(n, DEMO_DEVICES.length)));
 
 /**
  * Dev-витрина состояний экрана (Чат 3a). Песочница: прогоняет ФИКСТУРЫ через тот же
@@ -242,6 +274,24 @@ function StateCard({ f }: { f: Fixture }) {
         <HeroZone state={state} actions={actions} />
         {/* как в DashboardUnified: при overlay (платёж/отключён) карточку прячем */}
         {!state.overlay && <StatusCard state={state} meta={f.meta} />}
+
+        {/* НИЗ (Чат 3b): ссылка + устройства. Те же правила видимости, что на экране. */}
+        {!state.overlay && !state.accessEnded && (
+          <>
+            <ConnectionLinkCard
+              subscriptionId={undefined}
+              subscriptionUrl={f.input.subscription?.subscription_url ?? null}
+              visible={state.linkVisible}
+            />
+            <DevicesPanel
+              subscriptionId={undefined}
+              devices={demoDevices(f.input.connectedDevices)}
+              total={f.input.connectedDevices}
+              deviceLimit={f.input.subscription?.device_limit ?? 0}
+              isLoading={false}
+            />
+          </>
+        )}
       </div>
     </div>
   );
@@ -252,11 +302,12 @@ export default function ScreenStateShowcase() {
     <div className="min-h-screen p-6">
       <div className="mx-auto max-w-[1180px]">
         <h1 className="mb-1 text-2xl font-bold text-dark-50">
-          Витрина состояний — верх экрана (Чат 3a)
+          Витрина состояний — экран целиком (Чат 3a верх + 3b низ)
         </h1>
         <p className="mb-6 text-sm text-dark-400">
           Все состояния прогнаны через тот же <code>computeScreenState</code>, что и боевой экран.
-          Это песочница на фикстурах (без авторизации/прода) для сверки с макетом §16.
+          Это песочница на фикстурах (без авторизации/прода) для сверки с макетом §16. Низ (ссылка +
+          устройства) — на демо-данных, без обращений к сети.
         </p>
 
         <div className="flex flex-wrap gap-4">

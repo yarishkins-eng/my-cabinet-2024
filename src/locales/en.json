@@ -295,6 +295,13 @@
       "retry": "Retry",
       "panelTitle": "Couldn't load the device list",
       "panelText": "The VPN keeps working as usual — the list will update shortly."
+    },
+    "link": {
+      "title": "My connection link",
+      "help": "What is this?",
+      "hint": "This link adds the VPN to your app. Copy it and paste it into the app to connect.",
+      "copy": "Copy link",
+      "copied": "Copied"
     }
   },
   "dashboard": {

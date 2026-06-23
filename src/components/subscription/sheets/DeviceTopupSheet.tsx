@@ -1,3 +1,4 @@
+import { useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { subscriptionApi } from '../../../api/subscription';
@@ -40,7 +41,15 @@ export function DeviceTopupSheet({
 }: DeviceTopupSheetProps) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
+  // Синхронный латч против двойного тапа: isPending — это state (обновляется на
+  // следующем рендере), поэтому очень быстрый второй тап успевает уйти вторым
+  // запросом и списать дважды. ref гасит мгновенно (§5/§12).
+  const submittingRef = useRef(false);
 
+  // ₽-формат оставлен inline намеренно: основные цены приходят серверными label-полями
+  // в рублях, и фронтовая конвертация в $ (useCurrency) рассинхронила бы зачёркнутую и
+  // основную цену в одной строке для en-юзеров (регресс на детальной странице).
+  // Полноценная локализация валюты требует серверной локализации *_label (бэкенд).
   const formatPrice = (kopeks: number) => {
     const rubles = kopeks / 100;
     return rubles % 1 === 0 ? `${rubles} ₽` : `${rubles.toFixed(2)} ₽`;
@@ -214,7 +223,15 @@ export function DeviceTopupSheet({
             )}
 
           <button
-            onClick={() => devicePurchaseMutation.mutate()}
+            onClick={() => {
+              if (submittingRef.current || devicePurchaseMutation.isPending) return;
+              submittingRef.current = true;
+              devicePurchaseMutation.mutate(undefined, {
+                onSettled: () => {
+                  submittingRef.current = false;
+                },
+              });
+            }}
             disabled={
               devicePurchaseMutation.isPending ||
               !devicePriceData?.available ||

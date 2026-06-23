@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { lazy, Suspense, useEffect, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate } from 'react-router';
 import { useTranslation } from 'react-i18next';
@@ -11,11 +11,18 @@ import SubscriptionListCard from '../components/subscription/SubscriptionListCar
 import { API } from '../config/constants';
 import { useTrafficRefresh } from '../hooks/useTrafficRefresh';
 import { useScreenState, type ScreenStateInput } from '../hooks/useScreenState';
+import { useTheme } from '../hooks/useTheme';
 import HeroZone from '../components/home/HeroZone';
 import StatusCard from '../components/home/StatusCard';
 import OverlayBanner from '../components/home/OverlayBanner';
 import { HomeSkeleton, HomeError, PanelDownNotice } from '../components/home/HomeStates';
+import ConnectionLinkCard from '../components/home/ConnectionLinkCard';
+import DevicesPanel from '../components/home/DevicesPanel';
 import type { HomeMeta, HomeActions } from '../components/home/types';
+
+// Шторки докупки — отдельный lazy-чанк: код шторок (+ их зависимости) НЕ попадает в
+// eager-бандл «/» (§19 п.4). Грузится только при первом открытии шторки.
+const HomeTopupSheets = lazy(() => import('../components/home/HomeTopupSheets'));
 
 /**
  * Объединённый экран кабинета — ВЕРХ (Чат 3a). Под фиче-флагом `VITE_UNIFIED_HOME`;
@@ -36,7 +43,15 @@ export default function DashboardUnified() {
   const user = useAuthStore((state) => state.user);
   const refreshUser = useAuthStore((state) => state.refreshUser);
   const queryClient = useQueryClient();
+  const { isDark } = useTheme();
   const [trialError, setTrialError] = useState<string | null>(null);
+
+  // Состояние шторок докупки (открытость + выбор) — живёт на странице, чтобы hero-кнопки
+  // могли их открыть. Сами шторки + cross-sheet-reset — в lazy HomeTopupSheets.
+  const [showDeviceTopup, setShowDeviceTopup] = useState(false);
+  const [showTrafficTopup, setShowTrafficTopup] = useState(false);
+  const [devicesToAdd, setDevicesToAdd] = useState(1);
+  const [selectedTrafficPackage, setSelectedTrafficPackage] = useState<number | null>(null);
 
   useEffect(() => {
     refreshUser();
@@ -94,7 +109,7 @@ export default function DashboardUnified() {
     enabled: !subscription && !subLoading,
   });
 
-  const { data: devicesData } = useQuery({
+  const { data: devicesData, isLoading: devicesLoading } = useQuery({
     queryKey: ['devices', subscriptionId],
     queryFn: () => subscriptionApi.getDevices(subscriptionId),
     enabled: !!subscription && !isMultiTariff && subscriptionId != null,
@@ -143,6 +158,17 @@ export default function DashboardUnified() {
   };
   const state = useScreenState(screenInput);
 
+  // Баланс/опции покупки — нужны шторкам, чтобы блокировать «Купить» при нуле баланса
+  // (§19 п.4). Грузим заранее (когда тариф вообще допускает докупку), чтобы к моменту
+  // открытия шторки данные были готовы и не было гонки «тап быстрее загрузки».
+  const { data: purchaseOptions } = useQuery({
+    queryKey: ['purchase-options', subscriptionId],
+    queryFn: () => subscriptionApi.getPurchaseOptions(subscriptionId),
+    staleTime: 0,
+    enabled:
+      !isMultiTariff && subscriptionId != null && (state.canTopupDevice || state.canTopupTraffic),
+  });
+
   const meta: HomeMeta = {
     tariffName: subscription?.tariff_name ?? null,
     endDate: subscription?.end_date ?? null,
@@ -160,15 +186,9 @@ export default function DashboardUnified() {
           ? `/subscriptions/${subscriptionId}/renew`
           : '/subscription/purchase',
       ),
-    // TODO(3b): заменить мост на деталь на инлайн-шторки докупки.
-    onAddDevice: () =>
-      navigate(
-        subscriptionId != null ? `/subscriptions/${subscriptionId}` : '/subscription/purchase',
-      ),
-    onTopupTraffic: () =>
-      navigate(
-        subscriptionId != null ? `/subscriptions/${subscriptionId}` : '/subscription/purchase',
-      ),
+    // Докупка устройств/гигабайтов — инлайн-шторки (lazy), открываются прямо на экране.
+    onAddDevice: () => setShowDeviceTopup(true),
+    onTopupTraffic: () => setShowTrafficTopup(true),
     onCheckPayment: () => {
       refetchBootstrap();
       if (subscriptionId != null) {
@@ -238,19 +258,62 @@ export default function DashboardUnified() {
           ) : subError ? (
             <HomeError onRetry={() => refetchBootstrap()} />
           ) : subscription ? (
-            <div className="space-y-3">
-              {state.panelDown && !state.overlay && !state.accessEnded && <PanelDownNotice />}
-              <OverlayBanner
-                state={state}
-                actions={actions}
-                disabledReasonHint={subscription.disabled_reason_hint ?? null}
-              />
-              <HeroZone state={state} actions={actions} />
-              {/* При перекрывающем состоянии (платёж обрабатывается / временно отключён)
-                  карточку «Осталось N дн.» прячем — она путала (активна? тикают ли дни?).
-                  Баннер несёт смысл. Для grace/истёкшей overlay=null → карточка остаётся. */}
-              {!state.overlay && <StatusCard state={state} meta={meta} />}
-            </div>
+            <>
+              <div className="space-y-3">
+                {state.panelDown && !state.overlay && !state.accessEnded && <PanelDownNotice />}
+                <OverlayBanner
+                  state={state}
+                  actions={actions}
+                  disabledReasonHint={subscription.disabled_reason_hint ?? null}
+                />
+                <HeroZone state={state} actions={actions} />
+                {/* При перекрывающем состоянии (платёж обрабатывается / временно отключён)
+                    карточку «Осталось N дн.» прячем — она путала (активна? тикают ли дни?).
+                    Баннер несёт смысл. Для grace/истёкшей overlay=null → карточка остаётся. */}
+                {!state.overlay && <StatusCard state={state} meta={meta} />}
+
+                {/* Шторки докупки рисуем рядом с триггером (hero-кнопка / пилюля баннера —
+                    оба сверху), чтобы открытая панель была видна без прокрутки. Lazy-чанк. */}
+                {(showDeviceTopup || showTrafficTopup) && (
+                  <Suspense fallback={null}>
+                    <HomeTopupSheets
+                      subscription={subscription}
+                      subscriptionId={subscriptionId}
+                      isDark={isDark}
+                      purchaseOptions={purchaseOptions}
+                      showDeviceTopup={showDeviceTopup}
+                      showTrafficTopup={showTrafficTopup}
+                      devicesToAdd={devicesToAdd}
+                      onDevicesToAddChange={setDevicesToAdd}
+                      selectedTrafficPackage={selectedTrafficPackage}
+                      onSelectedTrafficPackageChange={setSelectedTrafficPackage}
+                      onCloseDevice={() => setShowDeviceTopup(false)}
+                      onCloseTraffic={() => setShowTrafficTopup(false)}
+                    />
+                  </Suspense>
+                )}
+              </div>
+
+              {/* НИЗ экрана (ниже сгиба, §16): ссылка для подключения + «Мои устройства».
+                  Прячем при перекрывающем состоянии (платёж/отключён) и когда VPN мёртв
+                  (accessEnded T5/P8). В grace VPN жив → низ виден. */}
+              {!state.overlay && !state.accessEnded && (
+                <div className="space-y-4">
+                  <ConnectionLinkCard
+                    subscriptionId={subscriptionId}
+                    subscriptionUrl={subscription.subscription_url}
+                    visible={state.linkVisible}
+                  />
+                  <DevicesPanel
+                    subscriptionId={subscriptionId}
+                    devices={devicesData?.devices ?? []}
+                    total={devicesData?.total ?? 0}
+                    deviceLimit={devicesData?.device_limit ?? subscription.device_limit}
+                    isLoading={devicesLoading}
+                  />
+                </div>
+              )}
+            </>
           ) : null}
         </>
       )}
@@ -276,8 +339,6 @@ export default function DashboardUnified() {
           </Link>
         </div>
       )}
-
-      {/* НИЗ экрана (ссылка, устройства, шторки докупки, StatsGrid) — Чат 3b */}
     </div>
   );
 }

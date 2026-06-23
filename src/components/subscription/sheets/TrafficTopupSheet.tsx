@@ -1,3 +1,4 @@
+import { useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { subscriptionApi } from '../../../api/subscription';
@@ -40,7 +41,11 @@ export function TrafficTopupSheet({
 }: TrafficTopupSheetProps) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
+  // Синхронный латч против двойного тапа (см. DeviceTopupSheet).
+  const submittingRef = useRef(false);
 
+  // ₽ оставлен inline намеренно — чтобы цены трафика не расходились по валюте с
+  // соседней шторкой устройств (та завязана на серверные ₽-label). См. DeviceTopupSheet.
   const formatPrice = (kopeks: number) => {
     const rubles = kopeks / 100;
     return rubles % 1 === 0 ? `${rubles} ₽` : `${rubles.toFixed(2)} ₽`;
@@ -189,7 +194,15 @@ export function TrafficTopupSheet({
                     />
                   )}
                   <button
-                    onClick={() => purchaseMutation.mutate(selectedTrafficPackage)}
+                    onClick={() => {
+                      if (submittingRef.current || purchaseMutation.isPending) return;
+                      submittingRef.current = true;
+                      purchaseMutation.mutate(selectedTrafficPackage, {
+                        onSettled: () => {
+                          submittingRef.current = false;
+                        },
+                      });
+                    }}
                     disabled={purchaseMutation.isPending || !hasEnoughBalance}
                     className="btn-primary w-full py-3"
                   >
