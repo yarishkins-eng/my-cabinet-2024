@@ -102,6 +102,20 @@ export interface Subscription {
   tariff_id?: number;
   tariff_name?: string;
   traffic_reset_mode?: string;
+  // ── Redesigned-cabinet fields (бэкенд Чата 1, коммит bot 4177e10b). Аддитивные:
+  //    старый экран их игнорирует; новый экран читает с безопасными дефолтами,
+  //    чтобы прятать кнопки докупки ЗАРАНЕЕ, а не реагировать на ошибку. ──
+  /** Докупка устройств доступна (цена>0 и гейт). Дефолт false → кнопку прячем. */
+  can_topup_devices?: boolean;
+  /** Эффективная цена за устройство, копейки (0 = недоступно). Цена — на кнопке/шаге (3b). */
+  device_addon_price_kopeks?: number;
+  /** Докупка трафика включена для тарифа (traffic_topup_enabled). Дефолт false. */
+  can_topup_traffic?: boolean;
+  /** Покупки запрещены админ-ограничением — прячем продающие CTA до 403. Дефолт false. */
+  restriction_subscription?: boolean;
+  /** Догадка, ПОЧЕМУ подписка disabled ('channel' | null). В БД точной причины нет;
+   *  null → экран показывает нейтральный текст + поддержку. */
+  disabled_reason_hint?: string | null;
 }
 
 // Response wrapper for subscription status endpoint

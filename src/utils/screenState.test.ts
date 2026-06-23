@@ -259,6 +259,45 @@ describe('paid states', () => {
   });
 });
 
+// ── Grace ("бонус 2 дня после конца") — paid only, VPN still alive (§16) ─────
+// The grace branch shipped in chat 2 but was untested; chat 3a renders it, so we
+// pin its contract here. `inGrace` only ever arrives from the backend in chat 5;
+// the showcase exercises it by passing inGrace=true.
+
+describe('grace state (bonus 2 days)', () => {
+  const expiredPaid = (over: Partial<SubscriptionLike> = {}) =>
+    makeSub({ is_expired: true, status: 'expired', days_left: 0, ...over });
+
+  it('paid expired + inGrace, free slot → renew burns, access NOT ended, link & devices visible', () => {
+    const s = run(expiredPaid(), { connectedDevices: 1, inGrace: true });
+    expect(s.code).toBe('grace');
+    expect(s.sellZone.kind).toBe('renew');
+    expect(s.burning).toBe('sell');
+    expect(s.accessEnded).toBe(false); // VPN ещё работает в grace
+    expect(s.linkVisible).toBe(true);
+    expect(s.deviceZone.kind).toBe('connect_more');
+  });
+
+  it('grace at device limit → device zone hidden (no free slot)', () => {
+    const s = run(expiredPaid({ device_limit: 2 }), { connectedDevices: 2, inGrace: true });
+    expect(s.code).toBe('grace');
+    expect(s.deviceZone.kind).toBe('hidden');
+    expect(s.accessEnded).toBe(false);
+  });
+
+  it('grace does NOT apply to a trial → still T5 (ended)', () => {
+    const s = run(expiredPaid({ is_trial: true }), { connectedDevices: 1, inGrace: true });
+    expect(s.code).toBe('T5');
+    expect(s.accessEnded).toBe(true);
+  });
+
+  it('without inGrace, expired paid is P8 (ended), not grace', () => {
+    const s = run(expiredPaid(), { connectedDevices: 1, inGrace: false });
+    expect(s.code).toBe('P8');
+    expect(s.accessEnded).toBe(true);
+  });
+});
+
 // ── Critical rule: "date beats status" (§4) ──────────────────────────────────
 
 describe('rule: date beats status', () => {

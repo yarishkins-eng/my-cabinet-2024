@@ -272,6 +272,12 @@ export const subscriptionApi = {
     }>;
     total: number;
     device_limit: number;
+    /**
+     * Панель RemnaWave ответила (бэкенд Чата 1). Дефолт true, пока поле не пришло —
+     * чтобы не зажигать ложное «Подключить» на недоверенных 0 устройств (§4).
+     * Различать: исключение панели → false; «нет remnawave_uuid» (не провижен) → true.
+     */
+    panel_ok?: boolean;
   }> => {
     const response = await apiClient.get(
       '/cabinet/subscription/devices',

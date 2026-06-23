@@ -46,8 +46,12 @@ import OAuthCallback from './pages/OAuthCallback';
 
 // Dashboard - load eagerly (default route, LCP-critical)
 import Dashboard from './pages/Dashboard';
+// Объединённый экран (Чат 3) — lazy, ПОД фиче-флагом (OFF по умолчанию → в проде живёт старый Dashboard)
+import { UNIFIED_HOME_ENABLED, SCREEN_SHOWCASE_ENABLED } from './config/featureFlags';
 
 // User pages - lazy load
+const DashboardUnified = lazyWithRetry(() => import('./pages/DashboardUnified'));
+const ScreenStateShowcase = lazyWithRetry(() => import('./pages/ScreenStateShowcase'));
 const Subscriptions = lazyWithRetry(() => import('./pages/Subscriptions'));
 const Subscription = lazyWithRetry(() => import('./pages/Subscription'));
 const SubscriptionPurchase = lazyWithRetry(() => import('./pages/SubscriptionPurchase'));
@@ -216,6 +220,12 @@ function LazyPage({ children }: { children: React.ReactNode }) {
 
 function BlockingOverlay() {
   const blockingType = useBlockingStore((state) => state.blockingType);
+  const { pathname } = useLocation();
+
+  // Dev-витрина состояний (Чат 3a) рисует фикстуры и НЕ зависит от бэкенда — не
+  // перекрываем её блокирующим экраном (напр. «бэкенд недоступен» в локальном dev).
+  // В проде SCREEN_SHOWCASE_ENABLED=false → условие мёртвое, влияния ноль.
+  if (SCREEN_SHOWCASE_ENABLED && pathname === '/__screens') return null;
 
   if (blockingType === 'maintenance') {
     return <MaintenanceScreen />;
@@ -307,14 +317,24 @@ function App() {
           }
         />
 
+        {/* Dev-витрина состояний экрана (Чат 3a) — только под флагом (dev), без авторизации */}
+        {SCREEN_SHOWCASE_ENABLED && (
+          <Route
+            path="/__screens"
+            element={
+              <LazyPage>
+                <ScreenStateShowcase />
+              </LazyPage>
+            }
+          />
+        )}
+
         {/* Protected routes */}
         <Route
           path="/"
           element={
             <ProtectedRoute>
-              <LazyPage>
-                <Dashboard />
-              </LazyPage>
+              <LazyPage>{UNIFIED_HOME_ENABLED ? <DashboardUnified /> : <Dashboard />}</LazyPage>
             </ProtectedRoute>
           }
         />
