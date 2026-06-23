@@ -56,7 +56,10 @@ export default function Dashboard() {
   });
   const isMultiTariff = multiSubData?.multi_tariff_enabled ?? false;
 
-  const { data: subscriptionResponse, isLoading: subLoading } = useQuery({
+  // КОРЕНЬ (§19): на объединённом экране роут «/» БЕЗ параметра — id подписки
+  // узнаём из ОТВЕТА. Bootstrap под голым ключом ['subscription'] нужен ТОЛЬКО
+  // чтобы получить id (id ещё неизвестен).
+  const { data: bootstrapResponse, isLoading: subLoading } = useQuery({
     queryKey: ['subscription'],
     queryFn: () => subscriptionApi.getSubscription(),
     retry: false,
@@ -65,7 +68,26 @@ export default function Dashboard() {
     enabled: !isMultiTariff,
   });
 
-  const subscription = subscriptionResponse?.subscription ?? null;
+  const subscriptionId = bootstrapResponse?.subscription?.id;
+
+  // Каноническая подписка под id-ключом ['subscription', id] — тем же, что у
+  // шторок / детали / WS / refreshTraffic. Засеяна из bootstrap (initialData) →
+  // без второго сетевого запроса. Экран читает ОТСЮДА, поэтому инвалидации со
+  // шторок и детали («покупка через шторку») теперь долетают, а не «застывают».
+  const { data: subscriptionResponse } = useQuery({
+    queryKey: ['subscription', subscriptionId],
+    queryFn: () => subscriptionApi.getSubscription(subscriptionId),
+    retry: false,
+    staleTime: API.BALANCE_STALE_TIME_MS,
+    enabled: !isMultiTariff && subscriptionId != null,
+    initialData: subscriptionId != null ? bootstrapResponse : undefined,
+    initialDataUpdatedAt: () => queryClient.getQueryState(['subscription'])?.dataUpdatedAt,
+  });
+
+  // has_subscription берём из bootstrap (он всегда отвечает; каноническая
+  // выключена, когда подписки нет). Объект подписки — из канонической.
+  const subscription =
+    subscriptionResponse?.subscription ?? bootstrapResponse?.subscription ?? null;
 
   const { data: trialInfo, isLoading: trialLoading } = useQuery({
     queryKey: ['trial-info'],
@@ -74,9 +96,9 @@ export default function Dashboard() {
   });
 
   const { data: devicesData } = useQuery({
-    queryKey: ['devices'],
-    queryFn: () => subscriptionApi.getDevices(),
-    enabled: !!subscription && !isMultiTariff,
+    queryKey: ['devices', subscriptionId],
+    queryFn: () => subscriptionApi.getDevices(subscriptionId),
+    enabled: !!subscription && !isMultiTariff && subscriptionId != null,
     staleTime: API.BALANCE_STALE_TIME_MS,
   });
 
@@ -124,7 +146,7 @@ export default function Dashboard() {
 
   // Свежий трафик (ручное/авто обновление) — общий хук, без дубля с детальной.
   const { trafficData, refreshTrafficMutation, trafficRefreshCooldown } = useTrafficRefresh({
-    subscriptionId: subscription?.id,
+    subscriptionId,
     enabled: !!subscription,
   });
 
@@ -133,7 +155,7 @@ export default function Dashboard() {
   // и тогда показываем TrialOfferCard. Без этой ветки multi-tariff юзер никогда не видел триал.
   const hasNoSubscription = isMultiTariff
     ? multiSubData !== undefined && (multiSubData.subscriptions?.length ?? 0) === 0
-    : subscriptionResponse?.has_subscription === false && !subLoading;
+    : bootstrapResponse?.has_subscription === false && !subLoading;
 
   // Есть ли НАСТОЯЩАЯ (платная, не триал) живая подписка — от этого зависит CTA:
   // «+ Купить ещё» только при наличии платной; иначе явная «Посмотреть тарифы».
