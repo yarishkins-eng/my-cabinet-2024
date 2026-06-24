@@ -279,6 +279,10 @@ export default function Subscription() {
   const usedPercent = trafficData?.traffic_used_percent ?? subscription?.traffic_used_percent ?? 0;
   const zone = useTrafficZone(usedPercent);
 
+  // Grace («бонус 2 дня»): подписка закончилась (is_active=false), но VPN продлён. Должна
+  // показываться дружелюбно (жёлтый «Бонус» + таймер до grace_until), а НЕ красным «Истекла».
+  const inGrace = !!subscription?.in_grace && !subscription?.is_active;
+
   // Purchase options (needed for balance_kopeks in device/traffic/server management)
   const { data: purchaseOptions } = useQuery({
     queryKey: ['purchase-options', subscriptionId],
@@ -539,17 +543,17 @@ export default function Subscription() {
                   style={{
                     background: subscription.is_active
                       ? `${zone.mainHex}15`
-                      : subscription.is_limited
+                      : inGrace || subscription.is_limited
                         ? 'rgba(255,184,0,0.12)'
                         : 'rgba(255,59,92,0.12)',
                     border: subscription.is_active
                       ? `1px solid ${zone.mainHex}30`
-                      : subscription.is_limited
+                      : inGrace || subscription.is_limited
                         ? '1px solid rgba(255,184,0,0.25)'
                         : '1px solid rgba(255,59,92,0.25)',
                     color: subscription.is_active
                       ? zone.mainHex
-                      : subscription.is_limited
+                      : inGrace || subscription.is_limited
                         ? 'rgb(var(--color-urgent-400))'
                         : 'rgb(var(--color-critical-500))',
                   }}
@@ -558,11 +562,13 @@ export default function Subscription() {
                     ? subscription.is_trial
                       ? t('subscription.trialStatus')
                       : t('subscription.active')
-                    : subscription.is_limited
-                      ? t('subscription.trafficLimited')
-                      : subscription.status === 'disabled'
-                        ? t('subscription.pause.suspended')
-                        : t('subscription.expired')}
+                    : inGrace
+                      ? t('subscription.statusBonus')
+                      : subscription.is_limited
+                        ? t('subscription.trafficLimited')
+                        : subscription.status === 'disabled'
+                          ? t('subscription.pause.suspended')
+                          : t('subscription.expired')}
                 </span>
               </div>
 
@@ -858,8 +864,12 @@ export default function Subscription() {
               {/* ─── Countdown ─── */}
               <div className="mb-5">
                 <CountdownTimer
-                  endDate={subscription.end_date}
-                  isActive={subscription.is_active || subscription.is_limited}
+                  endDate={
+                    inGrace
+                      ? (subscription.grace_until ?? subscription.end_date)
+                      : subscription.end_date
+                  }
+                  isActive={subscription.is_active || subscription.is_limited || inGrace}
                   glassColors={g}
                 />
               </div>

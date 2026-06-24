@@ -402,6 +402,7 @@
     "trialStatus": "Пробный период",
     "expired": "Истекла",
     "trafficLimited": "Трафик исчерпан",
+    "statusBonus": "Бонус",
     "trafficLimitedTitle": "Трафик закончился",
     "trafficLimitedDescription": "Ваш трафик исчерпан. Докупите дополнительный трафик ниже, чтобы продолжить пользоваться VPN.",
     "expiresAt": "Действует до",

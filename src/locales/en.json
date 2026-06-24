@@ -390,6 +390,7 @@
     "trialStatus": "Trial",
     "expired": "Expired",
     "trafficLimited": "Traffic Exhausted",
+    "statusBonus": "Bonus",
     "trafficLimitedTitle": "Traffic Limit Reached",
     "trafficLimitedDescription": "Your traffic has been exhausted. Purchase additional traffic below to continue using VPN.",
     "expiresAt": "Expires at",
