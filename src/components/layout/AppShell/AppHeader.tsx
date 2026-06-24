@@ -18,7 +18,6 @@ import {
 } from '@/api/branding';
 import { themeColorsApi } from '@/api/themeColors';
 import { cn } from '@/lib/utils';
-import { UNIFIED_HOME_ENABLED } from '@/config/featureFlags';
 
 import LanguageSwitcher from '@/components/LanguageSwitcher';
 import TicketNotificationBell from '@/components/TicketNotificationBell';
@@ -26,7 +25,6 @@ import TicketNotificationBell from '@/components/TicketNotificationBell';
 // Icons
 import {
   HomeIcon,
-  SubscriptionIcon,
   WalletIcon,
   UsersIcon,
   ChatIcon,
@@ -162,10 +160,7 @@ export function AppHeader({
 
   const navItems = [
     { path: '/', label: t('nav.dashboard'), icon: HomeIcon },
-    // «Подписка» убрана при объединении с Главной; под флагом возвращается при откате (симметрично).
-    ...(UNIFIED_HOME_ENABLED
-      ? []
-      : [{ path: '/subscriptions', label: t('nav.subscription'), icon: SubscriptionIcon }]),
+    // «Подписка» убрана при объединении с Главной — её роль на Главной («Управление подпиской»).
     { path: '/balance', label: t('nav.balance'), icon: WalletIcon },
     ...(referralEnabled ? [{ path: '/referral', label: t('nav.referral'), icon: UsersIcon }] : []),
     { path: '/support', label: t('nav.support'), icon: ChatIcon },

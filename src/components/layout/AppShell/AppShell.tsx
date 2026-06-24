@@ -10,7 +10,6 @@ import { useTelegramSDK } from '@/hooks/useTelegramSDK';
 import { useHeaderHeight } from '@/hooks/useHeaderHeight';
 import { useTheme } from '@/hooks/useTheme';
 import { useBranding } from '@/hooks/useBranding';
-import { UNIFIED_HOME_ENABLED } from '@/config/featureFlags';
 import { useFeatureFlags } from '@/hooks/useFeatureFlags';
 import { useScrollRestoration } from '@/hooks/useScrollRestoration';
 import { themeColorsApi } from '@/api/themeColors';
@@ -24,7 +23,6 @@ import { PromptDialogHost } from '@/components/PromptDialogHost';
 import LanguageSwitcher from '@/components/LanguageSwitcher';
 import TicketNotificationBell from '@/components/TicketNotificationBell';
 import {
-  SubscriptionIcon,
   GiftIcon,
   HomeIcon,
   CreditCardIcon,
@@ -114,10 +112,7 @@ export function AppShell({ children }: AppShellProps) {
   // Desktop navigation — labels always visible (no hover-reveal gimmick)
   const desktopNav = [
     { path: '/', label: t('nav.dashboard'), icon: HomeIcon },
-    // «Подписка» убрана при объединении с Главной; под флагом возвращается при откате (симметрично).
-    ...(UNIFIED_HOME_ENABLED
-      ? []
-      : [{ path: '/subscriptions', label: t('nav.subscription'), icon: SubscriptionIcon }]),
+    // «Подписка» убрана при объединении с Главной — её роль на Главной («Управление подпиской»).
     { path: '/balance', label: t('nav.balance'), icon: CreditCardIcon },
     ...(referralEnabled ? [{ path: '/referral', label: t('nav.referral'), icon: UsersIcon }] : []),
     ...(giftEnabled ? [{ path: '/gift', label: t('nav.gift'), icon: GiftIcon }] : []),

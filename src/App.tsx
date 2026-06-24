@@ -44,10 +44,9 @@ import VerifyEmail from './pages/VerifyEmail';
 import ResetPassword from './pages/ResetPassword';
 import OAuthCallback from './pages/OAuthCallback';
 
-// Dashboard - load eagerly (default route, LCP-critical)
-import Dashboard from './pages/Dashboard';
-// Объединённый экран (Чат 3) — lazy, ПОД фиче-флагом (OFF по умолчанию → в проде живёт старый Dashboard)
-import { UNIFIED_HOME_ENABLED, SCREEN_SHOWCASE_ENABLED } from './config/featureFlags';
+// Объединённый экран (Чат 3) — единственный экран на «/» (go-live 24.06; флаг-рубильник убран).
+// Старый Dashboard остаётся припаркованным в репо (откат через git-revert, см. featureFlags).
+import { SCREEN_SHOWCASE_ENABLED } from './config/featureFlags';
 
 // User pages - lazy load
 const DashboardUnified = lazyWithRetry(() => import('./pages/DashboardUnified'));
@@ -334,7 +333,9 @@ function App() {
           path="/"
           element={
             <ProtectedRoute>
-              <LazyPage>{UNIFIED_HOME_ENABLED ? <DashboardUnified /> : <Dashboard />}</LazyPage>
+              <LazyPage>
+                <DashboardUnified />
+              </LazyPage>
             </ProtectedRoute>
           }
         />

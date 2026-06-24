@@ -19,7 +19,6 @@ import { isInTelegramWebApp, closeTelegramApp } from './hooks/useTelegramSDK';
 import { getFallbackParentPath } from './utils/navigation';
 import { subscriptionApi } from './api/subscription';
 import { useBlockingStore } from './store/blocking';
-import { UNIFIED_HOME_ENABLED } from './config/featureFlags';
 
 const TWEMOJI_OPTIONS = { className: 'twemoji', folder: 'svg', ext: '.svg' } as const;
 
@@ -30,21 +29,12 @@ const TWEMOJI_OPTIONS = { className: 'twemoji', folder: 'svg', ext: '.svg' } as 
 /**
  * Pages reachable from bottom nav — treated as top-level (no back button).
  *
- * `/subscriptions` is a bottom-nav tab ONLY in the rollback world (UNIFIED_HOME_ENABLED off →
- * old Dashboard + «Подписка» вкладка возвращена). После объединения «Главная + Подписка» это
- * больше НЕ вкладка: в single-tariff список мгновенно редиректит на деталь (её обрабатывает
- * SUBSCRIPTION_DETAIL_RE ниже), а в multi-tariff это реальный список, куда заходят PUSH-ом — там
- * он НЕ должен быть top-level (иначе Telegram-Back скрыт → только Close = тупик на списке). Поэтому
- * гейтим под тем же флагом, что и удаление вкладки — симметрично откату.
+ * `/subscriptions` НЕ в списке: после объединения «Главная + Подписка» это больше не вкладка.
+ * В single-tariff список мгновенно редиректит на деталь (её ловит SUBSCRIPTION_DETAIL_RE ниже),
+ * а в multi-tariff это реальный список, куда заходят PUSH-ом — там Telegram-Back ДОЛЖЕН быть
+ * виден (иначе только Close = тупик на списке).
  */
-const BOTTOM_NAV_PATHS = [
-  '/',
-  ...(UNIFIED_HOME_ENABLED ? [] : ['/subscriptions']),
-  '/balance',
-  '/referral',
-  '/support',
-  '/wheel',
-];
+const BOTTOM_NAV_PATHS = ['/', '/balance', '/referral', '/support', '/wheel'];
 
 /** Matches /subscriptions/:numericId. When the user has a single tariff and at
  * most one subscription, the /subscriptions list auto-redirects straight back
