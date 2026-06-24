@@ -104,6 +104,7 @@ function fx(
       daysLeft: s.days_left,
       hoursLeft: s.hours_left,
       isTrial: s.is_trial,
+      graceDays: 2,
     },
     disabledReasonHint: extra.disabledReasonHint,
     graceUntil: extra.graceUntil,

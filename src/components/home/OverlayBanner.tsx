@@ -95,11 +95,13 @@ export default function OverlayBanner({
   actions = {},
   disabledReasonHint,
   graceUntil,
+  graceDays = 2,
 }: {
   state: ScreenState;
   actions?: HomeActions;
   disabledReasonHint?: string | null;
   graceUntil?: string | null;
+  graceDays?: number;
 }) {
   const { t } = useTranslation();
 
@@ -145,8 +147,8 @@ export default function OverlayBanner({
         title={t('home.banner.graceTitle')}
         text={
           graceUntil
-            ? `${t('home.banner.graceText')} ${t('home.banner.graceUntil', { date: graceUntil })}`
-            : t('home.banner.graceText')
+            ? `${t('home.banner.graceText', { days: t('subscription.days', { count: graceDays }) })} ${t('home.banner.graceUntil', { date: graceUntil })}`
+            : t('home.banner.graceText', { days: t('subscription.days', { count: graceDays }) })
         }
       />
     );

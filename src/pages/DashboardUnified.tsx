@@ -14,7 +14,7 @@ import { useScreenState, type ScreenStateInput } from '../hooks/useScreenState';
 import { useTheme } from '../hooks/useTheme';
 import HeroZone from '../components/home/HeroZone';
 import StatusCard from '../components/home/StatusCard';
-import { formatUntil } from '../utils/format';
+import { formatUntil, graceDays } from '../utils/format';
 import OverlayBanner from '../components/home/OverlayBanner';
 import { HomeSkeleton, HomeError, PanelDownNotice } from '../components/home/HomeStates';
 import ConnectionLinkCard from '../components/home/ConnectionLinkCard';
@@ -175,6 +175,7 @@ export default function DashboardUnified() {
     daysLeft: subscription?.days_left ?? 0,
     hoursLeft: subscription?.hours_left ?? 0,
     isTrial: subscription?.is_trial ?? false,
+    graceDays: graceDays(subscription?.grace_until ?? null, subscription?.end_date ?? null),
   };
 
   // ── Действия верха (3a — безопасные переходы; шторки докупки — 3b) ──
@@ -266,8 +267,9 @@ export default function DashboardUnified() {
                   actions={actions}
                   disabledReasonHint={subscription.disabled_reason_hint ?? null}
                   graceUntil={formatUntil(subscription.grace_until ?? null)}
+                  graceDays={meta.graceDays}
                 />
-                <HeroZone state={state} actions={actions} />
+                <HeroZone state={state} actions={actions} graceDays={meta.graceDays} />
                 {/* При перекрывающем состоянии (платёж обрабатывается / временно отключён)
                     карточку «Осталось N дн.» прячем — она путала (активна? тикают ли дни?).
                     Баннер несёт смысл. Для grace/истёкшей overlay=null → карточка остаётся. */}

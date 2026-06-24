@@ -69,3 +69,18 @@ export function formatPrice(kopeks: number, lang?: string): string {
     return `${rounded} ${config.symbol}`;
   }
 }
+
+/**
+ * Размер grace-бонуса «бонус N дней» = grace_until − end_date (настроенный на сервере
+ * период GRACE_PERIOD_DAYS). НЕ хардкод: при смене настройки число едет за датами. ≥1.
+ * Fallback 2 — недостижим в grace-состоянии (там у подписки всегда есть обе даты).
+ */
+export function graceDays(
+  graceUntil: string | null | undefined,
+  endDate: string | null | undefined,
+): number {
+  if (!graceUntil || !endDate) return 2;
+  const ms = new Date(graceUntil).getTime() - new Date(endDate).getTime();
+  if (!Number.isFinite(ms) || ms <= 0) return 2;
+  return Math.max(1, Math.round(ms / 86_400_000));
+}

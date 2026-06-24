@@ -78,7 +78,7 @@ export default function StatusCard({ state, meta }: { state: ScreenState; meta: 
                 {t('home.status.bonusAccess')}
               </div>
               <div className="text-base font-bold text-warning-300">
-                {t('subscription.days', { count: 2 })}
+                {t('subscription.days', { count: meta.graceDays })}
               </div>
             </>
           ) : (

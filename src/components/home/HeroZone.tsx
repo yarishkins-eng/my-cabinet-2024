@@ -116,9 +116,11 @@ function InfoRow({
 export default function HeroZone({
   state,
   actions = {},
+  graceDays = 2,
 }: {
   state: ScreenState;
   actions?: HomeActions;
+  graceDays?: number;
 }) {
   const { t } = useTranslation();
   const dz = state.deviceZone;
@@ -202,7 +204,7 @@ export default function HeroZone({
         label={t('home.hero.renew')}
         hint={
           isGrace
-            ? t('home.hero.renewHintGrace')
+            ? t('home.hero.renewHintGrace', { days: t('subscription.days', { count: graceDays }) })
             : isEnded
               ? undefined
               : t('home.hero.renewHintExpiring')

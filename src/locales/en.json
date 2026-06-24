@@ -247,7 +247,7 @@
       "renew": "Renew subscription",
       "subscribe": "Get subscription",
       "renewHintExpiring": "Ends soon — renew now",
-      "renewHintGrace": "VPN works for 2 more days",
+      "renewHintGrace": "VPN works for another {{days}}",
       "subscribeHint": "More traffic and devices",
       "addDeviceHint": "Connected {{used}} of {{max}}",
       "devicesCounter": "Connected {{used}} of {{max}}",
@@ -279,7 +279,7 @@
       "expiredText": "VPN is off. Renew your subscription to reconnect.",
       "expiredTextTrial": "VPN is off. Get a subscription to keep using it.",
       "graceTitle": "Subscription ended — but VPN still works",
-      "graceText": "We kept the VPN on for 2 more days. Renew calmly, no rush.",
+      "graceText": "We kept the VPN on for an extra {{days}}. Renew calmly, no rush.",
       "graceUntil": "Turns off on {{date}}",
       "gracePill": "+2 days",
       "trafficResetTitle": "This period's traffic is used up",
@@ -358,6 +358,7 @@
       "traffic": "Traffic",
       "devices": "Devices",
       "expiredDate": "Expired",
+      "expiredDate_trial": "Expired",
       "activeUntil": "Active until"
     },
     "suspended": {

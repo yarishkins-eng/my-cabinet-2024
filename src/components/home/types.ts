@@ -12,6 +12,8 @@ export interface HomeMeta {
   daysLeft: number;
   hoursLeft: number;
   isTrial: boolean;
+  /** Размер grace-бонуса в днях (grace_until − end_date) — для подписи «Бонус-доступ: N дн.». */
+  graceDays: number;
 }
 
 /**
