@@ -107,12 +107,24 @@ function TelegramBackButton() {
       return;
     }
     const isTopLevel = location.pathname === '' || BOTTOM_NAV_PATHS.includes(location.pathname);
-    // Depth-independent on purpose: whether the user deep-linked in or navigated
-    // here in-app, a single-tariff detail whose list just bounces back has no
-    // real "back" target. Showing Back here is exactly what looped through the
-    // redirecting /subscriptions list (#436); hiding it always surfaces Close.
+    // A single-tariff /subscriptions/:id whose list bounces straight back
+    // (Subscriptions.tsx) is "top-level" ONLY when the user landed on it directly
+    // (depth 0: a deep-link, or the redirecting list as the entry point) — there is
+    // no real "back" target, so we hide Back and surface Telegram's native Close.
+    //
+    // But when the user PUSHED in from inside the app (depth > 0 — e.g. Home →
+    // «Управление подпиской», added with the Главная+Подписка merge), real history
+    // exists: show Back so the handler's navigate(-1) returns to Home. Without this,
+    // the in-page WebBackButton is null in Telegram → the only control would be Close
+    // (exits the Mini App), a dead-end for the new in-app entry.
+    //
+    // Loop-safe (#436): the /subscriptions list redirects via <Navigate replace>, so
+    // its entry never persists in the back-stack — navigate(-1) skips straight past it
+    // to the real previous page (Home), never re-entering the redirecting list.
     const isRedirectingSubscriptionDetail =
-      listRedirectsToDetail && SUBSCRIPTION_DETAIL_RE.test(location.pathname);
+      depthRef.current === 0 &&
+      listRedirectsToDetail &&
+      SUBSCRIPTION_DETAIL_RE.test(location.pathname);
     try {
       if (isTopLevel || isRedirectingSubscriptionDetail) {
         hideBackButton();

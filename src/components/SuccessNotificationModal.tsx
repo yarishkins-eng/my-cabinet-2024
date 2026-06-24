@@ -139,7 +139,8 @@ export default function SuccessNotificationModal() {
 
   const handleGoToSubscription = () => {
     hide();
-    navigate('/subscriptions');
+    // После успеха (покупка/продление/устройства/трафик) → объединённая Главная (v1.9 #1).
+    navigate('/');
   };
 
   const handleGoToBalance = () => {

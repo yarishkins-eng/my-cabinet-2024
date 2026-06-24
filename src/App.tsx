@@ -374,7 +374,11 @@ function App() {
           path="/subscription"
           element={
             <ProtectedRoute>
-              <Navigate to="/subscriptions" replace />
+              {/* Диплинки бота на /subscription (моя подписка / продлить / докупить трафик /
+                  подключиться) ведут на объединённую Главную — она показывает нужное действие
+                  по состоянию. Покупочные диплинки бота идут отдельно на /subscription/purchase
+                  (см. bot-code: app/utils/miniapp_buttons.py). Объединение «Главная + Подписка». */}
+              <Navigate to="/" replace />
             </ProtectedRoute>
           }
         />

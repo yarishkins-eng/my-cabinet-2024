@@ -156,7 +156,7 @@
     "newBalance": "New balance",
     "tariff": "Tariff",
     "validUntil": "Valid until",
-    "goToSubscription": "Go to Subscription",
+    "goToSubscription": "Go to Home",
     "goToBalance": "Go to Balance",
     "devicesAdded": "+{{count}} devices",
     "devicesPurchased": {
@@ -302,7 +302,8 @@
       "hint": "This link adds the VPN to your app. Copy it and paste it into the app to connect.",
       "copy": "Copy link",
       "copied": "Copied"
-    }
+    },
+    "manageSubscription": "Manage subscription"
   },
   "dashboard": {
     "title": "Dashboard",

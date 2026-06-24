@@ -86,6 +86,9 @@ export default function WebSocketNotifications() {
           predicate: (query) =>
             Array.isArray(query.queryKey) && query.queryKey[0] === 'subscription',
         });
+        // Оффер триала на Главной гейтится запросом ['trial-info']. После активации
+        // подписки его надо инвалидировать, иначе оффер «Попробовать бесплатно» залипает.
+        queryClient.invalidateQueries({ queryKey: ['trial-info'] });
         queryClient.invalidateQueries({ queryKey: ['subscriptions-list'] });
         queryClient.invalidateQueries({ queryKey: ['balance'] });
         queryClient.invalidateQueries({ queryKey: ['purchase-options'] });
@@ -123,7 +126,7 @@ export default function WebSocketNotifications() {
             },
           ),
           icon: <span className="text-lg">⏰</span>,
-          onClick: () => navigate('/subscriptions'),
+          onClick: () => navigate('/'),
           duration: 10000,
         });
         return;
@@ -138,7 +141,7 @@ export default function WebSocketNotifications() {
             'Your subscription has expired. Renew to continue using the service.',
           ),
           icon: <span className="text-lg">😢</span>,
-          onClick: () => navigate('/subscriptions'),
+          onClick: () => navigate('/'),
           duration: 10000,
         });
         queryClient.invalidateQueries({
@@ -203,6 +206,12 @@ export default function WebSocketNotifications() {
           predicate: (query) =>
             Array.isArray(query.queryKey) && query.queryKey[0] === 'subscription',
         });
+        // Счётчик устройств на Главной/детали живёт под ключом ['devices', id]. id в этом
+        // WS-событии может не прийти → инвалидируем по предикату (любой ['devices', *]),
+        // иначе после докупки устройств счётчик завис бы на старом значении.
+        queryClient.invalidateQueries({
+          predicate: (query) => Array.isArray(query.queryKey) && query.queryKey[0] === 'devices',
+        });
         queryClient.invalidateQueries({ queryKey: ['subscriptions-list'] });
         queryClient.invalidateQueries({ queryKey: ['balance'] });
         queryClient.invalidateQueries({ queryKey: ['purchase-options'] });
@@ -246,7 +255,7 @@ export default function WebSocketNotifications() {
             },
           ),
           icon: <span className="text-lg">🔁</span>,
-          onClick: () => navigate('/subscriptions'),
+          onClick: () => navigate('/'),
           duration: 8000,
         });
         queryClient.invalidateQueries({
@@ -268,7 +277,7 @@ export default function WebSocketNotifications() {
             message.reason ||
             t('wsNotifications.autopay.failedMessage', 'Failed to auto-renew your subscription'),
           icon: <span className="text-lg">❌</span>,
-          onClick: () => navigate('/subscriptions'),
+          onClick: () => navigate('/'),
           duration: 10000,
         });
         return;

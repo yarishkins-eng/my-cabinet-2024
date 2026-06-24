@@ -313,6 +313,24 @@ export default function DashboardUnified() {
                   />
                 </div>
               )}
+
+              {/* Вход в управление подпиской (single-tariff) — единственная точка к деталям
+                  (автоплатёж, перевыпуск, удаление, история, суточная пауза): /subscriptions/:id.
+                  Раньше туда вела отдельная вкладка «Подписка»; после объединения её роль здесь.
+                  Виден всегда при наличии подписки, кроме перекрывающих состояний (платёж/отключён)
+                  — в т.ч. для истёкшей (там доступны продление/история/удаление). */}
+              {!state.overlay && subscriptionId != null && (
+                <button
+                  type="button"
+                  onClick={() => navigate(`/subscriptions/${subscriptionId}`)}
+                  className="flex w-full items-center justify-between rounded-2xl border border-dark-50/[0.08] bg-dark-50/[0.03] p-3.5 text-left transition-colors hover:bg-dark-50/[0.06]"
+                >
+                  <span className="text-sm font-medium text-dark-50/70">
+                    {t('home.manageSubscription', 'Управление подпиской')}
+                  </span>
+                  <span className="text-dark-50/40">→</span>
+                </button>
+              )}
             </>
           ) : null}
         </>

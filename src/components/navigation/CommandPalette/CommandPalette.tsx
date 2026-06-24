@@ -16,6 +16,7 @@ import { usePlatform } from '@/platform';
 import { useAuthStore } from '@/store/auth';
 import { useTheme } from '@/hooks/useTheme';
 import { cn } from '@/lib/utils';
+import { UNIFIED_HOME_ENABLED } from '@/config/featureFlags';
 import {
   backdrop,
   backdropTransition,
@@ -78,7 +79,10 @@ export function CommandPalette({
   // Navigation items
   const navigationItems = [
     { label: t('nav.dashboard'), icon: HomeIcon, path: '/' },
-    { label: t('nav.subscription'), icon: SubscriptionIcon, path: '/subscriptions' },
+    // «Подписка» убрана при объединении с Главной; под флагом возвращается при откате (симметрично).
+    ...(UNIFIED_HOME_ENABLED
+      ? []
+      : [{ label: t('nav.subscription'), icon: SubscriptionIcon, path: '/subscriptions' }]),
     { label: t('nav.balance'), icon: WalletIcon, path: '/balance' },
     ...(referralEnabled ? [{ label: t('nav.referral'), icon: UsersIcon, path: '/referral' }] : []),
     { label: t('nav.support'), icon: ChatIcon, path: '/support' },

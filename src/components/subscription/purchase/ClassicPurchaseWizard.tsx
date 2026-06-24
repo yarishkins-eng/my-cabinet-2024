@@ -155,7 +155,8 @@ export function ClassicPurchaseWizard({
       queryClient.invalidateQueries({ queryKey: ['purchase-options', subscriptionId] });
       queryClient.invalidateQueries({ queryKey: ['balance'] });
       queryClient.invalidateQueries({ queryKey: ['subscriptions-list'] });
-      navigate('/subscriptions', { replace: true });
+      // После покупки → объединённая Главная (видит результат сразу, v1.9 #1).
+      navigate('/', { replace: true });
     },
   });
 

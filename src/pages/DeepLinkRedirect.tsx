@@ -259,9 +259,9 @@ export default function DeepLinkRedirect() {
                 {t('deepLink.tryAgain')}
               </button>
 
-              {/* Back to cabinet */}
+              {/* Back to cabinet → объединённая Главная (корень кабинета: подписка + ссылка подключения) */}
               <button
-                onClick={() => navigate('/subscriptions')}
+                onClick={() => navigate('/')}
                 className="w-full py-2 text-sm text-dark-500 transition-colors hover:text-dark-300"
               >
                 {t('deepLink.backToCabinet')}
@@ -291,7 +291,7 @@ export default function DeepLinkRedirect() {
             </div>
             <p className="mb-2 font-medium text-dark-200">{t('deepLink.errorTitle')}</p>
             <p className="mb-6 text-sm text-dark-400">{t('deepLink.errorDesc')}</p>
-            <button onClick={() => navigate('/subscriptions')} className="btn-primary w-full">
+            <button onClick={() => navigate('/')} className="btn-primary w-full">
               {t('deepLink.goToSubscription')}
             </button>
           </div>

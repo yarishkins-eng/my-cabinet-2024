@@ -159,7 +159,7 @@
     "newBalance": "Новый баланс",
     "tariff": "Тариф",
     "validUntil": "Действует до",
-    "goToSubscription": "Перейти к подписке",
+    "goToSubscription": "На главную",
     "goToBalance": "Перейти к балансу",
     "devicesAdded": "+{{count}} устройств",
     "devicesPurchased": {
@@ -314,7 +314,8 @@
       "hint": "Эта ссылка добавляет VPN в приложение. Скопируйте её и вставьте в приложение для подключения.",
       "copy": "Скопировать ссылку",
       "copied": "Скопировано"
-    }
+    },
+    "manageSubscription": "Управление подпиской"
   },
   "dashboard": {
     "title": "Личный кабинет",

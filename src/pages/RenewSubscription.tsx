@@ -58,7 +58,8 @@ export default function RenewSubscription() {
       queryClient.invalidateQueries({ queryKey: ['subscriptions-list'] });
       queryClient.invalidateQueries({ queryKey: ['renewal-options', subId] });
       queryClient.invalidateQueries({ queryKey: ['balance'] });
-      navigate(`/subscriptions/${subId}`, { replace: true });
+      // После продления → объединённая Главная (видит результат сразу, v1.9 #1).
+      navigate('/', { replace: true });
     },
     onError: (err: unknown) => {
       const detail =

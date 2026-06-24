@@ -85,7 +85,9 @@ export function SwitchTariffSheet({
       queryClient.invalidateQueries({ queryKey: ['subscription', subscriptionId] });
       queryClient.invalidateQueries({ queryKey: ['purchase-options', subscriptionId] });
       onClose();
-      navigate('/subscriptions', { replace: true });
+      // После смены тарифа → объединённая Главная (v1.9 #1). onError-ветка (#629889)
+      // ниже НЕ трогаем — она ведёт в обычную покупку через onExpiredFallback.
+      navigate('/', { replace: true });
     },
     onError: (error: unknown) => {
       // Backend signal: this subscription can't be switched (it lapsed, or it's

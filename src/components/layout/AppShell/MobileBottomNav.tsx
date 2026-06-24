@@ -4,6 +4,7 @@ import { motion } from 'framer-motion';
 
 import { cn } from '@/lib/utils';
 import { usePlatform } from '@/platform';
+import { UNIFIED_HOME_ENABLED } from '@/config/featureFlags';
 
 // Icons
 import { HomeIcon, SubscriptionIcon, WalletIcon, UsersIcon, ChatIcon, WheelIcon } from './icons';
@@ -41,7 +42,12 @@ export function MobileBottomNav({
   // When only one of them is enabled, that one fills the slot.
   const coreItems = [
     { path: '/', label: t('nav.dashboard'), icon: HomeIcon },
-    { path: '/subscriptions', label: t('nav.subscription'), icon: SubscriptionIcon },
+    // Вкладка «Подписка» убрана при объединении с Главной (июнь 2026). Под флагом
+    // UNIFIED_HOME_ENABLED: при откате go-live (VITE_UNIFIED_HOME=0) вкладка возвращается
+    // вместе со старым Dashboard — откат полностью симметричен.
+    ...(UNIFIED_HOME_ENABLED
+      ? []
+      : [{ path: '/subscriptions', label: t('nav.subscription'), icon: SubscriptionIcon }]),
     { path: '/balance', label: t('nav.balance'), icon: WalletIcon },
     ...(wheelEnabled
       ? [{ path: '/wheel', label: t('nav.wheel'), icon: WheelIcon }]
