@@ -92,6 +92,10 @@ export interface Subscription {
   is_active: boolean;
   is_expired: boolean;
   is_limited: boolean;
+  // Grace «бонус 2 дня после конца» (Чат 5): in_grace=true → подписка истекла, но VPN
+  // ещё жив до grace_until; экран рисует «бонус 2 дня» вместо «ИСТЕКЛА».
+  in_grace?: boolean;
+  grace_until?: string | null;
   traffic_purchases?: TrafficPurchase[];
   // Daily tariff fields
   is_daily?: boolean;

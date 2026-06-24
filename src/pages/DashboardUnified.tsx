@@ -14,6 +14,7 @@ import { useScreenState, type ScreenStateInput } from '../hooks/useScreenState';
 import { useTheme } from '../hooks/useTheme';
 import HeroZone from '../components/home/HeroZone';
 import StatusCard from '../components/home/StatusCard';
+import { formatUntil } from '../utils/format';
 import OverlayBanner from '../components/home/OverlayBanner';
 import { HomeSkeleton, HomeError, PanelDownNotice } from '../components/home/HomeStates';
 import ConnectionLinkCard from '../components/home/ConnectionLinkCard';
@@ -146,7 +147,7 @@ export default function DashboardUnified() {
     purchasesRestricted: subscription?.restriction_subscription ?? false,
     canTopupDevice: subscription?.can_topup_devices ?? false,
     canTopupTraffic: subscription?.can_topup_traffic ?? false,
-    inGrace: false, // серверный in_grace придёт в Чате 5
+    inGrace: subscription?.in_grace ?? false, // серверный in_grace (Чат 5)
     trafficOverride: trafficData
       ? {
           usedGb: trafficData.traffic_used_gb,
@@ -264,6 +265,7 @@ export default function DashboardUnified() {
                   state={state}
                   actions={actions}
                   disabledReasonHint={subscription.disabled_reason_hint ?? null}
+                  graceUntil={formatUntil(subscription.grace_until ?? null)}
                 />
                 <HeroZone state={state} actions={actions} />
                 {/* При перекрывающем состоянии (платёж обрабатывается / временно отключён)

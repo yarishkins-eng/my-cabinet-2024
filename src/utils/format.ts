@@ -9,6 +9,16 @@ export function formatUptime(seconds: number): string {
   return `${minutes}m`;
 }
 
+/** «DD.MM» из ISO-даты (§16: дата конца под тарифом; дата отключения grace в баннере). */
+export function formatUntil(date: string | null): string | null {
+  if (!date) return null;
+  const d = new Date(date);
+  if (Number.isNaN(d.getTime())) return null;
+  const dd = String(d.getDate()).padStart(2, '0');
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  return `${dd}.${mm}`;
+}
+
 import i18next from 'i18next';
 import { currencyApi, type ExchangeRates } from '../api/currency';
 

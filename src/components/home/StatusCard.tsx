@@ -1,20 +1,11 @@
 import { useTranslation } from 'react-i18next';
 import { useTheme } from '../../hooks/useTheme';
 import { getGlassColors } from '../../utils/glassTheme';
+import { formatUntil } from '../../utils/format';
 import { CalendarIcon, GiftIcon } from '@/components/icons';
 import type { ScreenState } from '../../hooks/useScreenState';
 import type { HomeMeta } from './types';
 import TrafficFraction from './TrafficFraction';
-
-/** «до DD.MM» из ISO-даты конца (§16: мелким серым под тарифом). */
-function formatUntil(endDate: string | null): string | null {
-  if (!endDate) return null;
-  const d = new Date(endDate);
-  if (Number.isNaN(d.getTime())) return null;
-  const dd = String(d.getDate()).padStart(2, '0');
-  const mm = String(d.getMonth() + 1).padStart(2, '0');
-  return `${dd}.${mm}`;
-}
 
 /**
  * Карточка статуса (§16): слева «Тариф» + название + «до DD.MM» мелким;
