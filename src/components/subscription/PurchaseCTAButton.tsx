@@ -8,17 +8,21 @@ interface PurchaseCTAButtonProps {
   subscription: Subscription | null;
   /** In multi-tariff mode, link to /subscriptions/:id/renew instead of /subscription/purchase */
   isMultiTariff?: boolean;
+  /** Во время grace («бонус 2 дня») подписка «закончилась» по флагам, но VPN ещё работает —
+   *  показываем дружелюбное «Продлить» (accent), а НЕ красное «Получить подписку». */
+  inGrace?: boolean;
 }
 
 export default function PurchaseCTAButton({
   subscription,
   isMultiTariff = false,
+  inGrace = false,
 }: PurchaseCTAButtonProps) {
   const { t } = useTranslation();
 
   const isExpired =
     !subscription ||
-    (!subscription.is_active && !subscription.is_trial && !subscription.is_limited);
+    (!subscription.is_active && !subscription.is_trial && !subscription.is_limited && !inGrace);
   const isTrial = subscription?.is_trial;
   const isDaily = subscription?.is_daily;
 

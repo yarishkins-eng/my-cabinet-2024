@@ -863,6 +863,8 @@ export default function Subscription() {
 
               {/* ─── Countdown ─── */}
               <div className="mb-5">
+                {/* В grace считаем до grace_until (бэкенд гарантирует его непустым при in_grace —
+                    is_in_grace() требует grace_until; ?? end_date — лишь подстраховка типа). */}
                 <CountdownTimer
                   endDate={
                     inGrace
@@ -1209,15 +1211,20 @@ export default function Subscription() {
         </div>
       )}
 
-      {/* Purchase / Renewal CTA */}
-      <PurchaseCTAButton subscription={subscription} isMultiTariff={isMultiTariff} />
+      {/* Purchase / Renewal CTA (в grace — дружелюбное «Продлить», не красное «Получить подписку») */}
+      <PurchaseCTAButton
+        subscription={subscription}
+        isMultiTariff={isMultiTariff}
+        inGrace={inGrace}
+      />
 
-      {/* Delete expired subscription */}
+      {/* Delete expired subscription (но НЕ во время grace — VPN ещё работает, удалять рано) */}
       {isMultiTariff &&
         subscription &&
         !subscription.is_active &&
         !subscription.is_trial &&
-        !subscription.is_limited && (
+        !subscription.is_limited &&
+        !inGrace && (
           <div className="space-y-3">
             <DeleteSubscriptionSheet
               subscriptionId={subscription.id}
