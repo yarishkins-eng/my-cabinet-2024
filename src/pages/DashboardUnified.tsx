@@ -10,8 +10,10 @@ import TrialOfferCard from '../components/dashboard/TrialOfferCard';
 import SubscriptionListCard from '../components/subscription/SubscriptionListCard';
 import { API } from '../config/constants';
 import { useTrafficRefresh } from '../hooks/useTrafficRefresh';
+import { usePullToRefresh } from '../hooks/usePullToRefresh';
 import { useScreenState, type ScreenStateInput } from '../hooks/useScreenState';
 import { useTheme } from '../hooks/useTheme';
+import { useHaptic } from '../platform';
 import HeroZone from '../components/home/HeroZone';
 import StatusCard from '../components/home/StatusCard';
 import { formatUntil, graceDays } from '../utils/format';
@@ -26,8 +28,8 @@ import type { HomeMeta, HomeActions } from '../components/home/types';
 const HomeTopupSheets = lazy(() => import('../components/home/HomeTopupSheets'));
 
 /**
- * Объединённый экран кабинета — ВЕРХ (Чат 3a). Под фиче-флагом `VITE_UNIFIED_HOME`;
- * по умолчанию выключен (в проде живёт старый `Dashboard`).
+ * Объединённый экран кабинета (редизайн «Главная + Подписка», Чат 3). С 24.06.2026 —
+ * единственный экран на «/» (go-live; флаг-рубильник убран, старый `Dashboard` припаркован).
  *
  * Здесь: приветствие (БЕЗ бейджа сегмента) → баннеры/статус-строки (`OverlayBanner`) →
  * зона действия (`HeroZone`) → карточка статуса (`StatusCard`). Всё рисуется по решению
@@ -45,6 +47,7 @@ export default function DashboardUnified() {
   const refreshUser = useAuthStore((state) => state.refreshUser);
   const queryClient = useQueryClient();
   const { isDark } = useTheme();
+  const haptic = useHaptic();
   const [trialError, setTrialError] = useState<string | null>(null);
 
   // Состояние шторок докупки (открытость + выбор) — живёт на странице, чтобы hero-кнопки
@@ -134,9 +137,36 @@ export default function DashboardUnified() {
   });
 
   // Свежий трафик — общий хук (тот же, что у детальной; без дубля).
-  const { trafficData } = useTrafficRefresh({
+  const { trafficData, refreshTrafficMutation, trafficRefreshCooldown } = useTrafficRefresh({
     subscriptionId,
     enabled: !!subscription,
+  });
+
+  // Pull-to-refresh: «потянуть вниз» обновляет экран целиком (вместо отдельной кнопки трафика).
+  // Трафик бьёт по VPN-панели и имеет остывание — если оно идёт, панель повторно НЕ дёргаем,
+  // только перечитываем кэш (подписка/устройства/баланс). Жест выключаем при открытой шторке.
+  const handlePullRefresh = async () => {
+    haptic.impact('light');
+    const tasks: Array<Promise<unknown>> = [
+      queryClient.invalidateQueries({ queryKey: ['subscription'] }),
+      queryClient.invalidateQueries({ queryKey: ['subscriptions-list'] }),
+      queryClient.invalidateQueries({ queryKey: ['balance'] }),
+    ];
+    if (subscriptionId != null) {
+      tasks.push(queryClient.invalidateQueries({ queryKey: ['subscription', subscriptionId] }));
+      tasks.push(queryClient.invalidateQueries({ queryKey: ['devices', subscriptionId] }));
+      tasks.push(queryClient.invalidateQueries({ queryKey: ['purchase-options', subscriptionId] }));
+    }
+    if (subscription && trafficRefreshCooldown <= 0) {
+      tasks.push(refreshTrafficMutation.mutateAsync().catch(() => undefined));
+    }
+    refreshUser();
+    await Promise.all(tasks);
+  };
+
+  const { pullDistance, refreshing } = usePullToRefresh({
+    onRefresh: handlePullRefresh,
+    disabled: subLoading || showDeviceTopup || showTrafficTopup,
   });
 
   // ── Собираем вход «мозга экрана» (дефолты безопасны, даже если поле не пришло) ──
@@ -209,6 +239,32 @@ export default function DashboardUnified() {
 
   return (
     <div className="space-y-6">
+      {/* Pull-to-refresh: индикатор сверху — стрелка-кольцо доворачивается по мере оттягивания,
+          крутится во время обновления. Жест и логику обновления даёт usePullToRefresh. */}
+      {(pullDistance > 0 || refreshing) && (
+        <div
+          className="pointer-events-none flex items-center justify-center"
+          style={{
+            height: refreshing ? 32 : pullDistance,
+            transition: refreshing ? 'height 0.2s ease' : undefined,
+          }}
+        >
+          <div
+            className={`h-6 w-6 rounded-full border-2 border-dark-50/15 border-t-accent-400 ${
+              refreshing ? 'animate-spin' : ''
+            }`}
+            style={
+              refreshing
+                ? undefined
+                : {
+                    transform: `rotate(${pullDistance * 4}deg)`,
+                    opacity: Math.min(1, pullDistance / 70),
+                  }
+            }
+          />
+        </div>
+      )}
+
       {/* Приветствие — БЕЗ бейджа сегмента (§16; promo-group убран) */}
       <div>
         <h1 className="text-2xl font-bold text-dark-50 sm:text-3xl">
