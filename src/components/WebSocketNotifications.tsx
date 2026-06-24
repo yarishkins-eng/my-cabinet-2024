@@ -153,6 +153,20 @@ export default function WebSocketNotifications() {
         return;
       }
 
+      if (type === 'subscription.grace_started') {
+        // «Бонус 2 дня» (grace): подписка закончилась, но VPN продлён. Про бонус
+        // пользователю уже пришло Telegram-сообщение → здесь БЕЗ тоста, просто
+        // перечитываем подписку, чтобы открытый кабинет сразу показал жёлтый
+        // «Бонус N дней» вместо устаревшего состояния (а не пугающее «истекла»).
+        queryClient.invalidateQueries({
+          predicate: (query) =>
+            Array.isArray(query.queryKey) && query.queryKey[0] === 'subscription',
+        });
+        queryClient.invalidateQueries({ queryKey: ['subscriptions-list'] });
+        refreshUser();
+        return;
+      }
+
       if (type === 'subscription.daily_debit') {
         const amount = message.amount_rubles ?? (message.amount_kopeks ?? 0) / 100;
         showToast({
