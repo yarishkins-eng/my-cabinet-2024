@@ -63,8 +63,9 @@ export interface ScreenStateInput {
   canTopupTraffic?: boolean;
   /** Бонус-доступ «2 дня» (grace, in_grace). Чат 5. Дефолт false. */
   inGrace?: boolean;
-  /** Свежий трафик из refresh-traffic (перекрывает значения подписки). */
-  trafficOverride?: { usedGb: number; usedPercent: number; isUnlimited: boolean } | null;
+  /** Свежий трафик из refresh-traffic: usedGb/isUnlimited перекрывают подписку.
+   *  Процент (для цвета «у предела») НЕ передаём — он считается из usedGb÷свежий лимит. */
+  trafficOverride?: { usedGb: number; isUnlimited: boolean } | null;
   /** Уровень 0 — доступ заблокирован (рисует общий полноэкранный обработчик). Дефолт false. */
   blocked?: boolean;
 }
@@ -194,8 +195,15 @@ export function computeScreenState(input: ScreenStateInput): ScreenState {
   const zeroDevices = connected === 0;
 
   const usedGb = input.trafficOverride?.usedGb ?? sub.traffic_used_gb;
-  const usedPercent = input.trafficOverride?.usedPercent ?? sub.traffic_used_percent;
   const trafficUnlimited = input.trafficOverride?.isUnlimited ?? sub.traffic_limit_gb === 0;
+  // Процент (для цвета «у предела») считаем САМИ из usedGb и СВЕЖЕГО лимита подписки —
+  // НЕ берём готовый usedPercent из refresh-traffic/подписки. Иначе после ДОКУПКИ трафика
+  // (лимит вырос, кэш ['subscription'] обновился по WS, но локальный trafficData в
+  // useTrafficRefresh ещё старый) готовый процент остался бы посчитан против СТАРОГО лимита →
+  // строка трафика горела бы красным «вот-вот кончится» при реально низкой загрузке, пока
+  // экран не переоткроют. used/limit самосогласован с дробью и авто-исправляется и после
+  // докупки, и после сброса периода — без лишних запросов к rate-limited refresh-traffic.
+  const usedPercent = sub.traffic_limit_gb > 0 ? (usedGb / sub.traffic_limit_gb) * 100 : 0;
   // Трафик кончается ТОЛЬКО на лимитном тарифе (§16).
   const trafficExhausted =
     !trafficUnlimited &&

@@ -417,9 +417,21 @@ describe('traffic info', () => {
   it('uses the refresh override when provided', () => {
     const s = run(makeSub(), {
       connectedDevices: 1,
-      trafficOverride: { usedGb: 55, usedPercent: 55, isUnlimited: false },
+      trafficOverride: { usedGb: 55, isUnlimited: false },
     });
     expect(s.traffic.usedGb).toBe(55);
+  });
+
+  it('near-limit colour is computed from usedGb÷fresh-limit, not a stale override (after top-up)', () => {
+    // После докупки трафика лимит вырос (refetch подписки по WS), а локальный override.usedGb
+    // остался низким относительно НОВОГО лимита → строка трафика НЕ должна гореть «у предела».
+    const s = run(makeSub({ traffic_limit_gb: 50, traffic_used_gb: 10, is_limited: false }), {
+      connectedDevices: 1,
+      trafficOverride: { usedGb: 10, isUnlimited: false },
+    });
+    expect(s.traffic.usedGb).toBe(10);
+    expect(s.traffic.limitGb).toBe(50);
+    expect(s.traffic.nearLimit).toBe(false); // 10/50 = 20%, далеко от предела → не красный
   });
 });
 

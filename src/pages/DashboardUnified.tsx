@@ -150,7 +150,6 @@ export default function DashboardUnified() {
     trafficOverride: trafficData
       ? {
           usedGb: trafficData.traffic_used_gb,
-          usedPercent: trafficData.traffic_used_percent,
           isUnlimited: trafficData.is_unlimited,
         }
       : null,
