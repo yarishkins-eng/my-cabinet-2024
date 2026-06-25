@@ -24,6 +24,7 @@ import DevicesPanel from '../components/home/DevicesPanel';
 import type { HomeMeta, HomeActions } from '../components/home/types';
 import DeviceHintOverlay from '../components/home/DeviceHintOverlay';
 import { getDeviceHintSeen, setDeviceHintSeen } from '../utils/deviceHintTracking';
+import { useSuccessNotification } from '../store/successNotification';
 
 // Шторки докупки — отдельный lazy-чанк: код шторок (+ их зависимости) НЕ попадает в
 // eager-бандл «/» (§19 п.4). Грузится только при первом открытии шторки.
@@ -194,17 +195,35 @@ export default function DashboardUnified() {
   const state = useScreenState(screenInput);
 
   // Подсказка «подключи устройство» — показываем один раз при T1/P1 (первое открытие с 0 устройств).
-  // Не показываем при P7 (≤3 дней + горит «Продлить») и во всех состояниях с overlay.
+  // Исключения: P7 (≤3 дней + горит «Продлить»), все overlay-состояния, панель не ответила
+  // (kind !== 'connect'), данные ещё не пришли, success-модальное открыто.
   useEffect(() => {
     if (subLoading || devicesLoading || !subscription || subscriptionId == null) return;
+    // devicesData == null означает что данные ещё не загрузились (не путать с 0 устройствами)
+    if (devicesData == null) return;
+    // kind !== 'connect' — кнопки нет в DOM (panelOk=false, overlay-состояние и т.д.)
+    if (state.deviceZone.kind !== 'connect') return;
     if (state.code !== 'T1' && state.code !== 'P1') return;
     if (deviceHintTriggered.current) return;
     if (getDeviceHintSeen(subscriptionId)) return;
 
-    deviceHintTriggered.current = true;
-    const timer = window.setTimeout(() => setShowDeviceHint(true), 500);
+    const timer = window.setTimeout(() => {
+      // FIX: лatch внутри таймера — иначе ре-ран эффекта до срабатывания таймера
+      // убивает таймер и больше не перезапускает его (подсказка никогда не показывается)
+      if (useSuccessNotification.getState().isOpen) return;
+      deviceHintTriggered.current = true;
+      setShowDeviceHint(true);
+    }, 500);
     return () => window.clearTimeout(timer);
-  }, [subLoading, devicesLoading, subscription, subscriptionId, state.code]);
+  }, [
+    subLoading,
+    devicesLoading,
+    subscription,
+    subscriptionId,
+    devicesData,
+    state.deviceZone.kind,
+    state.code,
+  ]);
 
   // Баланс/опции покупки — нужны шторкам, чтобы блокировать «Купить» при нуле баланса
   // (§19 п.4). Грузим заранее (когда тариф вообще допускает докупку), чтобы к моменту

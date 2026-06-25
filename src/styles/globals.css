@@ -1533,6 +1533,15 @@ input[type='checkbox']:hover:not(:checked) {
   @apply border-champagne-400/50 bg-white;
 }
 
+/* FIX: в светлой теме text-dark-50/text-dark-400 почти белые → невидимы на белом фоне */
+.light .onboarding-tooltip h3 {
+  @apply text-dark-900;
+}
+
+.light .onboarding-tooltip p {
+  @apply text-dark-700;
+}
+
 .onboarding-tooltip.tooltip-top::before {
   @apply -bottom-1.5 left-1/2 -translate-x-1/2;
   transform: translateX(-50%) rotate(-135deg);

@@ -1,6 +1,7 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
+import { useFocusTrap } from '../../hooks/useFocusTrap';
 
 interface DeviceHintOverlayProps {
   onDismiss: () => void;
@@ -13,30 +14,53 @@ export default function DeviceHintOverlay({ onDismiss, onConnect }: DeviceHintOv
   const { t } = useTranslation();
   const [targetRect, setTargetRect] = useState<DOMRect | null>(null);
   const [isVisible, setIsVisible] = useState(false);
-  const tooltipRef = useRef<HTMLDivElement>(null);
+  const tooltipSizeRef = useRef<HTMLDivElement>(null);
+
+  // Focus trap (Tab cycling + Escape). lockScroll: false — как в остальных оверлеях проекта.
+  const trapRef = useFocusTrap<HTMLDivElement>(isVisible, {
+    onEscape: onDismiss,
+    lockScroll: false,
+  });
+
+  // Объединяем trapRef + tooltipSizeRef в один callback-ref
+  const setTooltipNode = useCallback(
+    (node: HTMLDivElement | null) => {
+      tooltipSizeRef.current = node;
+      trapRef.current = node;
+    },
+    [trapRef],
+  );
 
   // Находим кнопку в DOM с повторными попытками (элемент может ещё рендериться)
   useEffect(() => {
     let cancelled = false;
     let attempts = 0;
+    const timers: number[] = [];
 
     const tryFind = () => {
       if (cancelled) return;
       const target = document.querySelector(DATA_ATTR);
       if (target) {
         setTargetRect(target.getBoundingClientRect());
-        window.setTimeout(() => {
+        const t2 = window.setTimeout(() => {
           if (!cancelled) setIsVisible(true);
         }, 100);
+        timers.push(t2);
         return;
       }
       attempts += 1;
-      if (attempts < 6) window.setTimeout(tryFind, 200);
+      if (attempts < 6) {
+        const t3 = window.setTimeout(tryFind, 200);
+        timers.push(t3);
+      }
     };
 
-    window.setTimeout(tryFind, 300);
+    const t1 = window.setTimeout(tryFind, 300);
+    timers.push(t1);
+
     return () => {
       cancelled = true;
+      timers.forEach((id) => window.clearTimeout(id));
     };
   }, []);
 
@@ -54,16 +78,7 @@ export default function DeviceHintOverlay({ onDismiss, onConnect }: DeviceHintOv
     };
   }, []);
 
-  // Escape закрывает оверлей
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onDismiss();
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [onDismiss]);
-
-  // Клик по области кнопки = понял + переходим к подключению
+  // Клик по области кнопки = закрыть подсказку + перейти к подключению
   const handleButtonAreaClick = () => {
     onDismiss();
     onConnect();
@@ -83,16 +98,25 @@ export default function DeviceHintOverlay({ onDismiss, onConnect }: DeviceHintOv
 
   const getTooltipStyle = (): React.CSSProperties => {
     if (!targetRect) return { opacity: 0 };
+
     const tooltipW = 320;
     const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    const tooltipH = tooltipSizeRef.current?.offsetHeight ?? 180;
+
     const left = Math.max(16, Math.min(targetRect.left, vw - tooltipW - 16));
-    const top = targetRect.bottom + pad + 14;
+    // Клампируем снизу, чтобы тултип не вылетал за экран на коротких телефонах
+    const top = Math.min(targetRect.bottom + pad + 14, vh - tooltipH - 16);
+
     return {
       top,
       left,
       width: tooltipW,
       opacity: isVisible ? 1 : 0,
       transform: isVisible ? 'scale(1)' : 'scale(0.95)',
+      // Анимация запускается после того как элемент становится видимым (не во время opacity:0)
+      animationDelay: '0.1s',
+      animationFillMode: 'both',
       pointerEvents: isVisible ? 'auto' : 'none',
     };
   };
@@ -104,7 +128,7 @@ export default function DeviceHintOverlay({ onDismiss, onConnect }: DeviceHintOv
 
       {/* Тултип ниже кнопки */}
       <div
-        ref={tooltipRef}
+        ref={setTooltipNode}
         className="onboarding-tooltip tooltip-bottom"
         style={getTooltipStyle()}
         role="dialog"
@@ -123,7 +147,7 @@ export default function DeviceHintOverlay({ onDismiss, onConnect }: DeviceHintOv
         </button>
       </div>
 
-      {/* Прозрачный слой над кнопкой: клик = понял + навигация */}
+      {/* FIX: pointer-events-auto — иначе div наследует none от .onboarding-overlay */}
       {targetRect && isVisible && (
         <div
           aria-hidden="true"
@@ -133,6 +157,7 @@ export default function DeviceHintOverlay({ onDismiss, onConnect }: DeviceHintOv
             left: targetRect.left,
             width: targetRect.width,
             height: targetRect.height,
+            pointerEvents: 'auto',
           }}
           onClick={handleButtonAreaClick}
         />
