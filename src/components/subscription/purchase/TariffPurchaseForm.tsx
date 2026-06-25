@@ -149,16 +149,13 @@ export function TariffPurchaseForm({
   const totalPrice = promoPeriod.price + trafficPrice;
   const originalTotal = promoPeriod.original ? promoPeriod.original + trafficPrice : null;
 
-  // Единый «купить»: если по балансу видна нехватка — окно поверх (без пустого запроса на
-  // сервер), иначе оплачиваем; серверную нехватку (race/расхождение) ловит onError → то же окно.
-  const balanceKnown = typeof balanceKopeks === 'number';
+  // Единый «купить»: ВСЕГДА шлём запрос на сервер — он при нехватке вернёт 402 И сохранит
+  // «корзину» (намерение купить этот тариф) для авто-покупки после пополнения баланса. Окно
+  // нехватки покажет onError по серверной сумме. Клиентский pre-check убран намеренно: он
+  // пропускал запрос → корзина не сохранялась → покупка терялась после пополнения.
   const handleBuy = (totalKopeks: number) => {
     setSubmitError(null);
     lastTotalRef.current = totalKopeks;
-    if (balanceKnown && totalKopeks > (balanceKopeks as number)) {
-      setInsufficientKopeks(totalKopeks - (balanceKopeks as number));
-      return;
-    }
     purchaseMutation.mutate();
   };
 

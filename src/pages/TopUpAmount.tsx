@@ -272,6 +272,21 @@ export default function TopUpAmount() {
     return () => clearTimeout(timer);
   }, [platform]);
 
+  // Возврат в мини-апп после ухода на оплату (ссылка уже сгенерирована) — НЕ «зависаем» на
+  // «Ссылка готова», а уводим на экран результата: он опросит статус платежа и при успехе
+  // покажет результат (корзина к этому моменту уже авто-исполнилась на сервере). returnTo
+  // пробрасываем, чтобы со страницы результата вернуть на нужный экран (Главная).
+  useEffect(() => {
+    if (!paymentUrl) return;
+    const onVisible = () => {
+      if (document.visibilityState !== 'visible') return;
+      const rt = returnTo ? `?returnTo=${encodeURIComponent(returnTo)}` : '';
+      navigate(`/balance/top-up/result${rt}`, { replace: true });
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => document.removeEventListener('visibilitychange', onVisible);
+  }, [paymentUrl, returnTo, navigate]);
+
   if (!method) {
     return (
       <div className="flex items-center justify-center py-12">

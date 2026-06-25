@@ -90,13 +90,11 @@ export default function RenewSubscription() {
   const handleRenew = (periodDays: number) => {
     impact('medium');
     setError(null);
+    // ВСЕГДА шлём запрос: сервер при нехватке вернёт 402 И сохранит корзину 'extend' для
+    // авто-продления после пополнения. Окно нехватки покажет onError. Клиентский pre-check
+    // убран — он пропускал запрос, корзина не сохранялась → продление терялось.
     const price = options?.find((o) => o.period_days === periodDays)?.price_kopeks ?? 0;
     lastTotalRef.current = price;
-    // Баланс известен (purchaseOptions загружены) и не хватает → окно поверх, без пустого запроса.
-    if (purchaseOptions !== undefined && price > balanceKopeks) {
-      setInsufficientKopeks(price - balanceKopeks);
-      return;
-    }
     renewMutation.mutate(periodDays);
   };
 

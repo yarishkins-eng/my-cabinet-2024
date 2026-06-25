@@ -57,13 +57,21 @@ function PendingState({ amountKopeks }: { amountKopeks: number | null }) {
   );
 }
 
-function SuccessState({ amountKopeks }: { amountKopeks: number | null }) {
+function SuccessState({
+  amountKopeks,
+  returnTo,
+}: {
+  amountKopeks: number | null;
+  returnTo: string | null;
+}) {
   const { t } = useTranslation();
   const navigate = useNavigate();
 
-  const handleGoToBalance = useCallback(() => {
-    navigate('/balance', { replace: true });
-  }, [navigate]);
+  const handleDone = useCallback(() => {
+    // Пришли из покупки/продления (returnTo задан) → корзина уже авто-исполнилась на сервере,
+    // ведём на Главную, где видна активная подписка. Иначе обычное пополнение → на баланс.
+    navigate(returnTo ? '/' : '/balance', { replace: true });
+  }, [navigate, returnTo]);
 
   return (
     <motion.div
@@ -84,10 +92,12 @@ function SuccessState({ amountKopeks }: { amountKopeks: number | null }) {
 
       <button
         type="button"
-        onClick={handleGoToBalance}
+        onClick={handleDone}
         className="flex w-full items-center justify-center gap-2 rounded-xl bg-accent-500 px-6 py-3 text-sm font-medium text-white transition-colors hover:bg-accent-400"
       >
-        {t('balance.topUpResult.goToBalance')}
+        {returnTo
+          ? t('successNotification.goToSubscription', 'Перейти к подписке')
+          : t('balance.topUpResult.goToBalance')}
       </button>
     </motion.div>
   );
@@ -337,7 +347,7 @@ export default function TopUpResult() {
         aria-atomic="true"
       >
         {resolvedPaid ? (
-          <SuccessState amountKopeks={amountKopeks} />
+          <SuccessState amountKopeks={amountKopeks} returnTo={searchParams.get('returnTo')} />
         ) : resolvedFailed ? (
           <FailedState amountKopeks={amountKopeks} />
         ) : pollTimedOut ? (
