@@ -46,7 +46,8 @@ export default function InsufficientBalancePrompt({
     }
     const params = new URLSearchParams();
     params.set('amount', String(Math.ceil(missingRubles)));
-    params.set('returnTo', location.pathname);
+    // pathname + search — иначе теряется ?subscriptionId (контекст «продлить эту подписку»)
+    params.set('returnTo', location.pathname + location.search);
     navigate(`/balance/top-up?${params.toString()}`);
   };
 

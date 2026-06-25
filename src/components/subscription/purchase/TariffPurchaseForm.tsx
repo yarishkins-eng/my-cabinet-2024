@@ -6,7 +6,7 @@ import { subscriptionApi } from '../../../api/subscription';
 import { getErrorMessage, getInsufficientBalanceError } from '../../../utils/subscriptionHelpers';
 import { useCurrency } from '../../../hooks/useCurrency';
 import { usePromoDiscount } from '../../../hooks/usePromoDiscount';
-import InsufficientBalancePrompt from '../../InsufficientBalancePrompt';
+import InsufficientBalanceModal from '../InsufficientBalanceModal';
 import type { Tariff, TariffPeriod } from '../../../types';
 
 // ──────────────────────────────────────────────────────────────────
@@ -61,6 +61,10 @@ export function TariffPurchaseForm({
   const [customTrafficGb, setCustomTrafficGb] = useState<number>(50);
   const [useCustomDays, setUseCustomDays] = useState(false);
   const [useCustomTraffic, setUseCustomTraffic] = useState(false);
+  // Окно «недостаточно средств» (поверх экрана). null = закрыто. lastTotalRef — сумма
+  // последней попытки оплаты, чтобы onError мог посчитать нехватку, если сервер её не прислал.
+  const [insufficientKopeks, setInsufficientKopeks] = useState<number | null>(null);
+  const lastTotalRef = useRef(0);
 
   const purchaseMutation = useMutation({
     mutationFn: () => {
@@ -92,6 +96,17 @@ export function TariffPurchaseForm({
       // После покупки → объединённая Главная (видит результат сразу, v1.9 #1).
       navigate('/', { replace: true });
     },
+    onError: (error) => {
+      // Серверная нехватка баланса → окно поверх экрана (сумма от сервера, фолбэк —
+      // клиентская total-balance). Прочие ошибки рисуются инлайн ниже.
+      const insuf = getInsufficientBalanceError(error);
+      if (!insuf) return;
+      const missing =
+        insuf.missingAmount > 0
+          ? insuf.missingAmount
+          : Math.max(0, lastTotalRef.current - (balanceKopeks ?? 0));
+      if (missing > 0) setInsufficientKopeks(missing);
+    },
   });
 
   // Smooth scroll the form into view when first mounted.
@@ -103,6 +118,41 @@ export function TariffPurchaseForm({
       return () => clearTimeout(timer);
     }
   }, []);
+
+  // ── Суммы вынесены в тело: ОДНИ И ТЕ ЖЕ значения идут и в Summary (отображение), и в
+  //    handleBuy (проверка баланса). Раньше считались внутри JSX-IIFE и были недоступны кнопке. ──
+  const dailyPriceKopeks = tariff.daily_price_kopeks || 0;
+  const basePeriodPrice = useCustomDays
+    ? customDays * (tariff.price_per_day_kopeks ?? 0)
+    : selectedTariffPeriod?.price_kopeks || 0;
+  const existingPeriodOriginal = useCustomDays
+    ? tariff.original_price_per_day_kopeks &&
+      tariff.original_price_per_day_kopeks > (tariff.price_per_day_kopeks ?? 0)
+      ? customDays * tariff.original_price_per_day_kopeks
+      : undefined
+    : selectedTariffPeriod?.original_price_kopeks &&
+        selectedTariffPeriod.original_price_kopeks > selectedTariffPeriod.price_kopeks
+      ? selectedTariffPeriod.original_price_kopeks
+      : undefined;
+  const promoPeriod = applyPromoDiscount(basePeriodPrice, existingPeriodOriginal);
+  const trafficPrice =
+    useCustomTraffic && tariff.custom_traffic_enabled
+      ? customTrafficGb * (tariff.traffic_price_per_gb_kopeks ?? 0)
+      : 0;
+  const totalPrice = promoPeriod.price + trafficPrice;
+  const originalTotal = promoPeriod.original ? promoPeriod.original + trafficPrice : null;
+
+  // Единый «купить»: если по балансу видна нехватка — окно поверх (без пустого запроса на
+  // сервер), иначе оплачиваем; серверную нехватку (race/расхождение) ловит onError → то же окно.
+  const balanceKnown = typeof balanceKopeks === 'number';
+  const handleBuy = (totalKopeks: number) => {
+    lastTotalRef.current = totalKopeks;
+    if (balanceKnown && totalKopeks > (balanceKopeks as number)) {
+      setInsufficientKopeks(totalKopeks - (balanceKopeks as number));
+      return;
+    }
+    purchaseMutation.mutate();
+  };
 
   return (
     <div ref={ref} className="space-y-6">
@@ -162,20 +212,11 @@ export function TariffPurchaseForm({
 
           {(() => {
             const dailyPrice = tariff.daily_price_kopeks || 0;
-            const hasEnoughBalance = balanceKopeks !== undefined && dailyPrice <= balanceKopeks;
 
             return (
               <div className="mt-6">
-                {balanceKopeks !== undefined && !hasEnoughBalance && (
-                  <InsufficientBalancePrompt
-                    missingAmountKopeks={dailyPrice - balanceKopeks}
-                    compact
-                    className="mb-4"
-                  />
-                )}
-
                 <button
-                  onClick={() => purchaseMutation.mutate()}
+                  onClick={() => handleBuy(dailyPriceKopeks)}
                   disabled={purchaseMutation.isPending}
                   className="btn-primary w-full py-3"
                 >
@@ -195,18 +236,6 @@ export function TariffPurchaseForm({
                   !getInsufficientBalanceError(purchaseMutation.error) && (
                     <div className="mt-3 text-center text-sm text-error-400">
                       {getErrorMessage(purchaseMutation.error)}
-                    </div>
-                  )}
-                {purchaseMutation.isError &&
-                  getInsufficientBalanceError(purchaseMutation.error) && (
-                    <div className="mt-3">
-                      <InsufficientBalancePrompt
-                        missingAmountKopeks={
-                          getInsufficientBalanceError(purchaseMutation.error)?.missingAmount ||
-                          dailyPrice - (balanceKopeks || 0)
-                        }
-                        compact
-                      />
                     </div>
                   )}
               </div>
@@ -480,30 +509,6 @@ export function TariffPurchaseForm({
           {(selectedTariffPeriod || useCustomDays) && (
             <div className="rounded-xl bg-dark-800/50 p-5">
               {(() => {
-                const basePeriodPrice = useCustomDays
-                  ? customDays * (tariff.price_per_day_kopeks ?? 0)
-                  : selectedTariffPeriod?.price_kopeks || 0;
-                const existingPeriodOriginal = useCustomDays
-                  ? tariff.original_price_per_day_kopeks &&
-                    tariff.original_price_per_day_kopeks > (tariff.price_per_day_kopeks ?? 0)
-                    ? customDays * tariff.original_price_per_day_kopeks
-                    : undefined
-                  : selectedTariffPeriod?.original_price_kopeks &&
-                      selectedTariffPeriod.original_price_kopeks > selectedTariffPeriod.price_kopeks
-                    ? selectedTariffPeriod.original_price_kopeks
-                    : undefined;
-                const promoPeriod = applyPromoDiscount(basePeriodPrice, existingPeriodOriginal);
-
-                const trafficPrice =
-                  useCustomTraffic && tariff.custom_traffic_enabled
-                    ? customTrafficGb * (tariff.traffic_price_per_gb_kopeks ?? 0)
-                    : 0;
-
-                const totalPrice = promoPeriod.price + trafficPrice;
-                const originalTotal = promoPeriod.original
-                  ? promoPeriod.original + trafficPrice
-                  : null;
-
                 return (
                   <>
                     <div className="mb-4 space-y-2">
@@ -601,7 +606,7 @@ export function TariffPurchaseForm({
                     </div>
 
                     <button
-                      onClick={() => purchaseMutation.mutate()}
+                      onClick={() => handleBuy(totalPrice)}
                       disabled={purchaseMutation.isPending}
                       className="btn-primary w-full py-3"
                     >
@@ -623,20 +628,15 @@ export function TariffPurchaseForm({
                   {getErrorMessage(purchaseMutation.error)}
                 </div>
               )}
-              {purchaseMutation.isError && getInsufficientBalanceError(purchaseMutation.error) && (
-                <div className="mt-3">
-                  <InsufficientBalancePrompt
-                    missingAmountKopeks={
-                      getInsufficientBalanceError(purchaseMutation.error)?.missingAmount || 0
-                    }
-                    compact
-                  />
-                </div>
-              )}
             </div>
           )}
         </>
       )}
+
+      <InsufficientBalanceModal
+        missingKopeks={insufficientKopeks}
+        onClose={() => setInsufficientKopeks(null)}
+      />
     </div>
   );
 }

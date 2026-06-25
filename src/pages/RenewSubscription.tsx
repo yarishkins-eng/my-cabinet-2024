@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { Navigate, useNavigate, useParams } from 'react-router';
@@ -7,7 +7,7 @@ import { useTheme } from '../hooks/useTheme';
 import { getGlassColors } from '../utils/glassTheme';
 import { useCurrency } from '../hooks/useCurrency';
 import { useHaptic } from '../platform';
-import InsufficientBalancePrompt from '../components/InsufficientBalancePrompt';
+import InsufficientBalanceModal from '../components/subscription/InsufficientBalanceModal';
 import { WebBackButton } from '../components/WebBackButton';
 
 export default function RenewSubscription() {
@@ -24,6 +24,9 @@ export default function RenewSubscription() {
 
   const [selectedPeriod, setSelectedPeriod] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Окно «недостаточно средств» поверх экрана (вместо закопанного внизу баннера).
+  const [insufficientKopeks, setInsufficientKopeks] = useState<number | null>(null);
+  const lastTotalRef = useRef(0);
 
   // Load subscription detail for tariff name
   const { data: subscriptionResponse } = useQuery({
@@ -69,9 +72,15 @@ export default function RenewSubscription() {
 
       if (detail && typeof detail === 'object' && 'code' in (detail as Record<string, unknown>)) {
         const typed = detail as { code: string; missing_amount?: number };
-        if (typed.code === 'insufficient_funds' && typed.missing_amount) {
-          setError(`insufficient:${typed.missing_amount}`);
-          return;
+        if (typed.code === 'insufficient_funds') {
+          const missing =
+            typed.missing_amount && typed.missing_amount > 0
+              ? typed.missing_amount
+              : Math.max(0, lastTotalRef.current - balanceKopeks);
+          if (missing > 0) {
+            setInsufficientKopeks(missing);
+            return;
+          }
         }
       }
       setError(typeof detail === 'string' ? detail : t('common.error'));
@@ -81,6 +90,13 @@ export default function RenewSubscription() {
   const handleRenew = (periodDays: number) => {
     impact('medium');
     setError(null);
+    const price = options?.find((o) => o.period_days === periodDays)?.price_kopeks ?? 0;
+    lastTotalRef.current = price;
+    // Баланс известен (purchaseOptions загружены) и не хватает → окно поверх, без пустого запроса.
+    if (purchaseOptions !== undefined && price > balanceKopeks) {
+      setInsufficientKopeks(price - balanceKopeks);
+      return;
+    }
     renewMutation.mutate(periodDays);
   };
 
@@ -95,9 +111,6 @@ export default function RenewSubscription() {
       </div>
     );
   }
-
-  const insufficientMatch = error?.match(/^insufficient:(\d+)$/);
-  const missingAmount = insufficientMatch ? Number(insufficientMatch[1]) : null;
 
   return (
     <div className="space-y-5">
@@ -212,11 +225,8 @@ export default function RenewSubscription() {
         </div>
       )}
 
-      {/* Insufficient balance prompt */}
-      {missingAmount && <InsufficientBalancePrompt missingAmountKopeks={missingAmount} compact />}
-
-      {/* Error */}
-      {error && !missingAmount && (
+      {/* Error (нехватка баланса показывается окном InsufficientBalanceModal ниже) */}
+      {error && (
         <div className="rounded-xl bg-error-400/10 p-3 text-center text-sm text-error-400">
           {error}
         </div>
@@ -234,6 +244,11 @@ export default function RenewSubscription() {
             : t('subscription.extend', 'Продлить подписку')}
         </button>
       )}
+
+      <InsufficientBalanceModal
+        missingKopeks={insufficientKopeks}
+        onClose={() => setInsufficientKopeks(null)}
+      />
     </div>
   );
 }

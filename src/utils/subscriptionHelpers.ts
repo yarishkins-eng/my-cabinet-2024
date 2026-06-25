@@ -15,18 +15,23 @@ export const getErrorMessage = (error: unknown): string => {
 
 export const getInsufficientBalanceError = (
   error: unknown,
-): { required: number; balance: number; missingAmount?: number } | null => {
+): { required: number; balance: number; missingAmount: number } | null => {
   if (error instanceof AxiosError) {
     const detail = error.response?.data?.detail;
     if (
       typeof detail === 'object' &&
       (detail?.code === 'insufficient_balance' || detail?.code === 'insufficient_funds')
     ) {
-      return {
-        required: detail.required || detail.total_price || 0,
-        balance: detail.balance || 0,
-        missingAmount: detail.missing_amount || detail.missingAmount || 0,
-      };
+      const required = detail.required || detail.total_price || 0;
+      const balance = detail.balance || 0;
+      const serverMissing = detail.missing_amount ?? detail.missingAmount;
+      // Если сервер не прислал missing_amount — вычисляем из required-balance, чтобы окно
+      // не открылось с «Не хватает 0 ₽». Никогда не возвращаем отрицательное.
+      const missingAmount =
+        typeof serverMissing === 'number' && serverMissing > 0
+          ? serverMissing
+          : Math.max(0, required - balance);
+      return { required, balance, missingAmount };
     }
   }
   return null;
