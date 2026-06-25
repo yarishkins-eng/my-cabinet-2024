@@ -127,12 +127,12 @@ describe('trial states', () => {
       ...over,
     });
 
-  it('T1 — trial, 0 devices → connect burns, no sell', () => {
+  it('T1 — trial, 0 devices → connect burns, subscribe stays CALM (visible, not buried)', () => {
     const s = run(trial({ traffic_used_gb: 0, traffic_used_percent: 0 }), { connectedDevices: 0 });
     expect(s.code).toBe('T1');
-    expect(s.burning).toBe('connect');
+    expect(s.burning).toBe('connect'); // «Подключить устройство» — главное, горит
     expect(s.deviceZone.kind).toBe('connect');
-    expect(s.sellZone.kind).toBe('hidden');
+    expect(s.sellZone.kind).toBe('subscribe'); // «Оформить подписку» — спокойной кнопкой под ней
     expect(s.linkVisible).toBe(true);
     expect(s.accessEnded).toBe(false);
   });

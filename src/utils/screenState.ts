@@ -303,8 +303,13 @@ export function computeScreenState(input: ScreenStateInput): ScreenState {
         ? { ...deviceZone, kind: 'trial_limit' }
         : { ...deviceZone, kind: 'connect_more' };
     } else if (zeroDevices) {
+      // Триал, устройство ещё не подключено. ГЛАВНОЕ — попробовать: горит «Подключить
+      // устройство». Но «Оформить подписку» больше НЕ прячем — даём спокойной кнопкой под
+      // ней (контур, не горит), чтобы готовый платить сразу не искал оплату в сером
+      // «Управлении подпиской». Горит по-прежнему РОВНО одна кнопка (connect).
       code = 'T1';
       dz = { ...deviceZone, kind: 'connect' };
+      sell = { kind: 'subscribe' };
       burning = 'connect';
     } else if (atDeviceLimit) {
       code = 'T3';
