@@ -66,6 +66,7 @@ export default function InsufficientBalanceModal({
         ref={modalRef}
         role="dialog"
         aria-modal="true"
+        aria-label={t('balance.insufficientFunds')}
         tabIndex={-1}
         className="relative mx-4 w-full max-w-sm rounded-3xl border border-dark-700/50 bg-dark-900 p-5 shadow-2xl"
         onClick={(e) => e.stopPropagation()}

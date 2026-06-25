@@ -64,6 +64,8 @@ export function TariffPurchaseForm({
   // Окно «недостаточно средств» (поверх экрана). null = закрыто. lastTotalRef — сумма
   // последней попытки оплаты, чтобы onError мог посчитать нехватку, если сервер её не прислал.
   const [insufficientKopeks, setInsufficientKopeks] = useState<number | null>(null);
+  // Текст обычной (не балансовой) ошибки оплаты. Балансовую показывает окно выше.
+  const [submitError, setSubmitError] = useState<string | null>(null);
   const lastTotalRef = useRef(0);
 
   const purchaseMutation = useMutation({
@@ -96,16 +98,21 @@ export function TariffPurchaseForm({
       // После покупки → объединённая Главная (видит результат сразу, v1.9 #1).
       navigate('/', { replace: true });
     },
-    onError: (error) => {
-      // Серверная нехватка баланса → окно поверх экрана (сумма от сервера, фолбэк —
-      // клиентская total-balance). Прочие ошибки рисуются инлайн ниже.
-      const insuf = getInsufficientBalanceError(error);
-      if (!insuf) return;
-      const missing =
-        insuf.missingAmount > 0
+    onError: (err) => {
+      // Нехватка баланса → окно поверх экрана (сумма от сервера, фолбэк — клиентская
+      // total-balance). Прочие ошибки И редкий случай нехватки с нулевой суммой → инлайн-
+      // текст, чтобы не было «тихого» отказа.
+      const insuf = getInsufficientBalanceError(err);
+      const missing = insuf
+        ? insuf.missingAmount > 0
           ? insuf.missingAmount
-          : Math.max(0, lastTotalRef.current - (balanceKopeks ?? 0));
-      if (missing > 0) setInsufficientKopeks(missing);
+          : Math.max(0, lastTotalRef.current - (balanceKopeks ?? 0))
+        : 0;
+      if (missing > 0) {
+        setInsufficientKopeks(missing);
+        return;
+      }
+      setSubmitError(getErrorMessage(err));
     },
   });
 
@@ -146,6 +153,7 @@ export function TariffPurchaseForm({
   // сервер), иначе оплачиваем; серверную нехватку (race/расхождение) ловит onError → то же окно.
   const balanceKnown = typeof balanceKopeks === 'number';
   const handleBuy = (totalKopeks: number) => {
+    setSubmitError(null);
     lastTotalRef.current = totalKopeks;
     if (balanceKnown && totalKopeks > (balanceKopeks as number)) {
       setInsufficientKopeks(totalKopeks - (balanceKopeks as number));
@@ -211,8 +219,6 @@ export function TariffPurchaseForm({
           </div>
 
           {(() => {
-            const dailyPrice = tariff.daily_price_kopeks || 0;
-
             return (
               <div className="mt-6">
                 <button
@@ -227,17 +233,14 @@ export function TariffPurchaseForm({
                     </span>
                   ) : (
                     t('subscription.dailyPurchase.activate', {
-                      price: formatPrice(dailyPrice),
+                      price: formatPrice(dailyPriceKopeks),
                     })
                   )}
                 </button>
 
-                {purchaseMutation.isError &&
-                  !getInsufficientBalanceError(purchaseMutation.error) && (
-                    <div className="mt-3 text-center text-sm text-error-400">
-                      {getErrorMessage(purchaseMutation.error)}
-                    </div>
-                  )}
+                {submitError && (
+                  <div className="mt-3 text-center text-sm text-error-400">{submitError}</div>
+                )}
               </div>
             );
           })()}
@@ -623,10 +626,8 @@ export function TariffPurchaseForm({
                 );
               })()}
 
-              {purchaseMutation.isError && !getInsufficientBalanceError(purchaseMutation.error) && (
-                <div className="mt-3 text-center text-sm text-error-400">
-                  {getErrorMessage(purchaseMutation.error)}
-                </div>
+              {submitError && (
+                <div className="mt-3 text-center text-sm text-error-400">{submitError}</div>
               )}
             </div>
           )}

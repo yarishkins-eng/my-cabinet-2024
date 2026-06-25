@@ -1103,7 +1103,7 @@ export default function Subscription() {
             (() => {
               const balanceError = getInsufficientBalanceError(pauseMutation.error);
               if (balanceError) {
-                const missingAmount = balanceError.required - balanceError.balance;
+                const missingAmount = balanceError.missingAmount;
                 return (
                   <div className="mt-4">
                     <InsufficientBalancePrompt
