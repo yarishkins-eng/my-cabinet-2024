@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useState } from 'react';
+import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate } from 'react-router';
 import { useTranslation } from 'react-i18next';
@@ -22,6 +22,8 @@ import { HomeSkeleton, HomeError, PanelDownNotice } from '../components/home/Hom
 import ConnectionLinkCard from '../components/home/ConnectionLinkCard';
 import DevicesPanel from '../components/home/DevicesPanel';
 import type { HomeMeta, HomeActions } from '../components/home/types';
+import DeviceHintOverlay from '../components/home/DeviceHintOverlay';
+import { getDeviceHintSeen, setDeviceHintSeen } from '../utils/deviceHintTracking';
 
 // Шторки докупки — отдельный lazy-чанк: код шторок (+ их зависимости) НЕ попадает в
 // eager-бандл «/» (§19 п.4). Грузится только при первом открытии шторки.
@@ -49,6 +51,9 @@ export default function DashboardUnified() {
   const { isDark } = useTheme();
   const haptic = useHaptic();
   const [trialError, setTrialError] = useState<string | null>(null);
+  const [showDeviceHint, setShowDeviceHint] = useState(false);
+  // Реф-флаг: предотвращает повторный запуск таймера при ре-рендерах
+  const deviceHintTriggered = useRef(false);
 
   // Состояние шторок докупки (открытость + выбор) — живёт на странице, чтобы hero-кнопки
   // могли их открыть. Сами шторки + cross-sheet-reset — в lazy HomeTopupSheets.
@@ -188,6 +193,19 @@ export default function DashboardUnified() {
   };
   const state = useScreenState(screenInput);
 
+  // Подсказка «подключи устройство» — показываем один раз при T1/P1 (первое открытие с 0 устройств).
+  // Не показываем при P7 (≤3 дней + горит «Продлить») и во всех состояниях с overlay.
+  useEffect(() => {
+    if (subLoading || devicesLoading || !subscription || subscriptionId == null) return;
+    if (state.code !== 'T1' && state.code !== 'P1') return;
+    if (deviceHintTriggered.current) return;
+    if (getDeviceHintSeen(subscriptionId)) return;
+
+    deviceHintTriggered.current = true;
+    const timer = window.setTimeout(() => setShowDeviceHint(true), 500);
+    return () => window.clearTimeout(timer);
+  }, [subLoading, devicesLoading, subscription, subscriptionId, state.code]);
+
   // Баланс/опции покупки — нужны шторкам, чтобы блокировать «Купить» при нуле баланса
   // (§19 п.4). Грузим заранее (когда тариф вообще допускает докупку), чтобы к моменту
   // открытия шторки данные были готовы и не было гонки «тап быстрее загрузки».
@@ -326,6 +344,15 @@ export default function DashboardUnified() {
                   graceDays={meta.graceDays}
                 />
                 <HeroZone state={state} actions={actions} graceDays={meta.graceDays} />
+                {showDeviceHint && subscriptionId != null && (
+                  <DeviceHintOverlay
+                    onDismiss={() => {
+                      setDeviceHintSeen(subscriptionId);
+                      setShowDeviceHint(false);
+                    }}
+                    onConnect={actions.onConnect ?? (() => {})}
+                  />
+                )}
                 {/* При перекрывающем состоянии (платёж обрабатывается / временно отключён)
                     карточку «Осталось N дн.» прячем — она путала (активна? тикают ли дни?).
                     Баннер несёт смысл. Для grace/истёкшей overlay=null → карточка остаётся. */}

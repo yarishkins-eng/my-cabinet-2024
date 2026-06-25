@@ -50,18 +50,21 @@ function ActionButton({
   label,
   hint,
   onClick,
+  dataDeviceHint,
 }: {
   variant: Variant;
   icon: React.ReactNode;
   label: string;
   hint?: string;
   onClick?: () => void;
+  dataDeviceHint?: string;
 }) {
   const v = VARIANT[variant];
   return (
     <button
       type="button"
       onClick={onClick}
+      data-device-hint={dataDeviceHint}
       className={`flex w-full items-center gap-3 rounded-2xl p-3.5 text-left transition-all active:scale-[0.99] ${v.btn}`}
     >
       <span
@@ -145,6 +148,7 @@ export default function HeroZone({
         label={t('home.hero.connect')}
         hint={deviceCounter}
         onClick={actions.onConnect}
+        dataDeviceHint="connect-btn"
       />
     );
   } else if (dz.kind === 'connect_more') {
