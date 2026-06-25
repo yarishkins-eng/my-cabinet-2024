@@ -82,6 +82,9 @@ export default function TopUpAmount() {
   const { openInvoice, openTelegramLink, openLink, platform } = usePlatform();
   const haptic = useHaptic();
   const inputRef = useRef<HTMLInputElement>(null);
+  // Пользователь реально нажал «Открыть страницу оплаты» (ушёл платить). Защищает Вариант 2:
+  // не уводим на экран результата и не реагируем на WS, пока ссылку не открыли.
+  const paymentLinkOpenedRef = useRef(false);
 
   const returnTo = searchParams.get('returnTo');
   const initialAmountRubles = searchParams.get('amount')
@@ -97,6 +100,9 @@ export default function TopUpAmount() {
   }, [navigate]);
 
   const handleSuccess = useCallback(() => {
+    // Если пользователь ушёл по платёжной ссылке — НЕ перехватываем навигацию здесь (WS мог
+    // прийти, пока он в браузере): возврат обработает visibilitychange → экран результата.
+    if (paymentLinkOpenedRef.current) return;
     // returnTo arrives via query string — validate as an in-app path before
     // navigate(), otherwise an absolute or encoded URL produces ugly
     // path artefacts in the URL bar. The validator returns '/' for invalid
@@ -280,6 +286,9 @@ export default function TopUpAmount() {
     if (!paymentUrl) return;
     const onVisible = () => {
       if (document.visibilityState !== 'visible') return;
+      // Уводим на результат только если пользователь реально ушёл платить (открыл ссылку),
+      // иначе при простом сворачивании/возврате потеряли бы экран с ещё не открытой ссылкой.
+      if (!paymentLinkOpenedRef.current) return;
       const rt = returnTo ? `?returnTo=${encodeURIComponent(returnTo)}` : '';
       navigate(`/balance/top-up/result${rt}`, { replace: true });
     };
@@ -363,6 +372,7 @@ export default function TopUpAmount() {
 
   const handleOpenPayment = () => {
     if (!paymentUrl) return;
+    paymentLinkOpenedRef.current = true;
     if (paymentUrl.includes('t.me/')) {
       openTelegramLink(paymentUrl);
     } else {

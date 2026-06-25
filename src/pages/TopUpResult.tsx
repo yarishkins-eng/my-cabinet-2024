@@ -286,8 +286,9 @@ export default function TopUpResult() {
 
   const handleGoBack = useCallback(() => {
     clearTopUpPendingInfo();
-    navigate('/balance', { replace: true });
-  }, [navigate]);
+    // Пришли из покупки (returnTo) → на Главную (корзина могла исполниться), иначе на баланс.
+    navigate(searchParams.get('returnTo') ? '/' : '/balance', { replace: true });
+  }, [navigate, searchParams]);
 
   // Redirect to balance if absolutely no data source available
   useEffect(() => {
