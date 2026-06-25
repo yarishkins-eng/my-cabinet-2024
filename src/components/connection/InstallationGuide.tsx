@@ -9,7 +9,14 @@ import type {
   RemnawaveButtonClient,
 } from '@/types';
 import { useTheme } from '@/hooks/useTheme';
-import { CardsBlock, TimelineBlock, AccordionBlock, MinimalBlock, BlockButtons } from './blocks';
+import {
+  CardsBlock,
+  TimelineBlock,
+  AccordionBlock,
+  MinimalBlock,
+  StepsBlock,
+  BlockButtons,
+} from './blocks';
 import type { BlockRendererProps, RenderBlock } from './blocks';
 import TvQuickConnect from './TvQuickConnect';
 import { BackIcon, BookOpenIcon, ChevronIcon } from '@/components/icons';
@@ -32,6 +39,7 @@ const RENDERERS: Record<string, React.ComponentType<BlockRendererProps>> = {
   timeline: TimelineBlock,
   accordion: AccordionBlock,
   minimal: MinimalBlock,
+  steps: StepsBlock,
 };
 
 /** TV quick-connect is a Happ-only feature (check.happ.su/sendtv) — show it only
@@ -190,8 +198,14 @@ export default function InstallationGuide({
   // Platform SVG icon for dropdown
   const currentPlatformSvg = getSvgHtml(currentPlatformData?.svgIconKey);
 
-  // Block renderer
-  const blockType = appConfig.uiConfig?.installationGuidesBlockType || 'cards';
+  // Block renderer. The installation flow is always rendered as a numbered
+  // 1·2·3 stepper so the "do step 1, then 2, then 3" UX stays consistent for
+  // everyone, regardless of the panel's installationGuidesBlockType. Set
+  // FORCE_STEPS to false to honor the panel-configured style instead.
+  const FORCE_STEPS = true;
+  const blockType = FORCE_STEPS
+    ? 'steps'
+    : appConfig.uiConfig?.installationGuidesBlockType || 'cards';
   const Renderer = RENDERERS[blockType] || CardsBlock;
 
   // For the Happ TV app (Android TV / Apple TV), inject the TV connect widget as
@@ -300,6 +314,12 @@ export default function InstallationGuide({
           {currentPlatformApps.map((app, idx) => {
             const isSelected = selectedApp?.name === app.name;
             const appIconSvg = getSvgHtml(app.svgIconKey);
+            const appName = app.name.toLowerCase();
+            const appBadgeKey = appName.includes('incy')
+              ? 'subscription.connection.appBadgeIncy'
+              : appName.includes('happ')
+                ? 'subscription.connection.appBadgeHapp'
+                : null;
             return (
               <button
                 key={app.name + idx}
@@ -315,7 +335,14 @@ export default function InstallationGuide({
                 }`}
               >
                 {app.featured && <span className="h-2 w-2 shrink-0 rounded-full bg-warning-400" />}
-                <span className="relative z-10 truncate">{app.name}</span>
+                <span className="relative z-10 flex min-w-0 flex-col text-left">
+                  <span className="truncate leading-tight">{app.name}</span>
+                  {appBadgeKey && (
+                    <span className="truncate text-xs font-normal text-dark-400">
+                      {t(appBadgeKey)}
+                    </span>
+                  )}
+                </span>
                 {appIconSvg && (
                   <div
                     className="ml-auto h-7 w-7 shrink-0 opacity-30 [&>svg]:h-full [&>svg]:w-full"
@@ -327,6 +354,20 @@ export default function InstallationGuide({
           })}
         </div>
       )}
+
+      {/* Cross-device hint: on desktop platforms (often opened from a phone),
+          point the user at the header QR button to reopen this page on the PC. */}
+      {['windows', 'macos', 'linux'].includes(currentPlatformKey || '') &&
+        appConfig.subscriptionUrl &&
+        onOpenQR && (
+          <p
+            className={`rounded-xl border px-3 py-2 text-xs leading-relaxed text-dark-400 ${
+              isLight ? 'border-dark-700/30 bg-white/70' : 'border-dark-700/50 bg-dark-800/40'
+            }`}
+          >
+            {t('subscription.connection.qrDesktopHint')}
+          </p>
+        )}
 
       {/* Tutorial button */}
       {appConfig.baseSettings?.isShowTutorialButton && appConfig.baseSettings?.tutorialUrl && (

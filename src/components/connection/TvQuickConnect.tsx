@@ -208,6 +208,9 @@ export default function TvQuickConnect({ subscriptionUrl, isLight }: Props) {
         <p className="text-sm font-medium text-dark-200">
           {t('subscription.tvQuickConnect.title')}
         </p>
+        <p className="text-xs leading-relaxed text-dark-400">
+          {t('subscription.tvQuickConnect.codeHint')}
+        </p>
         <input
           type="text"
           maxLength={5}

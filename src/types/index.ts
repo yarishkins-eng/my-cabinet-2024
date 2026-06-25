@@ -609,7 +609,7 @@ export interface AppConfig {
   baseTranslations?: Record<string, LocalizedText>;
   baseSettings?: { isShowTutorialButton: boolean; tutorialUrl: string };
   uiConfig?: {
-    installationGuidesBlockType?: 'cards' | 'timeline' | 'accordion' | 'minimal';
+    installationGuidesBlockType?: 'cards' | 'timeline' | 'accordion' | 'minimal' | 'steps';
   };
 
   platforms: Record<string, RemnawavePlatformData>;

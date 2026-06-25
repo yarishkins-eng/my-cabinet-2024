@@ -416,7 +416,10 @@
       "qrTitle": "订阅二维码",
       "qrScanHint": "使用相机扫描以连接",
       "qrButton": "二维码",
-      "openQr": "打开二维码"
+      "openQr": "打开二维码",
+      "appBadgeIncy": "新 · 推荐",
+      "appBadgeHapp": "可靠 · 成熟",
+      "qrDesktopHint": "在手机上为电脑安装？点击上方的二维码图标 — 页面将在电脑上打开。"
     },
     "additionalOptions": {
       "title": "附加选项",
@@ -559,7 +562,8 @@
       "scanBtn": "扫描电视二维码",
       "stopScan": "关闭摄像头",
       "noCamera": "无法访问摄像头",
-      "codeFound": "找到代码"
+      "codeFound": "找到代码",
+      "codeHint": "在电视上打开 Happ — 屏幕上会出现一个短代码。"
     },
     "allTariffsPurchased": "所有套餐已购买",
     "autopay": "自动续订",

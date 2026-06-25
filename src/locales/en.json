@@ -555,7 +555,10 @@
       "qrTitle": "Subscription QR Code",
       "qrScanHint": "Scan to connect",
       "qrButton": "QR Code",
-      "openQr": "Open QR code"
+      "openQr": "Open QR code",
+      "appBadgeIncy": "new · recommended",
+      "appBadgeHapp": "reliable · proven",
+      "qrDesktopHint": "Installing on a computer from your phone? Tap the QR icon above — the page will open on your PC."
     },
     "myDevices": "My Devices",
     "noDevices": "No connected devices",
@@ -723,7 +726,8 @@
       "scanBtn": "Scan QR from TV",
       "stopScan": "Close camera",
       "noCamera": "Camera access denied",
-      "codeFound": "Code found"
+      "codeFound": "Code found",
+      "codeHint": "Open Happ on your TV — a short code will appear on the screen."
     },
     "allTariffsPurchased": "All tariffs already purchased",
     "autopay": "Auto-renew",
