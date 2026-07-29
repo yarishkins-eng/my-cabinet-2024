@@ -99,13 +99,29 @@ jobs:
                 "$STAGING_ORIGIN/health/unified" >/dev/null
             }
 
+            staging_websocket_proxy_health() {
+              # The cabinet always opens this socket after login.  A deliberately
+              # invalid token is enough to prove the HTTP Upgrade reaches FastAPI:
+              # the application accepts it (101) and immediately closes it with
+              # its normal unauthorised WebSocket code.  No user token is exposed.
+              curl --noproxy '*' --silent --show-error --max-time 10 --dump-header - --output /dev/null \
+                --http1.1 \
+                --resolve cabinet.lilulalu.xyz:8443:127.0.0.1 \
+                -H 'Connection: Upgrade' \
+                -H 'Upgrade: websocket' \
+                -H 'Sec-WebSocket-Version: 13' \
+                -H 'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==' \
+                "$STAGING_ORIGIN/api/cabinet/ws?token=staging-proxy-smoke-invalid" \
+                | grep -qi '^HTTP/1.1 101 '
+            }
+
             wait_for_staging_proxy() {
               # nginx acknowledges a reload before a new TLS listener is ready
               # to accept a connection.  Wait for the actual proxied API, not
               # merely for a successful nginx -s reload.
               for attempt in $(seq 1 24); do
-                if staging_proxy_health; then
-                  echo "Staging cabinet proxy accepted health check on attempt $attempt."
+                if staging_proxy_health && staging_websocket_proxy_health; then
+                  echo "Staging cabinet proxy accepted HTTP and WebSocket health checks on attempt $attempt."
                   return 0
                 fi
 
@@ -143,21 +159,26 @@ jobs:
               ' "$NGINX_CONF"
             }
 
-            ensure_staging_proxy() {
-              if grep -Fqx "$NGINX_MARKER_BEGIN" "$NGINX_CONF"; then
-                return
-              fi
+            copy_without_staging_proxy() {
+              # Remove precisely the marked test-only block.  Refuse malformed
+              # marker pairs instead of guessing at a shared production config.
+              awk -v begin="$NGINX_MARKER_BEGIN" -v end="$NGINX_MARKER_END" '
+                $0 == begin {
+                  if (inside || found) { bad = 1; exit }
+                  inside = 1; found = 1; next
+                }
+                $0 == end {
+                  if (!inside) { bad = 1; exit }
+                  inside = 0; next
+                }
+                !inside { print }
+                END { if (inside || bad) exit 1 }
+              ' "$NGINX_CONF"
+            }
 
+            append_staging_proxy() {
               tls_directives="$(extract_cabinet_tls)"
               printf '%s\n' "$tls_directives" | awk 'NF { count += 1 } END { exit(count == 2 ? 0 : 1) }'
-
-              backup="$NGINX_CONF.pre-teplo-staging-cabinet"
-              if ! test -e "$backup"; then
-                cp --preserve=mode,ownership,timestamps "$NGINX_CONF" "$backup"
-              fi
-
-              candidate="$(mktemp /tmp/teplo-staging-nginx.XXXXXX)"
-              cp "$NGINX_CONF" "$candidate"
               {
                 printf '\n%s\n' "$NGINX_MARKER_BEGIN"
                 printf '%s\n' 'server {'
@@ -173,6 +194,19 @@ jobs:
                 printf '%s\n' '        proxy_set_header X-Real-IP $remote_addr;'
                 printf '%s\n' '        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;'
                 printf '%s\n' '        proxy_set_header X-Forwarded-Proto $scheme;'
+                printf '%s\n' '    }'
+                printf '%s\n' ''
+                printf '%s\n' '    location = /api/cabinet/ws {'
+                printf '%s\n' '        proxy_pass http://127.0.0.1:18080/cabinet/ws;'
+                printf '%s\n' '        proxy_http_version 1.1;'
+                printf '%s\n' '        proxy_set_header Upgrade $http_upgrade;'
+                printf '%s\n' '        proxy_set_header Connection "upgrade";'
+                printf '%s\n' '        proxy_set_header Host $host;'
+                printf '%s\n' '        proxy_set_header X-Real-IP $remote_addr;'
+                printf '%s\n' '        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;'
+                printf '%s\n' '        proxy_set_header X-Forwarded-Proto $scheme;'
+                printf '%s\n' '        proxy_read_timeout 3600s;'
+                printf '%s\n' '        proxy_send_timeout 3600s;'
                 printf '%s\n' '    }'
                 printf '%s\n' ''
                 printf '%s\n' '    location /api/ {'
@@ -194,22 +228,63 @@ jobs:
                 printf '%s\n' '    }'
                 printf '%s\n' '}'
                 printf '%s\n' "$NGINX_MARKER_END"
-              } >> "$candidate"
+              }
+            }
+
+            ensure_staging_proxy() {
+              original="$(mktemp /tmp/teplo-staging-nginx-original.XXXXXX)"
+              candidate="$(mktemp /tmp/teplo-staging-nginx.XXXXXX)"
+              cp "$NGINX_CONF" "$original"
+
+              if ! copy_without_staging_proxy > "$candidate"; then
+                rm -f "$original" "$candidate"
+                echo 'Refusing staging proxy update: its marker block is malformed.' >&2
+                return 1
+              fi
+              append_staging_proxy >> "$candidate"
 
               cp "$candidate" "$NGINX_CONF"
               rm -f "$candidate"
               if ! docker exec "$NGINX_CONTAINER" nginx -t; then
-                cp "$backup" "$NGINX_CONF"
+                cp "$original" "$NGINX_CONF"
                 docker exec "$NGINX_CONTAINER" nginx -t
+                rm -f "$original"
                 exit 70
               fi
               if ! docker exec "$NGINX_CONTAINER" nginx -s reload; then
-                cp "$backup" "$NGINX_CONF"
+                cp "$original" "$NGINX_CONF"
                 docker exec "$NGINX_CONTAINER" nginx -t
                 docker exec "$NGINX_CONTAINER" nginx -s reload
+                rm -f "$original"
                 exit 71
               fi
+              rm -f "$original"
               PROXY_CHANGED=1
+            }
+
+            remove_staging_proxy() {
+              if ! grep -Fqx "$NGINX_MARKER_BEGIN" "$NGINX_CONF"; then
+                return 0
+              fi
+
+              original="$(mktemp /tmp/teplo-staging-nginx-original.XXXXXX)"
+              candidate="$(mktemp /tmp/teplo-staging-nginx.XXXXXX)"
+              cp "$NGINX_CONF" "$original"
+              if ! copy_without_staging_proxy > "$candidate"; then
+                rm -f "$original" "$candidate"
+                echo 'Refusing staging proxy rollback: its marker block is malformed.' >&2
+                return 1
+              fi
+              cp "$candidate" "$NGINX_CONF"
+              rm -f "$candidate"
+              if ! docker exec "$NGINX_CONTAINER" nginx -t || ! docker exec "$NGINX_CONTAINER" nginx -s reload; then
+                cp "$original" "$NGINX_CONF"
+                docker exec "$NGINX_CONTAINER" nginx -t
+                docker exec "$NGINX_CONTAINER" nginx -s reload
+                rm -f "$original"
+                return 1
+              fi
+              rm -f "$original"
             }
 
             rollback() {
@@ -224,11 +299,7 @@ jobs:
                 compose up -d --no-build --wait --wait-timeout 180 "$SERVICE"
               fi
               if [ "$PROXY_CHANGED" = '1' ]; then
-                backup="$NGINX_CONF.pre-teplo-staging-cabinet"
-                if test -r "$backup"; then
-                  cp "$backup" "$NGINX_CONF"
-                  docker exec "$NGINX_CONTAINER" nginx -t && docker exec "$NGINX_CONTAINER" nginx -s reload
-                fi
+                remove_staging_proxy
               fi
               exit "$rc"
             }
