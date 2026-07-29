@@ -117,15 +117,27 @@ jobs:
               # invalid token is enough to prove the HTTP Upgrade reaches FastAPI:
               # the application accepts it (101) and immediately closes it with
               # its normal unauthorised WebSocket code.  No user token is exposed.
-              curl --noproxy '*' --silent --show-error --max-time 10 --dump-header - --output /dev/null \
+              headers="$(mktemp /tmp/teplo-staging-websocket-headers.XXXXXX)"
+              # curl cannot complete a WebSocket conversation itself and therefore
+              # times out after receiving the valid 101 response.  Inspect the
+              # received response headers instead of treating that expected timeout
+              # as a failed proxy handshake.
+              if curl --noproxy '*' --silent --max-time 3 --dump-header "$headers" --output /dev/null \
                 --http1.1 \
                 --resolve cabinet.lilulalu.xyz:8443:127.0.0.1 \
                 -H 'Connection: Upgrade' \
                 -H 'Upgrade: websocket' \
                 -H 'Sec-WebSocket-Version: 13' \
                 -H 'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==' \
-                "$STAGING_ORIGIN/api/cabinet/ws?token=staging-proxy-smoke-invalid" \
-                | grep -qi '^HTTP/1.1 101 '
+                "$STAGING_ORIGIN/api/cabinet/ws?token=staging-proxy-smoke-invalid"; then
+                :
+              fi
+              if grep -qi '^HTTP/1.1 101 ' "$headers"; then
+                rm -f "$headers"
+                return 0
+              fi
+              rm -f "$headers"
+              return 1
             }
 
             wait_for_staging_proxy() {
