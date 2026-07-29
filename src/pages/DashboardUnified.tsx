@@ -24,6 +24,7 @@ import DevicesPanel from '../components/home/DevicesPanel';
 import type { HomeMeta, HomeActions } from '../components/home/types';
 import DeviceHintOverlay from '../components/home/DeviceHintOverlay';
 import { getDeviceHintSeen, setDeviceHintSeen } from '../utils/deviceHintTracking';
+import { isDeviceHintEligible } from '../utils/deviceHintEligibility';
 import { useSuccessNotification } from '../store/successNotification';
 
 // Шторки докупки — отдельный lazy-чанк: код шторок (+ их зависимости) НЕ попадает в
@@ -53,6 +54,8 @@ export default function DashboardUnified() {
   const haptic = useHaptic();
   const [trialError, setTrialError] = useState<string | null>(null);
   const [showDeviceHint, setShowDeviceHint] = useState(false);
+  const connectButtonRef = useRef<HTMLButtonElement>(null);
+  const successModalOpen = useSuccessNotification((state) => state.isOpen);
   // Реф-флаг: предотвращает повторный запуск таймера при ре-рендерах
   const deviceHintTriggered = useRef(false);
 
@@ -195,22 +198,26 @@ export default function DashboardUnified() {
   const state = useScreenState(screenInput);
 
   // Подсказка «подключи устройство» — показываем один раз при T1/P1 (первое открытие с 0 устройств).
-  // Исключения: P7 (≤3 дней + горит «Продлить»), все overlay-состояния, панель не ответила
-  // (kind !== 'connect'), данные ещё не пришли, success-модальное открыто.
+  // P7 намеренно исключён: хотя «Подключить» там горит, контекстом управляет скорое продление.
   useEffect(() => {
     if (subLoading || devicesLoading || !subscription || subscriptionId == null) return;
-    // devicesData == null означает что данные ещё не загрузились (не путать с 0 устройствами)
-    if (devicesData == null) return;
-    // kind !== 'connect' — кнопки нет в DOM (panelOk=false, overlay-состояние и т.д.)
-    if (state.deviceZone.kind !== 'connect') return;
-    if (state.code !== 'T1' && state.code !== 'P1') return;
     if (deviceHintTriggered.current) return;
-    if (getDeviceHintSeen(subscriptionId)) return;
+    if (
+      !isDeviceHintEligible({
+        hasSubscription: true,
+        hasSubscriptionId: true,
+        devicesLoaded: devicesData != null,
+        deviceZoneKind: state.deviceZone.kind,
+        screenCode: state.code,
+        hasBeenSeen: getDeviceHintSeen(subscriptionId),
+        successModalOpen,
+      })
+    ) {
+      return;
+    }
 
     const timer = window.setTimeout(() => {
-      // FIX: лatch внутри таймера — иначе ре-ран эффекта до срабатывания таймера
-      // убивает таймер и больше не перезапускает его (подсказка никогда не показывается)
-      if (useSuccessNotification.getState().isOpen) return;
+      if (!connectButtonRef.current) return;
       deviceHintTriggered.current = true;
       setShowDeviceHint(true);
     }, 500);
@@ -223,7 +230,15 @@ export default function DashboardUnified() {
     devicesData,
     state.deviceZone.kind,
     state.code,
+    successModalOpen,
   ]);
+
+  // Окно успеха всегда выше coachmark: прячем подсказку временно, не считая это прохождением.
+  useEffect(() => {
+    if (!successModalOpen || !showDeviceHint) return;
+    deviceHintTriggered.current = false;
+    setShowDeviceHint(false);
+  }, [showDeviceHint, successModalOpen]);
 
   // Баланс/опции покупки — нужны шторкам, чтобы блокировать «Купить» при нуле баланса
   // (§19 п.4). Грузим заранее (когда тариф вообще допускает докупку), чтобы к моменту
@@ -247,7 +262,13 @@ export default function DashboardUnified() {
 
   // ── Действия верха (3a — безопасные переходы; шторки докупки — 3b) ──
   const actions: HomeActions = {
-    onConnect: () => navigate(`/connection?sub=${subscriptionId ?? ''}`),
+    onConnect: () => {
+      if (showDeviceHint && subscriptionId != null) {
+        setDeviceHintSeen(subscriptionId);
+        setShowDeviceHint(false);
+      }
+      navigate(`/connection?sub=${subscriptionId ?? ''}`);
+    },
     onSell: () =>
       navigate(
         state.sellZone.kind === 'renew' && subscriptionId != null
@@ -362,14 +383,20 @@ export default function DashboardUnified() {
                   graceUntil={formatUntil(subscription.grace_until ?? null)}
                   graceDays={meta.graceDays}
                 />
-                <HeroZone state={state} actions={actions} graceDays={meta.graceDays} />
+                <HeroZone
+                  state={state}
+                  actions={actions}
+                  graceDays={meta.graceDays}
+                  connectButtonRef={connectButtonRef}
+                  connectHintVisible={showDeviceHint}
+                />
                 {showDeviceHint && subscriptionId != null && (
                   <DeviceHintOverlay
-                    onDismiss={() => {
-                      setDeviceHintSeen(subscriptionId);
+                    targetRef={connectButtonRef}
+                    onTargetUnavailable={() => {
                       setShowDeviceHint(false);
+                      deviceHintTriggered.current = false;
                     }}
-                    onConnect={actions.onConnect ?? (() => {})}
                   />
                 )}
                 {/* При перекрывающем состоянии (платёж обрабатывается / временно отключён)

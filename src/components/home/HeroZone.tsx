@@ -1,4 +1,5 @@
 import { useTranslation } from 'react-i18next';
+import type { RefObject } from 'react';
 import { PlusIcon, RefreshIcon, StarIcon } from '@/components/icons';
 import type { ScreenState } from '../../hooks/useScreenState';
 import type { HomeActions } from './types';
@@ -51,6 +52,8 @@ function ActionButton({
   hint,
   onClick,
   dataDeviceHint,
+  buttonRef,
+  hintVisible = false,
 }: {
   variant: Variant;
   icon: React.ReactNode;
@@ -58,13 +61,17 @@ function ActionButton({
   hint?: string;
   onClick?: () => void;
   dataDeviceHint?: string;
+  buttonRef?: RefObject<HTMLButtonElement | null>;
+  hintVisible?: boolean;
 }) {
   const v = VARIANT[variant];
   return (
     <button
       type="button"
+      ref={buttonRef}
       onClick={onClick}
       data-device-hint={dataDeviceHint}
+      aria-describedby={hintVisible && dataDeviceHint ? 'device-hint-desc' : undefined}
       className={`flex w-full items-center gap-3 rounded-2xl p-3.5 text-left transition-all active:scale-[0.99] ${v.btn}`}
     >
       <span
@@ -120,10 +127,14 @@ export default function HeroZone({
   state,
   actions = {},
   graceDays = 2,
+  connectButtonRef,
+  connectHintVisible = false,
 }: {
   state: ScreenState;
   actions?: HomeActions;
   graceDays?: number;
+  connectButtonRef?: RefObject<HTMLButtonElement | null>;
+  connectHintVisible?: boolean;
 }) {
   const { t } = useTranslation();
   const dz = state.deviceZone;
@@ -149,6 +160,8 @@ export default function HeroZone({
         hint={deviceCounter}
         onClick={actions.onConnect}
         dataDeviceHint="connect-btn"
+        buttonRef={connectButtonRef}
+        hintVisible={connectHintVisible}
       />
     );
   } else if (dz.kind === 'connect_more') {

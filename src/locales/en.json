@@ -305,9 +305,8 @@
     },
     "manageSubscription": "Manage subscription",
     "deviceHint": {
-      "title": "One last step — turn on VPN!",
-      "description": "Subscription is activated. Tap the button above — VPN will start working on your phone right away. Takes about 1 minute.",
-      "dismiss": "Got it — tapping now!"
+      "title": "Connect your device",
+      "description": "Tap “Connect device”, choose an app, and set up VPN. It takes about a minute."
     }
   },
   "dashboard": {
