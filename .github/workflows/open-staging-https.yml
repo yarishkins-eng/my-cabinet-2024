@@ -1,8 +1,14 @@
 name: Open staging cabinet HTTPS access
 
-# This workflow intentionally exists only on staging.  It is manually dispatched
-# after the owner approves the isolated test entrance; it never runs for main.
+# This workflow intentionally exists only on staging.  GitHub cannot manually
+# dispatch a workflow that is absent from the default branch, so the only
+# automatic trigger is a dedicated one-time approval marker -- never code.
 on:
+  push:
+    branches:
+      - staging
+    paths:
+      - '.github/staging-https-owner-approval'
   workflow_dispatch:
     inputs:
       owner_go_no_go:
@@ -22,7 +28,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - name: Validate owner approval
+      - name: Validate manual owner approval
+        if: ${{ github.event_name == 'workflow_dispatch' }}
         env:
           OWNER_GO_NO_GO: ${{ inputs.owner_go_no_go }}
           ROLLBACK_PLAN_REFERENCE: ${{ inputs.rollback_plan_reference }}
