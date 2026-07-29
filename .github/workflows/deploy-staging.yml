@@ -53,6 +53,8 @@ jobs:
             PREVIOUS_IMAGE_ID=''
             SERVICE_IMAGE=''
             PROXY_CHANGED=0
+            PROXY_PREVIOUS_BLOCK=''
+            PROXY_PREVIOUS_BLOCK_EXISTS=0
 
             compose() {
               if [ -n "$BUILD_OVERRIDE" ]; then
@@ -66,6 +68,17 @@ jobs:
               if [ -n "$BUILD_DIR" ]; then
                 rm -rf "$BUILD_DIR"
               fi
+            }
+
+            cleanup_proxy_rollback_state() {
+              if [ -n "$PROXY_PREVIOUS_BLOCK" ]; then
+                rm -f "$PROXY_PREVIOUS_BLOCK"
+              fi
+            }
+
+            cleanup() {
+              cleanup_build_context
+              cleanup_proxy_rollback_state
             }
 
             create_clean_build_context() {
@@ -176,6 +189,20 @@ jobs:
               ' "$NGINX_CONF"
             }
 
+            extract_staging_proxy() {
+              awk -v begin="$NGINX_MARKER_BEGIN" -v end="$NGINX_MARKER_END" '
+                $0 == begin {
+                  if (inside || found) { bad = 1; exit }
+                  inside = 1; found = 1
+                }
+                inside { print }
+                $0 == end {
+                  inside = 0
+                }
+                END { if (!found || inside || bad) exit 1 }
+              ' "$NGINX_CONF"
+            }
+
             append_staging_proxy() {
               tls_directives="$(extract_cabinet_tls)"
               printf '%s\n' "$tls_directives" | awk 'NF { count += 1 } END { exit(count == 2 ? 0 : 1) }'
@@ -236,6 +263,17 @@ jobs:
               candidate="$(mktemp /tmp/teplo-staging-nginx.XXXXXX)"
               cp "$NGINX_CONF" "$original"
 
+              if grep -Fqx "$NGINX_MARKER_BEGIN" "$NGINX_CONF"; then
+                PROXY_PREVIOUS_BLOCK="$(mktemp /tmp/teplo-staging-nginx-previous-block.XXXXXX)"
+                if ! extract_staging_proxy > "$PROXY_PREVIOUS_BLOCK"; then
+                  rm -f "$original" "$candidate" "$PROXY_PREVIOUS_BLOCK"
+                  PROXY_PREVIOUS_BLOCK=''
+                  echo 'Refusing staging proxy update: its marker block cannot be extracted safely.' >&2
+                  return 1
+                fi
+                PROXY_PREVIOUS_BLOCK_EXISTS=1
+              fi
+
               if ! copy_without_staging_proxy > "$candidate"; then
                 rm -f "$original" "$candidate"
                 echo 'Refusing staging proxy update: its marker block is malformed.' >&2
@@ -249,24 +287,20 @@ jobs:
                 cp "$original" "$NGINX_CONF"
                 docker exec "$NGINX_CONTAINER" nginx -t
                 rm -f "$original"
-                exit 70
+                return 1
               fi
               if ! docker exec "$NGINX_CONTAINER" nginx -s reload; then
                 cp "$original" "$NGINX_CONF"
                 docker exec "$NGINX_CONTAINER" nginx -t
                 docker exec "$NGINX_CONTAINER" nginx -s reload
                 rm -f "$original"
-                exit 71
+                return 1
               fi
               rm -f "$original"
               PROXY_CHANGED=1
             }
 
-            remove_staging_proxy() {
-              if ! grep -Fqx "$NGINX_MARKER_BEGIN" "$NGINX_CONF"; then
-                return 0
-              fi
-
+            restore_previous_staging_proxy() {
               original="$(mktemp /tmp/teplo-staging-nginx-original.XXXXXX)"
               candidate="$(mktemp /tmp/teplo-staging-nginx.XXXXXX)"
               cp "$NGINX_CONF" "$original"
@@ -274,6 +308,9 @@ jobs:
                 rm -f "$original" "$candidate"
                 echo 'Refusing staging proxy rollback: its marker block is malformed.' >&2
                 return 1
+              fi
+              if [ "$PROXY_PREVIOUS_BLOCK_EXISTS" = '1' ]; then
+                cat "$PROXY_PREVIOUS_BLOCK" >> "$candidate"
               fi
               cp "$candidate" "$NGINX_CONF"
               rm -f "$candidate"
@@ -299,12 +336,12 @@ jobs:
                 compose up -d --no-build --wait --wait-timeout 180 "$SERVICE"
               fi
               if [ "$PROXY_CHANGED" = '1' ]; then
-                remove_staging_proxy
+                restore_previous_staging_proxy
               fi
               exit "$rc"
             }
 
-            trap cleanup_build_context EXIT
+            trap cleanup EXIT
 
             if ! test -d "$REPO_DIR/.git"; then
               BOOTSTRAP=1
