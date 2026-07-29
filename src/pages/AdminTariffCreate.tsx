@@ -44,6 +44,8 @@ export default function AdminTariffCreate() {
   const [deviceLimit, setDeviceLimit] = useState<number | ''>(1);
   const [devicePriceKopeks, setDevicePriceKopeks] = useState<number | ''>(0);
   const [maxDeviceLimit, setMaxDeviceLimit] = useState<number | ''>(0);
+  const [devicePurchaseOptions, setDevicePurchaseOptions] = useState<number[] | null>(null);
+  const [devicePurchaseOptionsText, setDevicePurchaseOptionsText] = useState('');
   const [tierLevel, setTierLevel] = useState<number | ''>(1);
   const [periodPrices, setPeriodPrices] = useState<PeriodPrice[]>([]);
   const [selectedSquads, setSelectedSquads] = useState<string[]>([]);
@@ -114,6 +116,8 @@ export default function AdminTariffCreate() {
       setDeviceLimit(data.device_limit || 1);
       setDevicePriceKopeks(data.device_price_kopeks || 0);
       setMaxDeviceLimit(data.max_device_limit || 0);
+      setDevicePurchaseOptions(data.device_purchase_options);
+      setDevicePurchaseOptionsText((data.device_purchase_options || []).join(', '));
       setTierLevel(data.tier_level || 1);
       setPeriodPrices(data.period_prices?.length ? data.period_prices : []);
       setSelectedSquads(data.allowed_squads || []);
@@ -163,6 +167,7 @@ export default function AdminTariffCreate() {
       device_price_kopeks:
         toNumber(devicePriceKopeks) >= 0 ? toNumber(devicePriceKopeks) : undefined,
       max_device_limit: toNumber(maxDeviceLimit) > 0 ? toNumber(maxDeviceLimit) : undefined,
+      device_purchase_options: isDaily ? null : devicePurchaseOptions,
       tier_level: toNumber(tierLevel, 1),
       period_prices: isDaily ? [] : periodPrices.filter((p) => p.price_kopeks >= 0),
       allowed_squads: selectedSquads,
@@ -228,12 +233,28 @@ export default function AdminTariffCreate() {
   const isTierLevelValid =
     tierLevel !== '' && toNumber(tierLevel) >= 1 && toNumber(tierLevel) <= 10;
   const hasTrafficPackages = !trafficTopupEnabled || Object.keys(trafficTopupPackages).length > 0;
+  const deviceOptionsTokensValid =
+    devicePurchaseOptions === null || /^\s*\d+\s*(,\s*\d+\s*)*$/.test(devicePurchaseOptionsText);
+  const deviceOptionsValid =
+    devicePurchaseOptions === null ||
+    (deviceOptionsTokensValid &&
+      devicePurchaseOptions.length > 0 &&
+      devicePurchaseOptions.includes(toNumber(deviceLimit, 1)) &&
+      devicePurchaseOptions.every(
+        (value, index) =>
+          value > 0 &&
+          (index === 0 || value > devicePurchaseOptions[index - 1]) &&
+          (toNumber(maxDeviceLimit) === 0 || value <= toNumber(maxDeviceLimit)),
+      ) &&
+      (!devicePurchaseOptions.some((value) => value > toNumber(deviceLimit, 1)) ||
+        toNumber(devicePriceKopeks) > 0));
   const isValidPeriod =
     isNameValid &&
     isDeviceLimitValid &&
     isTierLevelValid &&
     periodPrices.length > 0 &&
     hasTrafficPackages;
+  const isValidPeriodWithDevices = isValidPeriod && deviceOptionsValid;
   const isValidDaily =
     isNameValid &&
     isDeviceLimitValid &&
@@ -241,7 +262,11 @@ export default function AdminTariffCreate() {
     toNumber(dailyPriceKopeks) > 0 &&
     hasTrafficPackages;
   const isValid =
-    tariffType === 'period' ? isValidPeriod : tariffType === 'daily' ? isValidDaily : false;
+    tariffType === 'period'
+      ? isValidPeriodWithDevices
+      : tariffType === 'daily'
+        ? isValidDaily
+        : false;
 
   // Collect validation errors for display
   const validationErrors: string[] = [];
@@ -263,6 +288,7 @@ export default function AdminTariffCreate() {
   if (trafficTopupEnabled && Object.keys(trafficTopupPackages).length === 0) {
     validationErrors.push('trafficPackagesRequired');
   }
+  if (!deviceOptionsValid) validationErrors.push('devicePurchaseOptionsInvalid');
 
   // Loading state
   if (isEdit && isLoadingTariff) {
@@ -807,6 +833,71 @@ export default function AdminTariffCreate() {
               />
             </div>
             <p className="text-xs text-dark-500">{t('admin.tariffs.noLimitHint')}</p>
+            {!isDaily && (
+              <div className="mt-4 border-t border-dark-700 pt-4">
+                <div className="mb-2 flex items-center justify-between gap-4">
+                  <label
+                    htmlFor="device-purchase-options"
+                    className="text-sm font-medium text-dark-200"
+                  >
+                    {t('admin.tariffs.devicePurchaseOptions')}
+                  </label>
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={devicePurchaseOptions !== null}
+                    aria-label={t('admin.tariffs.devicePurchaseOptions')}
+                    onClick={() => {
+                      if (devicePurchaseOptions === null) {
+                        const base = toNumber(deviceLimit, 1);
+                        setDevicePurchaseOptions([base]);
+                        setDevicePurchaseOptionsText(String(base));
+                      } else {
+                        setDevicePurchaseOptions(null);
+                        setDevicePurchaseOptionsText('');
+                      }
+                    }}
+                    className={`relative h-6 w-11 rounded-full transition-colors ${
+                      devicePurchaseOptions !== null ? 'bg-accent-500' : 'bg-dark-600'
+                    }`}
+                  >
+                    <span
+                      className={`absolute top-1 h-4 w-4 rounded-full bg-white transition-transform ${
+                        devicePurchaseOptions !== null ? 'left-6' : 'left-1'
+                      }`}
+                    />
+                  </button>
+                </div>
+                {devicePurchaseOptions !== null && (
+                  <>
+                    <input
+                      id="device-purchase-options"
+                      type="text"
+                      value={devicePurchaseOptionsText}
+                      onChange={(event) => {
+                        const text = event.target.value;
+                        setDevicePurchaseOptionsText(text);
+                        if (/^\s*\d+\s*(,\s*\d+\s*)*$/.test(text)) {
+                          setDevicePurchaseOptions(
+                            text.split(',').map((part) => Number(part.trim())),
+                          );
+                        }
+                      }}
+                      className={`input ${!deviceOptionsValid ? 'border-error-500/50' : ''}`}
+                      placeholder="1, 3, 5"
+                    />
+                    <p className="mt-2 text-xs text-dark-500">
+                      {t('admin.tariffs.devicePurchaseOptionsHint')}
+                    </p>
+                    {!deviceOptionsTokensValid && (
+                      <p role="alert" className="mt-2 text-xs text-error-400">
+                        {t('admin.tariffs.devicePurchaseOptionsInvalid')}
+                      </p>
+                    )}
+                  </>
+                )}
+              </div>
+            )}
           </div>
 
           {/* Traffic topup */}

@@ -51,6 +51,7 @@ import { SCREEN_SHOWCASE_ENABLED } from './config/featureFlags';
 // User pages - lazy load
 const DashboardUnified = lazyWithRetry(() => import('./pages/DashboardUnified'));
 const ScreenStateShowcase = lazyWithRetry(() => import('./pages/ScreenStateShowcase'));
+const DeviceFirstVisualShowcase = lazyWithRetry(() => import('./pages/DeviceFirstVisualShowcase'));
 const Subscriptions = lazyWithRetry(() => import('./pages/Subscriptions'));
 const Subscription = lazyWithRetry(() => import('./pages/Subscription'));
 const SubscriptionPurchase = lazyWithRetry(() => import('./pages/SubscriptionPurchase'));
@@ -224,7 +225,9 @@ function BlockingOverlay() {
   // Dev-витрина состояний (Чат 3a) рисует фикстуры и НЕ зависит от бэкенда — не
   // перекрываем её блокирующим экраном (напр. «бэкенд недоступен» в локальном dev).
   // В проде SCREEN_SHOWCASE_ENABLED=false → условие мёртвое, влияния ноль.
-  if (SCREEN_SHOWCASE_ENABLED && pathname === '/__screens') return null;
+  if (SCREEN_SHOWCASE_ENABLED && (pathname === '/__screens' || pathname === '/__device-first')) {
+    return null;
+  }
 
   if (blockingType === 'maintenance') {
     return <MaintenanceScreen />;
@@ -323,6 +326,16 @@ function App() {
             element={
               <LazyPage>
                 <ScreenStateShowcase />
+              </LazyPage>
+            }
+          />
+        )}
+        {SCREEN_SHOWCASE_ENABLED && (
+          <Route
+            path="/__device-first"
+            element={
+              <LazyPage>
+                <DeviceFirstVisualShowcase />
               </LazyPage>
             }
           />
