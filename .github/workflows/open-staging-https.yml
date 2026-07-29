@@ -1,0 +1,81 @@
+name: Open staging cabinet HTTPS access
+
+# This workflow intentionally exists only on staging.  It is manually dispatched
+# after the owner approves the isolated test entrance; it never runs for main.
+on:
+  workflow_dispatch:
+    inputs:
+      owner_go_no_go:
+        description: 'Exact phrase: OWNER_APPROVED'
+        required: true
+        type: string
+      rollback_plan_reference:
+        description: 'Reference: UFW delete allow 8443/tcp'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  open-staging-https:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Validate owner approval
+        env:
+          OWNER_GO_NO_GO: ${{ inputs.owner_go_no_go }}
+          ROLLBACK_PLAN_REFERENCE: ${{ inputs.rollback_plan_reference }}
+        run: |
+          set -Eeuo pipefail
+          test "$OWNER_GO_NO_GO" = 'OWNER_APPROVED'
+          test "$ROLLBACK_PLAN_REFERENCE" = 'UFW delete allow 8443/tcp'
+
+      - name: Open only the isolated test HTTPS listener
+        uses: appleboy/ssh-action@029f5b4aeeeb58fdfe1410a5d17f967dacf36262 # v1.0.3
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          command_timeout: 5m
+          script: |
+            set -Eeuo pipefail
+
+            readonly PORT='8443'
+            readonly TEST_ORIGIN='https://cabinet.lilulalu.xyz:8443'
+            RULE_ADDED=0
+
+            port_is_allowed() {
+              ufw status | grep -Eq "(^|[[:space:]])${PORT}/tcp([[:space:]]|$).*ALLOW"
+            }
+
+            rollback() {
+              rc=$?
+              trap - ERR
+              set +e
+              if [ "$RULE_ADDED" = '1' ]; then
+                ufw delete allow "${PORT}/tcp"
+              fi
+              exit "$rc"
+            }
+            trap rollback ERR
+
+            test "$(ufw status | awk 'NR == 1 { print $2 }')" = 'active'
+            ss -ltn "( sport = :${PORT} )" | awk 'NR > 1 { found = 1 } END { exit(found ? 0 : 1) }'
+
+            if port_is_allowed; then
+              echo 'staging_https_firewall=already_allowed'
+            else
+              ufw allow "${PORT}/tcp" comment 'Teplo staging cabinet'
+              RULE_ADDED=1
+              port_is_allowed
+              echo 'staging_https_firewall=allowed'
+            fi
+
+            curl --noproxy '*' --fail --silent --show-error --max-time 15 \
+              --resolve "cabinet.lilulalu.xyz:${PORT}:127.0.0.1" \
+              "${TEST_ORIGIN}/health/unified" >/dev/null
+
+            RULE_ADDED=0
+            trap - ERR
+            echo 'staging_https_access_ready=true'
