@@ -52,6 +52,7 @@ jobs:
             PREVIOUS_SHA=''
             PREVIOUS_IMAGE_ID=''
             SERVICE_IMAGE=''
+            PROXY_CHANGED=0
 
             compose() {
               if [ -n "$BUILD_OVERRIDE" ]; then
@@ -87,9 +88,34 @@ jobs:
               test "$stored_sha" = "$TARGET_SHA"
               test "$stored_image" = "$current_image"
               curl --fail --silent --show-error --max-time 15 http://127.0.0.1:13030/ >/dev/null
-              curl --fail --silent --show-error --max-time 15 \
+              wait_for_staging_proxy
+            }
+
+            staging_proxy_health() {
+              # Force the local probe to the host-network nginx.  The test must
+              # not accidentally use a workstation/server proxy configuration.
+              curl --noproxy '*' --fail --silent --show-error --max-time 5 \
                 --resolve cabinet.lilulalu.xyz:8443:127.0.0.1 \
                 "$STAGING_ORIGIN/health/unified" >/dev/null
+            }
+
+            wait_for_staging_proxy() {
+              # nginx acknowledges a reload before a new TLS listener is ready
+              # to accept a connection.  Wait for the actual proxied API, not
+              # merely for a successful nginx -s reload.
+              for attempt in $(seq 1 24); do
+                if staging_proxy_health; then
+                  echo "Staging cabinet proxy accepted health check on attempt $attempt."
+                  return 0
+                fi
+
+                if [ "$attempt" -lt 24 ]; then
+                  sleep 5
+                fi
+              done
+
+              echo 'Staging cabinet proxy did not become ready within 120 seconds.' >&2
+              return 1
             }
 
             write_deployed_state() {
@@ -183,6 +209,7 @@ jobs:
                 docker exec "$NGINX_CONTAINER" nginx -s reload
                 exit 71
               fi
+              PROXY_CHANGED=1
             }
 
             rollback() {
@@ -195,6 +222,13 @@ jobs:
               if [ "$SERVICE_SWITCH_ATTEMPTED" = '1' ] && [ -n "$PREVIOUS_IMAGE_ID" ]; then
                 docker image tag "teplo-vpn-rollback/cabinet-staging:previous" "$SERVICE_IMAGE"
                 compose up -d --no-build --wait --wait-timeout 180 "$SERVICE"
+              fi
+              if [ "$PROXY_CHANGED" = '1' ]; then
+                backup="$NGINX_CONF.pre-teplo-staging-cabinet"
+                if test -r "$backup"; then
+                  cp "$backup" "$NGINX_CONF"
+                  docker exec "$NGINX_CONTAINER" nginx -t && docker exec "$NGINX_CONTAINER" nginx -s reload
+                fi
               fi
               exit "$rc"
             }
@@ -255,9 +289,7 @@ jobs:
             compose up -d --wait --wait-timeout 180 "$SERVICE"
             curl --fail --silent --show-error --max-time 15 http://127.0.0.1:13030/ >/dev/null
             ensure_staging_proxy
-            curl --fail --silent --show-error --max-time 15 \
-              --resolve cabinet.lilulalu.xyz:8443:127.0.0.1 \
-              "$STAGING_ORIGIN/health/unified" >/dev/null
+            wait_for_staging_proxy
             compose ps "$SERVICE"
             write_deployed_state
 
