@@ -144,13 +144,16 @@ jobs:
               # nginx acknowledges a reload before a new TLS listener is ready
               # to accept a connection.  Wait for the actual proxied API, not
               # merely for a successful nginx -s reload.
-              for attempt in $(seq 1 24); do
+              # A failed WebSocket probe takes at most three seconds, so 15
+              # attempts plus 14 five-second pauses stay within this 120-second
+              # readiness budget.
+              for attempt in $(seq 1 15); do
                 if staging_proxy_health && staging_websocket_proxy_health; then
                   echo "Staging cabinet proxy accepted HTTP and WebSocket health checks on attempt $attempt."
                   return 0
                 fi
 
-                if [ "$attempt" -lt 24 ]; then
+                if [ "$attempt" -lt 15 ]; then
                   sleep 5
                 fi
               done
