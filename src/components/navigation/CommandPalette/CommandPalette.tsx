@@ -62,7 +62,7 @@ export function CommandPalette({
   const navigate = useNavigate();
   const { haptic } = usePlatform();
   const isAdmin = useAuthStore((state) => state.isAdmin);
-  const { toggleTheme, isDark } = useTheme();
+  const { toggleTheme, isDark, canToggle } = useTheme();
   const [search, setSearch] = useState('');
 
   const runCommand = useCallback(
@@ -101,11 +101,15 @@ export function CommandPalette({
       icon: DownloadIcon,
       action: () => navigate('/subscriptions'),
     },
-    {
-      label: isDark ? t('theme.light') || 'Light mode' : t('theme.dark') || 'Dark mode',
-      icon: isDark ? SunIcon : MoonIcon,
-      action: toggleTheme,
-    },
+    ...(canToggle
+      ? [
+          {
+            label: isDark ? t('theme.light') || 'Light mode' : t('theme.dark') || 'Dark mode',
+            icon: isDark ? SunIcon : MoonIcon,
+            action: toggleTheme,
+          },
+        ]
+      : []),
     {
       label: t('support.create_ticket') || 'Create support ticket',
       icon: ChatIcon,

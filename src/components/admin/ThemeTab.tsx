@@ -5,7 +5,7 @@ import { themeColorsApi } from '../../api/themeColors';
 import { DEFAULT_THEME_COLORS, ThemeColors } from '../../types/theme';
 import { ColorPicker } from '../ColorPicker';
 import { applyThemeColors } from '../../hooks/useThemeColors';
-import { updateEnabledThemesCache } from '../../hooks/useTheme';
+import { useTheme } from '../../hooks/useTheme';
 import { MoonIcon, SunIcon, ChevronDownIcon } from './icons';
 import { Toggle } from './Toggle';
 import { THEME_PRESETS } from './constants';
@@ -30,6 +30,7 @@ function colorsEqual(a: ThemeColors, b: ThemeColors): boolean {
 export function ThemeTab() {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
+  const { applyEnabledThemes } = useTheme();
 
   const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set(['presets']));
 
@@ -144,8 +145,8 @@ export function ThemeTab() {
   const updateEnabledThemesMutation = useMutation({
     mutationFn: themeColorsApi.updateEnabledThemes,
     onSuccess: (data) => {
-      updateEnabledThemesCache(data);
-      queryClient.invalidateQueries({ queryKey: ['enabled-themes'] });
+      applyEnabledThemes(data);
+      queryClient.setQueryData(['enabled-themes'], data);
     },
   });
 

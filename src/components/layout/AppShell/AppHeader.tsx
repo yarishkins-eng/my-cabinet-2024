@@ -16,7 +16,6 @@ import {
   preloadLogo,
   isLogoPreloaded,
 } from '@/api/branding';
-import { themeColorsApi } from '@/api/themeColors';
 import { cn } from '@/lib/utils';
 
 import LanguageSwitcher from '@/components/LanguageSwitcher';
@@ -84,7 +83,7 @@ export function AppHeader({
   const { user, logout, isAdmin } = useAuthStore(
     useShallow((state) => ({ user: state.user, logout: state.logout, isAdmin: state.isAdmin })),
   );
-  const { toggleTheme, isDark } = useTheme();
+  const { toggleTheme, isDark, canToggle } = useTheme();
   const { haptic, platform } = usePlatform();
   const [userPhotoUrl, setUserPhotoUrl] = useState<string | null>(null);
   const [logoLoaded, setLogoLoaded] = useState(() => isLogoPreloaded());
@@ -109,14 +108,6 @@ export function AppHeader({
   const logoLetter = branding?.logo_letter || FALLBACK_LOGO;
   const hasCustomLogo = branding?.has_custom_logo || false;
   const logoUrl = branding ? brandingApi.getLogoUrl(branding) : null;
-
-  // Theme toggle visibility
-  const { data: enabledThemes } = useQuery({
-    queryKey: ['enabled-themes'],
-    queryFn: themeColorsApi.getEnabledThemes,
-    staleTime: 1000 * 60 * 5,
-  });
-  const canToggle = enabledThemes?.dark && enabledThemes?.light;
 
   // Get user photo from Telegram
   useEffect(() => {

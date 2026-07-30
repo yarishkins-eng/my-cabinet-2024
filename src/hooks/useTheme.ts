@@ -1,4 +1,15 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import {
+  createElement,
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
 import { EnabledThemes, DEFAULT_ENABLED_THEMES } from '../types/theme';
 import { themeColorsApi } from '../api/themeColors';
 import { STORAGE_KEYS } from '../config/constants';
@@ -9,199 +20,177 @@ type Theme = 'dark' | 'light';
 const THEME_KEY = STORAGE_KEYS.THEME;
 const ENABLED_THEMES_KEY = STORAGE_KEYS.ENABLED_THEMES;
 
-// Fetch enabled themes from API
+interface ThemeContextValue {
+  theme: Theme;
+  setTheme: (theme: Theme) => void;
+  toggleTheme: () => void;
+  isDark: boolean;
+  isLight: boolean;
+  enabledThemes: EnabledThemes;
+  canToggle: boolean;
+  isLoading: boolean;
+  refreshEnabledThemes: () => Promise<void>;
+  applyEnabledThemes: (themes: EnabledThemes) => void;
+}
+
+const ThemeContext = createContext<ThemeContextValue | null>(null);
+
+function readStorage(key: string): string | null {
+  try {
+    return window.localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function writeStorage(key: string, value: string): void {
+  try {
+    window.localStorage.setItem(key, value);
+  } catch {
+    // Some Telegram WebViews can reject localStorage. The in-memory context remains usable.
+  }
+}
+
+function isEnabledThemes(value: unknown): value is EnabledThemes {
+  if (!value || typeof value !== 'object') return false;
+  const themes = value as Partial<EnabledThemes>;
+  return typeof themes.dark === 'boolean' && typeof themes.light === 'boolean';
+}
+
+function getCachedEnabledThemes(): EnabledThemes {
+  const cached = readStorage(ENABLED_THEMES_KEY);
+  if (cached) {
+    try {
+      const parsed: unknown = JSON.parse(cached);
+      if (isEnabledThemes(parsed)) return parsed;
+    } catch {
+      // Ignore malformed cache and use the safe default.
+    }
+  }
+  return DEFAULT_ENABLED_THEMES;
+}
+
 async function fetchEnabledThemes(): Promise<EnabledThemes> {
   try {
-    const data = await themeColorsApi.getEnabledThemes();
-    // Cache in localStorage for faster subsequent loads
-    localStorage.setItem(ENABLED_THEMES_KEY, JSON.stringify(data));
-    return data;
+    const themes = await themeColorsApi.getEnabledThemes();
+    if (isEnabledThemes(themes)) {
+      return themes;
+    }
   } catch {
-    // Ignore errors, use cached or default
+    // The cached/default value below keeps theme selection available offline.
   }
-  // Try to get from cache
-  const cached = localStorage.getItem(ENABLED_THEMES_KEY);
-  if (cached) {
-    try {
-      return JSON.parse(cached);
-    } catch {
-      // Ignore parse errors
+  return getCachedEnabledThemes();
+}
+
+function fallbackTheme(enabledThemes: EnabledThemes): Theme {
+  return enabledThemes.dark ? 'dark' : 'light';
+}
+
+function initialTheme(enabledThemes: EnabledThemes): Theme {
+  const stored = readStorage(THEME_KEY) as Theme | null;
+  if (stored === 'light' && enabledThemes.light) return 'light';
+  if (stored === 'dark' && enabledThemes.dark) return 'dark';
+  if (stored && !enabledThemes[stored]) return fallbackTheme(enabledThemes);
+
+  if (!stored) {
+    const telegramTheme = getTelegramColorScheme();
+    if (telegramTheme && enabledThemes[telegramTheme]) return telegramTheme;
+  }
+
+  try {
+    if (window.matchMedia('(prefers-color-scheme: light)').matches && enabledThemes.light) {
+      return 'light';
     }
+  } catch {
+    // matchMedia is not available in every embedded WebView.
   }
-  return DEFAULT_ENABLED_THEMES;
+
+  return fallbackTheme(enabledThemes);
 }
 
-// Get cached enabled themes synchronously
-function getCachedEnabledThemes(): EnabledThemes {
-  const cached = localStorage.getItem(ENABLED_THEMES_KEY);
-  if (cached) {
-    try {
-      return JSON.parse(cached);
-    } catch {
-      // Ignore parse errors
-    }
-  }
-  return DEFAULT_ENABLED_THEMES;
-}
-
-// Custom events for same-tab updates
-const ENABLED_THEMES_CHANGED_EVENT = 'enabledThemesChanged';
-const THEME_CHANGED_EVENT = 'themeChanged';
-
-// Update cache (called from admin settings)
-export function updateEnabledThemesCache(themes: EnabledThemes) {
-  localStorage.setItem(ENABLED_THEMES_KEY, JSON.stringify(themes));
-  // Dispatch custom event for same-tab updates
-  window.dispatchEvent(new CustomEvent(ENABLED_THEMES_CHANGED_EVENT, { detail: themes }));
-}
-
-export function useTheme() {
+/**
+ * The theme is application-wide state. Keeping it in one provider makes the root
+ * class and every card that uses inline glass colours update in the same React
+ * commit, instead of synchronising independent hook instances through an event.
+ */
+export function ThemeProvider({ children }: { children: ReactNode }) {
   const [enabledThemes, setEnabledThemes] = useState<EnabledThemes>(getCachedEnabledThemes);
+  const [theme, setThemeState] = useState<Theme>(() => initialTheme(getCachedEnabledThemes()));
   const [isLoading, setIsLoading] = useState(true);
+  const enabledThemesVersion = useRef(0);
 
-  const [theme, setThemeState] = useState<Theme>(() => {
-    const enabled = getCachedEnabledThemes();
+  const applyEnabledThemes = useCallback((nextThemes: EnabledThemes) => {
+    if (!isEnabledThemes(nextThemes)) return;
 
-    // Check localStorage first
-    if (typeof window !== 'undefined') {
-      const stored = localStorage.getItem(THEME_KEY) as Theme | null;
-      if (stored === 'light' && enabled.light) {
-        return 'light';
-      }
-      if (stored === 'dark' && enabled.dark) {
-        return 'dark';
-      }
-      // If stored theme is disabled, use the enabled one
-      if (stored && !enabled[stored]) {
-        return enabled.dark ? 'dark' : 'light';
-      }
-      // No stored preference: follow the Telegram client's color scheme in a Mini App.
-      if (!stored) {
-        const tgScheme = getTelegramColorScheme();
-        if (tgScheme && enabled[tgScheme]) {
-          return tgScheme;
-        }
-      }
-      // Check system preference
-      if (window.matchMedia('(prefers-color-scheme: light)').matches && enabled.light) {
-        return 'light';
-      }
-    }
-    // Default to dark if enabled, otherwise light
-    return enabled.dark ? 'dark' : 'light';
-  });
-
-  const themeRef = useRef(theme);
-  themeRef.current = theme;
-
-  // Fetch enabled themes on mount
-  useEffect(() => {
-    fetchEnabledThemes().then((data) => {
-      setEnabledThemes(data);
-      setIsLoading(false);
-      // If current theme is disabled, switch to enabled one
-      if (!data[themeRef.current]) {
-        const newTheme = data.dark ? 'dark' : 'light';
-        setThemeState(newTheme);
-      }
-    });
+    enabledThemesVersion.current += 1;
+    writeStorage(ENABLED_THEMES_KEY, JSON.stringify(nextThemes));
+    setEnabledThemes(nextThemes);
+    setThemeState((currentTheme) =>
+      nextThemes[currentTheme] ? currentTheme : fallbackTheme(nextThemes),
+    );
   }, []);
 
-  // Listen for localStorage changes (when admin updates enabled themes from other tabs)
+  const refreshEnabledThemes = useCallback(async () => {
+    const requestVersion = enabledThemesVersion.current;
+    const nextThemes = await fetchEnabledThemes();
+
+    // A newer admin or cross-tab update wins over an older in-flight GET.
+    if (requestVersion !== enabledThemesVersion.current) {
+      setIsLoading(false);
+      return;
+    }
+
+    applyEnabledThemes(nextThemes);
+    setIsLoading(false);
+  }, [applyEnabledThemes]);
+
   useEffect(() => {
-    const handleStorageChange = (e: StorageEvent) => {
-      if (e.key === ENABLED_THEMES_KEY && e.newValue) {
-        try {
-          const data = JSON.parse(e.newValue) as EnabledThemes;
-          setEnabledThemes(data);
-          // If current theme is now disabled, switch to enabled one
-          if (!data[theme]) {
-            const newTheme = data.dark ? 'dark' : 'light';
-            setThemeState(newTheme);
-          }
-        } catch {
-          // Ignore parse errors
-        }
+    void refreshEnabledThemes();
+  }, [refreshEnabledThemes]);
+
+  // Only cross-tab settings changes need an event. Same-tab consumers read one context.
+  useEffect(() => {
+    const handleStorageChange = (event: StorageEvent) => {
+      if (event.key !== ENABLED_THEMES_KEY || !event.newValue) return;
+      try {
+        const nextThemes: unknown = JSON.parse(event.newValue);
+        if (isEnabledThemes(nextThemes)) applyEnabledThemes(nextThemes);
+      } catch {
+        // Ignore malformed storage updates from another tab.
       }
     };
 
     window.addEventListener('storage', handleStorageChange);
     return () => window.removeEventListener('storage', handleStorageChange);
-  }, [theme]);
+  }, [applyEnabledThemes]);
 
-  // Listen for same-tab enabled themes changes (from admin settings)
-  useEffect(() => {
-    const handleEnabledThemesChange = (e: CustomEvent<EnabledThemes>) => {
-      const data = e.detail;
-      setEnabledThemes(data);
-      // If current theme is now disabled, switch to enabled one
-      if (!data[theme]) {
-        const newTheme = data.dark ? 'dark' : 'light';
-        setThemeState(newTheme);
-      }
-    };
+  // This runs before the browser paints the commit that changed the context.
+  useLayoutEffect(() => {
+    const resolvedTheme = enabledThemes[theme] ? theme : fallbackTheme(enabledThemes);
+    if (resolvedTheme !== theme) {
+      setThemeState(resolvedTheme);
+      return;
+    }
 
-    window.addEventListener(
-      ENABLED_THEMES_CHANGED_EVENT,
-      handleEnabledThemesChange as EventListener,
-    );
-    return () =>
-      window.removeEventListener(
-        ENABLED_THEMES_CHANGED_EVENT,
-        handleEnabledThemesChange as EventListener,
-      );
-  }, [theme]);
-
-  // Apply theme to document - also check if theme is disabled and switch
-  useEffect(() => {
     const root = document.documentElement;
+    root.classList.toggle('dark', resolvedTheme === 'dark');
+    root.classList.toggle('light', resolvedTheme === 'light');
+    writeStorage(THEME_KEY, resolvedTheme);
+  }, [enabledThemes, theme]);
 
-    // If current theme is disabled, switch to the enabled one
-    if (!enabledThemes[theme]) {
-      const newTheme = enabledThemes.dark ? 'dark' : 'light';
-      if (newTheme !== theme) {
-        setThemeState(newTheme);
-        return; // Will re-run with correct theme
-      }
+  useEffect(() => {
+    let mediaQuery: MediaQueryList;
+    try {
+      mediaQuery = window.matchMedia('(prefers-color-scheme: light)');
+    } catch {
+      return;
     }
 
-    if (theme === 'light') {
-      root.classList.remove('dark');
-      root.classList.add('light');
-    } else {
-      root.classList.remove('light');
-      root.classList.add('dark');
-    }
-
-    localStorage.setItem(THEME_KEY, theme);
-    // Notify other useTheme() instances in the same tab
-    window.dispatchEvent(new CustomEvent(THEME_CHANGED_EVENT, { detail: theme }));
-  }, [theme, enabledThemes]);
-
-  // Listen for same-tab theme changes (from other useTheme() instances)
-  useEffect(() => {
-    const handleThemeChange = (e: CustomEvent<Theme>) => {
-      setThemeState(e.detail);
-    };
-
-    window.addEventListener(THEME_CHANGED_EVENT, handleThemeChange as EventListener);
-    return () =>
-      window.removeEventListener(THEME_CHANGED_EVENT, handleThemeChange as EventListener);
-  }, []);
-
-  // Listen for system theme changes
-  useEffect(() => {
-    const mediaQuery = window.matchMedia('(prefers-color-scheme: light)');
-
-    const handleChange = (e: MediaQueryListEvent) => {
-      const stored = localStorage.getItem(THEME_KEY);
-      // Only auto-switch if user hasn't set a preference and theme is enabled
-      if (!stored) {
-        const newTheme = e.matches ? 'light' : 'dark';
-        if (enabledThemes[newTheme]) {
-          setThemeState(newTheme);
-        }
-      }
+    const handleChange = (event: MediaQueryListEvent) => {
+      // A stored choice is explicit. System changes only affect users without one.
+      if (readStorage(THEME_KEY)) return;
+      const nextTheme: Theme = event.matches ? 'light' : 'dark';
+      if (enabledThemes[nextTheme]) setThemeState(nextTheme);
     };
 
     mediaQuery.addEventListener('change', handleChange);
@@ -209,52 +198,50 @@ export function useTheme() {
   }, [enabledThemes]);
 
   const setTheme = useCallback(
-    (newTheme: Theme) => {
-      // Only allow setting if theme is enabled
-      if (enabledThemes[newTheme]) {
-        setThemeState(newTheme);
-      }
+    (nextTheme: Theme) => {
+      if (enabledThemes[nextTheme]) setThemeState(nextTheme);
     },
     [enabledThemes],
   );
 
   const toggleTheme = useCallback(() => {
-    setThemeState((prev) => {
-      const newTheme = prev === 'dark' ? 'light' : 'dark';
-      // Only toggle if the new theme is enabled
-      if (enabledThemes[newTheme]) {
-        return newTheme;
-      }
-      return prev;
+    setThemeState((currentTheme) => {
+      const nextTheme: Theme = currentTheme === 'dark' ? 'light' : 'dark';
+      return enabledThemes[nextTheme] ? nextTheme : currentTheme;
     });
   }, [enabledThemes]);
 
-  const isDark = theme === 'dark';
-  const isLight = theme === 'light';
+  const value = useMemo<ThemeContextValue>(
+    () => ({
+      theme,
+      setTheme,
+      toggleTheme,
+      isDark: theme === 'dark',
+      isLight: theme === 'light',
+      enabledThemes,
+      canToggle: !isLoading && enabledThemes.dark && enabledThemes.light,
+      isLoading,
+      refreshEnabledThemes,
+      applyEnabledThemes,
+    }),
+    [
+      applyEnabledThemes,
+      enabledThemes,
+      isLoading,
+      refreshEnabledThemes,
+      setTheme,
+      theme,
+      toggleTheme,
+    ],
+  );
 
-  // Check if theme switching is available (both themes enabled and loaded)
-  const canToggle = !isLoading && enabledThemes.dark && enabledThemes.light;
+  return createElement(ThemeContext.Provider, { value }, children);
+}
 
-  // Refresh enabled themes from API
-  const refreshEnabledThemes = useCallback(() => {
-    fetchEnabledThemes().then((data) => {
-      setEnabledThemes(data);
-      if (!data[theme]) {
-        const newTheme = data.dark ? 'dark' : 'light';
-        setThemeState(newTheme);
-      }
-    });
-  }, [theme]);
-
-  return {
-    theme,
-    setTheme,
-    toggleTheme,
-    isDark,
-    isLight,
-    enabledThemes,
-    canToggle,
-    isLoading,
-    refreshEnabledThemes,
-  };
+export function useTheme(): ThemeContextValue {
+  const value = useContext(ThemeContext);
+  if (!value) {
+    throw new Error('useTheme must be used inside ThemeProvider');
+  }
+  return value;
 }
