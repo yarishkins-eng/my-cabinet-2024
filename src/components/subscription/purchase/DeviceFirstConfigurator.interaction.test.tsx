@@ -14,7 +14,9 @@ import {
 vi.mock('@/api/deviceFirst', () => ({
   deviceFirstApi: {
     create: vi.fn(),
+    clearCreateIntents: vi.fn(),
     get: vi.fn(),
+    getOpen: vi.fn(),
     confirm: vi.fn(),
     arm: vi.fn(),
     cancel: vi.fn(),
@@ -109,8 +111,11 @@ function renderConfigurator(
   props: {
     initialCheckoutId?: string;
     fixtureCheckout?: DeviceFirstCheckout;
+    fixtureMethods?: Array<{ key: string; provider_code: number }>;
+    options?: DeviceFirstOptions;
   } = {},
 ) {
+  const { options: testOptions, ...componentProps } = props;
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
@@ -118,7 +123,7 @@ function renderConfigurator(
     <MemoryRouter initialEntries={['/subscription/purchase']}>
       <QueryClientProvider client={queryClient}>
         <LocationProbe />
-        <DeviceFirstConfigurator options={options} {...props} />
+        <DeviceFirstConfigurator options={testOptions ?? options} {...componentProps} />
       </QueryClientProvider>
     </MemoryRouter>,
   );
@@ -127,6 +132,7 @@ function renderConfigurator(
 describe('DeviceFirstConfigurator interaction safety', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(deviceFirstApi.get).mockResolvedValue(checkout('awaiting_payment'));
     vi.mocked(deviceFirstApi.paymentMethods).mockResolvedValue({
       methods: [{ key: 'sbp', provider_code: 2 }],
     });
@@ -173,6 +179,67 @@ describe('DeviceFirstConfigurator interaction safety', () => {
     expect(await screen.findByText('deviceFirst.processingText')).toBeTruthy();
   });
 
+  it('resumes the only server-owned open order instead of hiding its conflict behind a generic error', async () => {
+    vi.mocked(deviceFirstApi.create).mockRejectedValue({
+      response: { data: { detail: { code: 'open_checkout_exists' } } },
+    });
+    vi.mocked(deviceFirstApi.getOpen).mockResolvedValue(checkout('configuration'));
+    renderConfigurator();
+
+    fireEvent.click(screen.getByRole('button', { name: 'deviceFirst.review' }));
+
+    await waitFor(() => expect(deviceFirstApi.getOpen).toHaveBeenCalledTimes(1));
+    expect(await screen.findByRole('button', { name: 'deviceFirst.confirm' })).toBeTruthy();
+    expect(screen.queryByText('deviceFirst.errorResumeOrder')).toBeNull();
+  });
+
+  it('clears only stale create intents when a conflicting order disappears before recovery', async () => {
+    vi.mocked(deviceFirstApi.create).mockRejectedValue({
+      response: { data: { detail: { code: 'open_checkout_exists' } } },
+    });
+    vi.mocked(deviceFirstApi.getOpen).mockRejectedValue({
+      response: { status: 404, data: { detail: { code: 'no_open_checkout' } } },
+    });
+    renderConfigurator();
+
+    fireEvent.click(screen.getByRole('button', { name: 'deviceFirst.review' }));
+
+    await waitFor(() => expect(deviceFirstApi.clearCreateIntents).toHaveBeenCalledTimes(1));
+    expect(await screen.findByText('deviceFirst.errorResumeUnavailable')).toBeTruthy();
+  });
+
+  it('shows the exact server matrix price on every selectable card and updates it on a switch', () => {
+    const matrixOptions: DeviceFirstOptions = {
+      ...options,
+      period_options: [30, 365],
+      device_options: [2, 4],
+      price_matrix: [
+        {
+          period_days: 30,
+          prices: [
+            { ...options.price_matrix![0].prices[0], device_limit: 2, price_kopeks: 30000 },
+            { ...options.price_matrix![0].prices[0], device_limit: 4, price_kopeks: 50000 },
+          ],
+        },
+        {
+          period_days: 365,
+          prices: [
+            { ...options.price_matrix![0].prices[0], device_limit: 2, price_kopeks: 300000 },
+            { ...options.price_matrix![0].prices[0], device_limit: 4, price_kopeks: 500000 },
+          ],
+        },
+      ],
+    };
+    renderConfigurator({ options: matrixOptions });
+
+    expect(screen.getAllByText('300.00 ₽').length).toBeGreaterThan(1);
+    expect(screen.getByRole('radio', { name: /deviceFirst.periodYear/ })).toBeTruthy();
+    fireEvent.click(screen.getByRole('radio', { name: /deviceFirst.periodYear/ }));
+
+    expect(screen.getAllByText('3000.00 ₽').length).toBeGreaterThan(1);
+    expect(screen.getByText('5000.00 ₽')).toBeTruthy();
+  });
+
   it('uses Continue only when the server reports that no shortage remains', async () => {
     vi.mocked(deviceFirstApi.arm).mockResolvedValue(checkout('processing', 0));
     renderConfigurator({ fixtureCheckout: checkout('awaiting_payment', 0) });
@@ -180,6 +247,53 @@ describe('DeviceFirstConfigurator interaction safety', () => {
     fireEvent.click(screen.getByRole('button', { name: 'deviceFirst.continueAndOrder' }));
 
     await waitFor(() => expect(deviceFirstApi.arm).toHaveBeenCalledWith('checkout-owned'));
+  });
+
+  it('uses the first method actually supplied by the server, not a hard-coded SBP default', async () => {
+    vi.mocked(deviceFirstApi.createPaymentAttempt).mockReturnValue(new Promise(() => {}));
+    renderConfigurator({
+      fixtureCheckout: checkout('awaiting_payment'),
+      fixtureMethods: [
+        { key: 'cards_ru', provider_code: 11 },
+        { key: 'crypto', provider_code: 12 },
+      ],
+    });
+
+    const cards = await screen.findByRole('radio', { name: 'deviceFirst.cards' });
+    await waitFor(() => expect(cards.getAttribute('aria-checked')).toBe('true'));
+    fireEvent.keyDown(cards, { key: 'End' });
+    const crypto = screen.getByRole('radio', { name: 'deviceFirst.crypto' });
+    await waitFor(() => expect(crypto.getAttribute('aria-checked')).toBe('true'));
+    expect(
+      screen.getByRole('radiogroup', { name: 'deviceFirst.paymentMethodQuestion' }),
+    ).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: 'deviceFirst.topUpAmount:350.00 ₽' }));
+    await waitFor(() =>
+      expect(deviceFirstApi.createPaymentAttempt).toHaveBeenCalledWith('checkout-owned', 'crypto'),
+    );
+  });
+
+  it('explains a payment-method loading failure and offers retry and support instead of a dead CTA', async () => {
+    vi.mocked(deviceFirstApi.create).mockResolvedValue(checkout('configuration'));
+    vi.mocked(deviceFirstApi.confirm).mockResolvedValue(checkout('confirmation'));
+    vi.mocked(deviceFirstApi.arm).mockResolvedValue(checkout('awaiting_payment'));
+    vi.mocked(deviceFirstApi.paymentMethods).mockRejectedValue(new Error('offline'));
+    renderConfigurator();
+
+    fireEvent.click(screen.getByRole('button', { name: 'deviceFirst.review' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'deviceFirst.confirm' }));
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'deviceFirst.topUpAndOrder:350.00 ₽' }),
+    );
+
+    expect((await screen.findByRole('alert')).textContent).toContain(
+      'deviceFirst.errorPaymentMethodsLoad',
+    );
+    expect(screen.queryByRole('button', { name: 'deviceFirst.topUpAmount:350.00 ₽' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'deviceFirst.retry' }));
+    await waitFor(() => expect(deviceFirstApi.paymentMethods).toHaveBeenCalledTimes(2));
+    expect(screen.getByRole('button', { name: 'deviceFirst.contactSupport' })).toBeTruthy();
   });
 
   it.each(['processing', 'provisioning'] as const)(

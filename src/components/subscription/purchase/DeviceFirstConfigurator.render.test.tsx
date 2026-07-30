@@ -123,13 +123,15 @@ describe('DeviceFirstConfigurator real state rendering', () => {
     ['configuration', 'deviceFirst.confirm'],
     ['confirmation', 'deviceFirst.payAndOrder'],
     ['awaiting_payment', 'deviceFirst.topUpAmount'],
-  ] as const)('renders interactive %s state inside a dialog', (uiState, expectedAction) => {
-    const html = render(checkout(uiState));
-    expect(html).toContain('role="dialog"');
-    expect(html).toContain('aria-modal="true"');
-    expect(html).toContain(expectedAction);
-    expect(html).toContain('deviceFirst.cancel');
-  });
+  ] as const)(
+    'renders interactive %s fixture state without a second modal overlay',
+    (uiState, expectedAction) => {
+      const html = render(checkout(uiState));
+      expect(html).not.toContain('role="dialog"');
+      expect(html).toContain(expectedAction);
+      expect(html).toContain('deviceFirst.cancel');
+    },
+  );
 
   it('renders only server-approved payment methods and shortage', () => {
     const html = render(checkout('awaiting_payment'));
@@ -155,6 +157,14 @@ describe('DeviceFirstConfigurator real state rendering', () => {
     expect(html).toContain('deviceFirst.readyText');
     expect(html).toContain('deviceFirst.home');
     expect(html).not.toContain('deviceFirst.cancel');
+  });
+
+  it('uses the short year label only in selectors and keeps the exact 365-day term in confirmation', () => {
+    const annualCheckout = { ...checkout('confirmation'), period_days: 365 };
+    const html = render(annualCheckout);
+
+    expect(html).toContain('deviceFirst.periodYearExact');
+    expect(html).not.toContain('deviceFirst.periodMonths:12');
   });
 
   it.each(['reprice_required', 'conflict', 'expired', 'failed', 'cancelled'] as const)(

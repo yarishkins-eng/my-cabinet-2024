@@ -1,5 +1,9 @@
 import apiClient from './client';
-import { getOrCreateIntentKey, intentStorageKey } from './deviceFirstIdempotency';
+import {
+  clearCreateIntentKeys,
+  getOrCreateIntentKey,
+  intentStorageKey,
+} from './deviceFirstIdempotency';
 
 export type DeviceFirstUiState =
   | 'configuration'
@@ -64,6 +68,14 @@ export interface DeviceFirstCheckout {
   shortage_kopeks: number | null;
 }
 
+export interface DeviceFirstPaymentAttempt {
+  status: string;
+  method_key: string;
+  amount_kopeks: number;
+  currency: string;
+  redirect_url: string;
+}
+
 function intentKey(intent: string): string {
   return getOrCreateIntentKey(sessionStorage, intent, () => crypto.randomUUID());
 }
@@ -84,8 +96,12 @@ export const deviceFirstApi = {
     postIntent(`create:${periodDays}:${selectedDeviceLimit}`, '/cabinet/device-first/checkout', {
       period_days: periodDays,
       selected_device_limit: selectedDeviceLimit,
-      source: 'cabinet',
     }),
+
+  clearCreateIntents: (): void => clearCreateIntentKeys(sessionStorage),
+
+  getOpen: async (): Promise<DeviceFirstCheckout> =>
+    (await apiClient.get('/cabinet/device-first/checkout/open')).data,
 
   get: async (checkoutId: string): Promise<DeviceFirstCheckout> =>
     (await apiClient.get(`/cabinet/device-first/checkout/${checkoutId}`)).data,
@@ -105,12 +121,7 @@ export const deviceFirstApi = {
   createPaymentAttempt: async (
     checkoutId: string,
     methodKey: string,
-  ): Promise<{
-    status: string;
-    amount_kopeks: number;
-    currency: string;
-    redirect_url: string;
-  }> =>
+  ): Promise<DeviceFirstPaymentAttempt> =>
     postIntent(
       `payment:${checkoutId}:${methodKey}`,
       `/cabinet/device-first/checkout/${checkoutId}/payment-attempt`,

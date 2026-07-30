@@ -2,6 +2,10 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
 const source = readFileSync(new URL('./DeviceFirstConfigurator.tsx', import.meta.url), 'utf8');
+const locale = (name: string) =>
+  JSON.parse(readFileSync(new URL(`../../../locales/${name}.json`, import.meta.url), 'utf8')) as {
+    deviceFirst: Record<string, string>;
+  };
 
 describe('DeviceFirstConfigurator responsive and modal contract', () => {
   it('caps the device grid at four columns with an explicit narrow fallback', () => {
@@ -13,16 +17,38 @@ describe('DeviceFirstConfigurator responsive and modal contract', () => {
     expect(source).not.toContain('repeat(auto-fit');
   });
 
-  it('keeps modal actions inside the dialog and hides the background header', () => {
-    expect(source).toContain('aria-modal="true"');
-    expect(source).toContain('inert={modalOpen || undefined}');
+  it('portals modal actions above the whole app and makes the background inert', () => {
+    expect(source).toContain('createPortal');
+    expect(source).toContain("document.getElementById('root')");
+    expect(source).toContain('appRoot.inert = true');
+    expect(source).toContain('aria-modal={portal || undefined}');
+    expect(source).toContain('fixed inset-0 z-[100]');
     expect(source).toContain("['configuration', 'confirmation', 'awaiting_payment']");
     expect(source.match(/onClick=\{\(\) => cancelMutation\.mutate\(\)\}/g)?.length).toBe(3);
   });
 
-  it('preserves visible and semantic selected states', () => {
+  it('keeps selected state semantic without a layout-shifting visible badge', () => {
     expect(source).toContain('role="radio"');
-    expect(source).toContain('aria-checked={devices === value}');
-    expect(source).toContain("✓ {t('deviceFirst.selected')}");
+    expect(source).toContain('aria-checked={isSelected}');
+    expect(source).toContain('sr-only');
+    expect(source).not.toContain("✓ {t('deviceFirst.selected')}");
+    expect(source).toContain('optionPrice.price_kopeks');
+    expect(source).toContain('days === 365');
+  });
+
+  it('uses prices only to compare device variants after a term is selected', () => {
+    expect(source).toContain('min-h-16');
+    expect(source).toContain('min-h-28');
+    expect(source).toContain('md:grid-cols-4');
+    expect(source).toMatch(/optionPrice\s*\?\s*periodLabel\(value\)/);
+    expect(source).toContain("t('deviceFirst.unavailable')");
+  });
+
+  it('provides the complete checkout vocabulary to every language the cabinet advertises', () => {
+    const russianKeys = Object.keys(locale('ru').deviceFirst).sort();
+    for (const language of ['en', 'zh', 'fa']) {
+      expect(Object.keys(locale(language).deviceFirst).sort()).toEqual(russianKeys);
+    }
+    expect(source).toContain("document.documentElement.dir === 'rtl'");
   });
 });

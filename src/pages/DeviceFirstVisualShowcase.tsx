@@ -5,6 +5,24 @@ import type {
   DeviceFirstUiState,
 } from '@/api/deviceFirst';
 
+const deviceLimits = [1, 3, 5];
+
+function priceRow(periodDays: number, amounts: number[]) {
+  return {
+    period_days: periodDays,
+    prices: amounts.map((price_kopeks, index) => ({
+      device_limit: deviceLimits[index],
+      price_kopeks,
+      breakdown: {
+        base_price_kopeks: amounts[0],
+        devices_price_kopeks: price_kopeks - amounts[0],
+        promo_group_discount_kopeks: 0,
+        promo_offer_discount_kopeks: 0,
+      },
+    })),
+  };
+}
+
 const options: DeviceFirstOptions = {
   eligible: true,
   tariff: {
@@ -15,80 +33,14 @@ const options: DeviceFirstOptions = {
     pricing_revision: 4,
   },
   device_options: [1, 3, 5],
-  period_options: [30, 90],
+  period_options: [30, 90, 180, 365],
   default_period_days: 30,
   current_subscription: { id: 42, device_limit: 1, is_trial: false },
   price_matrix: [
-    {
-      period_days: 30,
-      prices: [
-        {
-          device_limit: 1,
-          price_kopeks: 89000,
-          breakdown: {
-            base_price_kopeks: 89000,
-            devices_price_kopeks: 0,
-            promo_group_discount_kopeks: 0,
-            promo_offer_discount_kopeks: 0,
-          },
-        },
-        {
-          device_limit: 3,
-          price_kopeks: 109000,
-          breakdown: {
-            base_price_kopeks: 89000,
-            devices_price_kopeks: 20000,
-            promo_group_discount_kopeks: 0,
-            promo_offer_discount_kopeks: 0,
-          },
-        },
-        {
-          device_limit: 5,
-          price_kopeks: 129000,
-          breakdown: {
-            base_price_kopeks: 89000,
-            devices_price_kopeks: 40000,
-            promo_group_discount_kopeks: 0,
-            promo_offer_discount_kopeks: 0,
-          },
-        },
-      ],
-    },
-    {
-      period_days: 90,
-      prices: [
-        {
-          device_limit: 1,
-          price_kopeks: 239000,
-          breakdown: {
-            base_price_kopeks: 239000,
-            devices_price_kopeks: 0,
-            promo_group_discount_kopeks: 0,
-            promo_offer_discount_kopeks: 0,
-          },
-        },
-        {
-          device_limit: 3,
-          price_kopeks: 299000,
-          breakdown: {
-            base_price_kopeks: 239000,
-            devices_price_kopeks: 60000,
-            promo_group_discount_kopeks: 0,
-            promo_offer_discount_kopeks: 0,
-          },
-        },
-        {
-          device_limit: 5,
-          price_kopeks: 359000,
-          breakdown: {
-            base_price_kopeks: 239000,
-            devices_price_kopeks: 120000,
-            promo_group_discount_kopeks: 0,
-            promo_offer_discount_kopeks: 0,
-          },
-        },
-      ],
-    },
+    priceRow(30, [89000, 109000, 129000]),
+    priceRow(90, [239000, 299000, 359000]),
+    priceRow(180, [449000, 569000, 689000]),
+    priceRow(365, [849000, 1089000, 1329000]),
   ],
 };
 
