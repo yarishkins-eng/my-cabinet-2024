@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate, useParams, useSearchParams } from 'react-router';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import { motion } from 'framer-motion';
 
 import { balanceApi } from '../api/balance';
@@ -10,6 +10,7 @@ import { checkRateLimit, getRateLimitResetTime, RATE_LIMIT_KEYS } from '../utils
 import { useCloseOnSuccessNotification } from '../store/successNotification';
 import { useHaptic, usePlatform } from '@/platform';
 import { staggerContainer, staggerItem } from '@/components/motion/transitions';
+import { Button } from '@/components/primitives/Button';
 import type { PaymentMethod, PaymentMethodOption } from '../types';
 import BentoCard from '../components/ui/BentoCard';
 import { saveTopUpPendingInfo } from '../utils/topUpStorage';
@@ -76,7 +77,6 @@ export default function TopUpAmount() {
   const navigate = useNavigate();
   const { methodId } = useParams<{ methodId: string }>();
   const [searchParams] = useSearchParams();
-  const queryClient = useQueryClient();
   const { formatAmount, currencySymbol, convertAmount, convertToRub, targetCurrency } =
     useCurrency();
   const { openInvoice, openTelegramLink, openLink, platform } = usePlatform();
@@ -91,9 +91,18 @@ export default function TopUpAmount() {
     ? parseFloat(searchParams.get('amount')!)
     : undefined;
 
-  // Get method from cached payment-methods query
-  const cachedMethods = queryClient.getQueryData<PaymentMethod[]>(['payment-methods']);
-  const method = cachedMethods?.find((m) => m.id === methodId);
+  // The amount screen also works after a direct link or page reload, where
+  // React Query has no in-memory cache yet.
+  const {
+    data: paymentMethods,
+    isLoading: isPaymentMethodsLoading,
+    isError: isPaymentMethodsError,
+    refetch: refetchPaymentMethods,
+  } = useQuery({
+    queryKey: ['payment-methods'],
+    queryFn: balanceApi.getPaymentMethods,
+  });
+  const method = paymentMethods?.find((paymentMethod) => paymentMethod.id === methodId);
 
   const handleNavigateBack = useCallback(() => {
     navigate(-1);
@@ -144,9 +153,10 @@ export default function TopUpAmount() {
   const [copied, setCopied] = useState(false);
   const [isInputFocused, setIsInputFocused] = useState(false);
 
-  // If method not found in cache, redirect to method selection
+  // If the current method is no longer available, return to method selection
+  // while preserving the intended amount and return path.
   useEffect(() => {
-    if (cachedMethods && !method) {
+    if (paymentMethods && !method) {
       const params = new URLSearchParams();
       const amount = searchParams.get('amount');
       const rt = searchParams.get('returnTo');
@@ -155,7 +165,7 @@ export default function TopUpAmount() {
       const qs = params.toString();
       navigate(`/balance/top-up${qs ? `?${qs}` : ''}`, { replace: true });
     }
-  }, [cachedMethods, method, navigate, searchParams]);
+  }, [paymentMethods, method, navigate, searchParams]);
 
   useEffect(() => {
     if (!method?.options || method.options.length === 0) {
@@ -296,7 +306,18 @@ export default function TopUpAmount() {
     return () => document.removeEventListener('visibilitychange', onVisible);
   }, [paymentUrl, returnTo, navigate]);
 
-  if (!method) {
+  if (isPaymentMethodsError) {
+    return (
+      <div className="flex flex-col items-center gap-4 py-12 text-center">
+        <p className="text-sm text-dark-400">{t('common.error')}</p>
+        <Button type="button" variant="secondary" size="sm" onClick={() => refetchPaymentMethods()}>
+          {t('balance.topUp')}
+        </Button>
+      </div>
+    );
+  }
+
+  if (isPaymentMethodsLoading || !method) {
     return (
       <div className="flex items-center justify-center py-12">
         <div className="h-8 w-8 animate-spin rounded-full border-2 border-accent-500 border-t-transparent" />
@@ -362,7 +383,9 @@ export default function TopUpAmount() {
     }
   };
 
-  const quickAmounts = [100, 300, 500, 1000].filter((a) => a >= minRubles && a <= maxRubles);
+  const quickAmounts = (method.quick_amounts ?? [])
+    .map((amountKopeks) => amountKopeks / 100)
+    .filter((amountRubles) => amountRubles >= minRubles && amountRubles <= maxRubles);
   const currencyDecimals = targetCurrency === 'IRR' || targetCurrency === 'RUB' ? 0 : 2;
   const getQuickValue = (rub: number) =>
     targetCurrency === 'IRR'
@@ -398,7 +421,7 @@ export default function TopUpAmount() {
       initial="initial"
       animate="animate"
     >
-      {/* Header icon and method */}
+      {/* Header icon and payment range */}
       <motion.div variants={staggerItem} className="flex items-center gap-4 pb-1">
         <div
           className={`flex h-14 w-14 items-center justify-center rounded-2xl ${
@@ -410,9 +433,10 @@ export default function TopUpAmount() {
           <div className="flex h-7 w-7 items-center justify-center">{getMethodIcon(method.id)}</div>
         </div>
         <div className="flex-1">
-          <h3 className="text-lg font-bold text-dark-100">{methodName}</h3>
+          <h3 className="text-lg font-bold text-dark-100">{t('balance.topUpBalance')}</h3>
           <p className="text-sm text-dark-400">
-            {formatAmount(minRubles, 0)} – {formatAmount(maxRubles, 0)} {currencySymbol}
+            {methodName} · {formatAmount(minRubles, 0)} – {formatAmount(maxRubles, 0)}{' '}
+            {currencySymbol}
           </p>
         </div>
       </motion.div>
@@ -445,62 +469,55 @@ export default function TopUpAmount() {
         </motion.div>
       )}
 
-      {/* Amount input + Submit button - inline */}
+      {/* Amount input and a full-width primary action keep the next step
+          legible even for longer localized labels. */}
       <motion.div variants={staggerItem} className="space-y-2">
         <label className="text-sm font-medium text-dark-400">{t('balance.enterAmount')}</label>
-        <div className="flex gap-2">
-          <div
-            className={`relative flex-1 rounded-2xl transition-all duration-200 ${
-              isInputFocused
-                ? 'bg-dark-800 ring-2 ring-accent-500/50'
-                : 'border border-dark-700/50 bg-dark-800/70'
-            }`}
-          >
-            <input
-              ref={inputRef}
-              type="number"
-              inputMode="decimal"
-              enterKeyHint="done"
-              value={amount}
-              onChange={(e) => setAmount(e.target.value)}
-              onFocus={() => setIsInputFocused(true)}
-              onBlur={() => setIsInputFocused(false)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') {
-                  e.preventDefault();
-                  handleSubmit();
-                }
-              }}
-              placeholder="0"
-              className="h-14 w-full bg-transparent px-4 pr-12 text-xl font-bold text-dark-100 placeholder:text-dark-600 focus:outline-none"
-              autoComplete="off"
-            />
-            <span className="absolute right-4 top-1/2 -translate-y-1/2 text-base font-semibold text-dark-500">
-              {currencySymbol}
-            </span>
-          </div>
-          <button
-            type="button"
-            onClick={handleSubmit}
-            disabled={isPending || !amount || parseFloat(amount) <= 0}
-            className={`flex h-14 shrink-0 items-center justify-center gap-2 overflow-hidden rounded-2xl px-6 text-base font-bold transition-colors duration-200 ${
-              isPending || !amount || parseFloat(amount) <= 0
-                ? 'cursor-not-allowed bg-dark-700 text-dark-500'
-                : isStarsMethod
-                  ? 'bg-gradient-to-r from-yellow-500 to-orange-500 text-white shadow-lg shadow-yellow-500/25 hover:from-yellow-400 hover:to-orange-400 active:from-yellow-600 active:to-orange-600'
-                  : 'bg-accent-500 text-white shadow-lg shadow-accent-500/25 transition-colors hover:bg-accent-400 active:bg-accent-600'
-            }`}
-          >
-            {isPending ? (
-              <span className="h-5 w-5 animate-spin rounded-full border-2 border-white/30 border-t-white" />
-            ) : (
-              <>
-                <SparklesIcon className="h-4 w-4" />
-                <span>{t('balance.topUp')}</span>
-              </>
-            )}
-          </button>
+        <div
+          className={`relative rounded-2xl transition-all duration-200 ${
+            isInputFocused
+              ? 'bg-dark-800 ring-2 ring-accent-500/50'
+              : 'border border-dark-700/50 bg-dark-800/70'
+          }`}
+        >
+          <input
+            ref={inputRef}
+            type="number"
+            inputMode="decimal"
+            enterKeyHint="done"
+            value={amount}
+            onChange={(e) => setAmount(e.target.value)}
+            onFocus={() => setIsInputFocused(true)}
+            onBlur={() => setIsInputFocused(false)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                handleSubmit();
+              }
+            }}
+            placeholder="0"
+            className="h-14 w-full bg-transparent px-4 pr-12 text-xl font-bold text-dark-100 placeholder:text-dark-600 focus:outline-none"
+            autoComplete="off"
+          />
+          <span className="absolute right-4 top-1/2 -translate-y-1/2 text-base font-semibold text-dark-500">
+            {currencySymbol}
+          </span>
         </div>
+        <Button
+          type="button"
+          fullWidth
+          size="lg"
+          leftIcon={<SparklesIcon className="h-4 w-4" />}
+          onClick={handleSubmit}
+          disabled={!amount || parseFloat(amount) <= 0}
+          loading={isPending}
+        >
+          {isStarsMethod
+            ? t('balance.topUpAction')
+            : method.open_url_direct
+              ? t('balance.goToPayment')
+              : t('balance.getPaymentLink')}
+        </Button>
       </motion.div>
 
       {/* Quick amount buttons */}
@@ -564,14 +581,15 @@ export default function TopUpAmount() {
 
           <p className="text-sm text-dark-400">{t('balance.clickToOpenPayment')}</p>
 
-          <button
+          <Button
             type="button"
+            fullWidth
+            size="lg"
             onClick={handleOpenPayment}
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-success-500 font-bold text-white transition-colors hover:bg-success-400 active:bg-success-600"
+            leftIcon={<ExternalLinkIcon className="h-5 w-5" />}
           >
-            <ExternalLinkIcon />
-            <span>{t('balance.openPaymentPage')}</span>
-          </button>
+            {t('balance.openPaymentPage')}
+          </Button>
 
           <div className="flex items-center gap-2">
             <div className="min-w-0 flex-1 rounded-lg border border-dark-700/50 bg-dark-800/70 px-3 py-2">

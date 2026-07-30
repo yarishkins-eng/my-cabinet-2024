@@ -611,6 +611,10 @@
     "currentBalance": "موجودی فعلی",
     "topUp": "شارژ",
     "topUpBalance": "شارژ موجودی",
+    "topUpDescription": "مبلغ و روش پرداخت را انتخاب کنید.",
+    "topUpAction": "افزایش موجودی",
+    "getPaymentLink": "دریافت لینک پرداخت",
+    "goToPayment": "رفتن به پرداخت",
     "enterAmount": "مقدار را وارد کنید",
     "paymentMethod": "روش پرداخت",
     "paymentMethods": {
@@ -686,9 +690,9 @@
     },
     "minAmountError": "حداقل مبلغ: {{amount}}",
     "maxAmountError": "حداکثر مبلغ: {{amount}}",
-    "paymentReady": "لینک پرداخت آماده است",
-    "clickToOpenPayment": "دکمه زیر را بزنید تا صفحه پرداخت در تب جدید باز شود",
-    "openPaymentPage": "باز کردن صفحه پرداخت",
+    "paymentReady": "صورت‌حساب ایجاد شد",
+    "clickToOpenPayment": "صفحه پرداخت را باز کرده و پرداخت را کامل کنید. موجودی پس از تأیید به‌روزرسانی می‌شود.",
+    "openPaymentPage": "رفتن به پرداخت",
     "errors": {
       "noPaymentLink": "سرور لینک پرداخت را برنگرداند",
       "starsOnlyInTelegram": "پرداخت Stars فقط در Telegram Mini App در دسترس است",
@@ -729,8 +733,8 @@
       "message": "موجودی شما با موفقیت شارژ شد. وجوه اکنون در دسترس است."
     },
     "topUpResult": {
-      "awaitingPayment": "در انتظار پرداخت",
-      "awaitingPaymentDesc": "ما منتظر تأیید پرداخت شما هستیم. این ممکن است چند دقیقه طول بکشد.",
+      "awaitingPayment": "در حال بررسی وضعیت پرداخت",
+      "awaitingPaymentDesc": "پس از پرداخت، موجودی شما خودکار به‌روزرسانی می‌شود. تأیید ممکن است چند دقیقه طول بکشد.",
       "topUpAmount": "مبلغ شارژ",
       "success": "شارژ موفق!",
       "successDesc": "موجودی شما با موفقیت شارژ شد. وجوه اکنون در دسترس است.",

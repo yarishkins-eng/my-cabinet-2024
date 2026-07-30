@@ -466,6 +466,7 @@ export interface PaymentMethod {
   max_amount_kopeks: number;
   is_available: boolean;
   options?: PaymentMethodOption[] | null;
+  quick_amounts?: number[];
   // Если true — после получения payment_url кабинет сразу делает
   // window.location.href вместо показа панели с кнопкой "Открыть".
   open_url_direct?: boolean;

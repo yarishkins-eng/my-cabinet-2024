@@ -754,6 +754,10 @@
     "currentBalance": "Current Balance",
     "topUp": "Top Up",
     "topUpBalance": "Top Up Balance",
+    "topUpDescription": "Choose an amount and payment method.",
+    "topUpAction": "Top up balance",
+    "getPaymentLink": "Get payment link",
+    "goToPayment": "Go to payment",
     "enterAmount": "Enter amount",
     "paymentMethod": "Payment Method",
     "paymentMethods": {
@@ -898,9 +902,9 @@
       "empty": "No saved cards. A card will be saved automatically on your next top-up.",
       "loadError": "Failed to load saved cards. Please try again later."
     },
-    "paymentReady": "Payment link is ready",
-    "clickToOpenPayment": "Click the button below to open the payment page in a new tab",
-    "openPaymentPage": "Open payment page",
+    "paymentReady": "Invoice created",
+    "clickToOpenPayment": "Open the payment page and complete payment. Your balance will update after confirmation.",
+    "openPaymentPage": "Go to payment",
     "errors": {
       "noPaymentLink": "Server did not return a payment link",
       "starsOnlyInTelegram": "Stars payment is only available in Telegram Mini App",
@@ -916,8 +920,8 @@
       "message": "Your balance has been topped up successfully. The funds are now available."
     },
     "topUpResult": {
-      "awaitingPayment": "Awaiting Payment",
-      "awaitingPaymentDesc": "We are waiting for your payment confirmation. This may take a few minutes.",
+      "awaitingPayment": "Checking payment status",
+      "awaitingPaymentDesc": "Your balance will update automatically after payment. Confirmation may take a few minutes.",
       "topUpAmount": "Top-up amount",
       "success": "Balance Topped Up!",
       "successDesc": "Your balance has been topped up successfully. The funds are now available.",

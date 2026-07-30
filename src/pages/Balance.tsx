@@ -15,6 +15,7 @@ import { Button } from '@/components/primitives/Button';
 import { ChevronDownIcon, ChevronRightIcon, CreditCardIcon, WalletIcon } from '@/components/icons';
 import { staggerContainer, staggerItem } from '@/components/motion/transitions';
 import { isPaidStatus, isFailedStatus } from '../utils/paymentStatus';
+import { getTopUpDestination } from '../utils/topUpFlow';
 
 export default function Balance() {
   const { t } = useTranslation();
@@ -79,10 +80,11 @@ export default function Balance() {
     placeholderData: (previousData) => previousData,
   });
 
-  const { data: paymentMethods } = useQuery({
+  const { data: paymentMethods, isLoading: isPaymentMethodsLoading } = useQuery({
     queryKey: ['payment-methods'],
     queryFn: balanceApi.getPaymentMethods,
   });
+  const topUpDestination = getTopUpDestination(paymentMethods);
 
   // Deferred: only fetch saved cards after payment methods loaded to avoid extra request on first render.
   // The recurrent_enabled flag is cached for 5 min to prevent refetching on every Balance visit.
@@ -208,6 +210,29 @@ export default function Balance() {
         </Card>
       </motion.div>
 
+      {/* Top-up is the primary balance action. The provider is deliberately
+          not the call to action: available methods are chosen on the next
+          step only when the user actually has a choice. */}
+      <motion.div variants={staggerItem}>
+        <Card>
+          <h2 className="text-lg font-semibold text-dark-100">{t('balance.topUpBalance')}</h2>
+          <p className="mt-1 text-sm text-dark-400">{t('balance.topUpDescription')}</p>
+          <Button
+            fullWidth
+            size="lg"
+            className="mt-4"
+            onClick={() => topUpDestination && navigate(topUpDestination)}
+            disabled={!topUpDestination}
+            loading={isPaymentMethodsLoading}
+          >
+            {t('balance.topUpAction')}
+          </Button>
+          {paymentMethods && !topUpDestination && (
+            <p className="mt-3 text-sm text-dark-500">{t('balance.noPaymentMethods')}</p>
+          )}
+        </Card>
+      </motion.div>
+
       {/* Promo Code Section */}
       <motion.div variants={staggerItem}>
         <Card>
@@ -296,50 +321,6 @@ export default function Balance() {
           )}
         </Card>
       </motion.div>
-
-      {/* Payment Methods */}
-      {paymentMethods && paymentMethods.length > 0 && (
-        <motion.div variants={staggerItem}>
-          <Card>
-            <h2 className="mb-4 text-lg font-semibold text-dark-100">
-              {t('balance.topUpBalance')}
-            </h2>
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              {paymentMethods.map((method) => {
-                const methodKey = method.id.toLowerCase().replace(/-/g, '_');
-                const translatedName = t(`balance.paymentMethods.${methodKey}.name`, {
-                  defaultValue: '',
-                });
-                const translatedDesc = t(`balance.paymentMethods.${methodKey}.description`, {
-                  defaultValue: '',
-                });
-
-                return (
-                  <Card
-                    key={method.id}
-                    interactive={method.is_available}
-                    className={!method.is_available ? 'cursor-not-allowed opacity-50' : ''}
-                    onClick={() => method.is_available && navigate(`/balance/top-up/${method.id}`)}
-                  >
-                    <div className="font-semibold text-dark-100">
-                      {translatedName || method.name}
-                    </div>
-                    {(translatedDesc || method.description) && (
-                      <div className="mt-1 text-sm text-dark-500">
-                        {translatedDesc || method.description}
-                      </div>
-                    )}
-                    <div className="mt-3 text-xs text-dark-600">
-                      {formatAmount(method.min_amount_kopeks / 100, 0)} {t('common.rangeTo', 'to')}{' '}
-                      {formatAmount(method.max_amount_kopeks / 100, 0)} {currencySymbol}
-                    </div>
-                  </Card>
-                );
-              })}
-            </div>
-          </Card>
-        </motion.div>
-      )}
 
       {/* Transaction History */}
       <motion.div variants={staggerItem}>

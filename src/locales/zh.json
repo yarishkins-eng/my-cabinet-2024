@@ -611,6 +611,10 @@
     "currentBalance": "当前余额",
     "topUp": "充值",
     "topUpBalance": "充值余额",
+    "topUpDescription": "选择金额和支付方式。",
+    "topUpAction": "充值余额",
+    "getPaymentLink": "获取支付链接",
+    "goToPayment": "前往支付",
     "enterAmount": "输入金额",
     "paymentMethod": "支付方式",
     "paymentMethods": {
@@ -686,9 +690,9 @@
     },
     "minAmountError": "最小金额：{{amount}}",
     "maxAmountError": "最大金额：{{amount}}",
-    "paymentReady": "支付链接已准备就绪",
-    "clickToOpenPayment": "点击下方按钮在新标签页中打开支付页面",
-    "openPaymentPage": "打开支付页面",
+    "paymentReady": "支付订单已创建",
+    "clickToOpenPayment": "打开支付页面并完成付款。确认后余额会自动更新。",
+    "openPaymentPage": "前往支付",
     "errors": {
       "noPaymentLink": "服务器未返回支付链接",
       "starsOnlyInTelegram": "Stars支付仅在Telegram Mini App中可用",
@@ -729,8 +733,8 @@
       "message": "您的余额已成功充值，资金现已可用。"
     },
     "topUpResult": {
-      "awaitingPayment": "等待付款",
-      "awaitingPaymentDesc": "我们正在等待您的付款确认。这可能需要几分钟。",
+      "awaitingPayment": "正在检查支付状态",
+      "awaitingPaymentDesc": "付款后余额会自动更新。确认可能需要几分钟。",
       "topUpAmount": "充值金额",
       "success": "充值成功！",
       "successDesc": "您的余额已成功充值，资金现已可用。",

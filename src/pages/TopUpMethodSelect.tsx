@@ -6,6 +6,7 @@ import { motion } from 'framer-motion';
 import { balanceApi } from '../api/balance';
 import { useCurrency } from '../hooks/useCurrency';
 import { Card } from '@/components/data-display/Card';
+import { Button } from '@/components/primitives/Button';
 import { staggerContainer, staggerItem } from '@/components/motion/transitions';
 import PaymentMethodIcon from '@/components/PaymentMethodIcon';
 
@@ -65,12 +66,7 @@ export default function TopUpMethodSelect() {
                 });
 
                 return (
-                  <Card
-                    key={method.id}
-                    interactive={method.is_available}
-                    className={!method.is_available ? 'cursor-not-allowed opacity-50' : ''}
-                    onClick={() => method.is_available && handleMethodClick(method.id)}
-                  >
+                  <Card key={method.id} className={!method.is_available ? 'opacity-50' : ''}>
                     <div className="flex items-center gap-3">
                       <PaymentMethodIcon method={methodKey} className="h-8 w-8 flex-shrink-0" />
                       <div className="font-semibold text-dark-100">
@@ -86,6 +82,15 @@ export default function TopUpMethodSelect() {
                       {formatAmount(method.min_amount_kopeks / 100, 0)} –{' '}
                       {formatAmount(method.max_amount_kopeks / 100, 0)} {currencySymbol}
                     </div>
+                    <Button
+                      fullWidth
+                      size="md"
+                      className="mt-4"
+                      onClick={() => handleMethodClick(method.id)}
+                      disabled={!method.is_available}
+                    >
+                      {t('balance.selectPaymentMethod')}
+                    </Button>
                   </Card>
                 );
               })}
