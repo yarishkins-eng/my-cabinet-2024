@@ -2,18 +2,21 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import type { RefObject } from 'react';
+import { CloseIcon } from '@/components/icons';
 
 interface DeviceHintOverlayProps {
   targetRef: RefObject<HTMLButtonElement | null>;
+  onDismiss: () => void;
   onTargetUnavailable: () => void;
 }
 
 /**
- * Coachmark без второй CTA: пользователь нажимает настоящую кнопку Hero.
- * Четыре прозрачных барьера блокируют остальной экран, оставляя над ней «окно».
+ * Ненавязчивая подсказка для первого подключения: подчёркивает настоящую Hero-кнопку,
+ * но не блокирует остальной экран и не отнимает у пользователя текущий фокус.
  */
 export default function DeviceHintOverlay({
   targetRef,
+  onDismiss,
   onTargetUnavailable,
 }: DeviceHintOverlayProps) {
   const { t } = useTranslation();
@@ -28,26 +31,34 @@ export default function DeviceHintOverlay({
     if (!target || !target.isConnected || target.getClientRects().length === 0) {
       setIsVisible(false);
       onTargetUnavailable();
-      return;
+      return false;
     }
-    setTargetRect(target.getBoundingClientRect());
+
+    const rect = target.getBoundingClientRect();
+    const isFullyVisible =
+      rect.top >= 0 &&
+      rect.left >= 0 &&
+      rect.bottom <= window.innerHeight &&
+      rect.right <= window.innerWidth;
+    if (!isFullyVisible) {
+      setIsVisible(false);
+      onTargetUnavailable();
+      return false;
+    }
+
+    setTargetRect(rect);
+    return true;
   }, [onTargetUnavailable, targetRef]);
 
-  // Кнопка уже отрисована до эффекта; скроллим только если она вне видимой области.
+  // Не скроллим и не переводим фокус: подсказка не должна перехватывать действие пользователя.
   useEffect(() => {
     const target = targetRef.current;
     if (!target) {
       onTargetUnavailable();
       return;
     }
-    const rect = target.getBoundingClientRect();
-    if (rect.top < 0 || rect.bottom > window.innerHeight) {
-      target.scrollIntoView({ block: 'center' });
-    }
     const frame = window.requestAnimationFrame(() => {
-      updateTarget();
-      target.focus({ preventScroll: true });
-      setIsVisible(true);
+      if (updateTarget()) setIsVisible(true);
     });
     return () => window.cancelAnimationFrame(frame);
   }, [onTargetUnavailable, targetRef, updateTarget]);
@@ -62,6 +73,34 @@ export default function DeviceHintOverlay({
       window.visualViewport?.removeEventListener('resize', updateTarget);
     };
   }, [updateTarget]);
+
+  // Capture click lets the first tap reach a real control underneath the hint
+  // (for example, “Copy link”). Pointerdown is deliberately not used: a scroll
+  // gesture must not permanently dismiss the hint.
+  useEffect(() => {
+    if (!isVisible) return;
+
+    const handleDocumentClick = (event: MouseEvent) => {
+      const target = event.target;
+      if (!(target instanceof Node)) return;
+      if (tooltipSizeRef.current?.contains(target)) return;
+      if (targetRef.current?.contains(target)) return;
+      onDismiss();
+    };
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      event.preventDefault();
+      onDismiss();
+    };
+
+    document.addEventListener('click', handleDocumentClick, true);
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('click', handleDocumentClick, true);
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isVisible, onDismiss, targetRef]);
 
   const spotlightStyle: React.CSSProperties = targetRect
     ? {
@@ -107,64 +146,32 @@ export default function DeviceHintOverlay({
     };
   };
 
-  const blockers = targetRect
-    ? [
-        { top: 0, left: 0, width: '100%', height: Math.max(0, targetRect.top - pad) },
-        {
-          top: Math.min(window.innerHeight, targetRect.bottom + pad),
-          left: 0,
-          width: '100%',
-          bottom: 0,
-        },
-        {
-          top: Math.max(0, targetRect.top - pad),
-          left: 0,
-          width: Math.max(0, targetRect.left - pad),
-          height: targetRect.height + pad * 2,
-        },
-        {
-          top: Math.max(0, targetRect.top - pad),
-          left: Math.min(window.innerWidth, targetRect.right + pad),
-          right: 0,
-          height: targetRect.height + pad * 2,
-        },
-      ]
-    : [];
-
   return createPortal(
     <div className="onboarding-overlay" style={{ opacity: isVisible ? 1 : 0 }}>
       <div className="onboarding-spotlight" style={{ ...spotlightStyle, pointerEvents: 'none' }} />
 
-      {/* Текст объясняет действие; отдельной CTA здесь намеренно нет. */}
+      {/* Подсказка дополняет настоящую CTA, но не заменяет и не блокирует её. */}
       <div
         ref={tooltipSizeRef}
         className={`onboarding-tooltip tooltip-${placement}`}
         style={getTooltipStyle()}
-        role="status"
         aria-live="polite"
-        onPointerDown={(event) => event.preventDefault()}
-        onClick={(event) => event.preventDefault()}
       >
-        <h3 id="device-hint-title" className="mb-2 text-lg font-semibold text-dark-50">
+        <button
+          type="button"
+          onClick={onDismiss}
+          aria-label={t('common.close')}
+          className="absolute right-2 top-2 flex h-11 w-11 items-center justify-center rounded-xl text-dark-400 transition-colors hover:bg-dark-50/10 hover:text-dark-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-400 focus-visible:ring-offset-2 focus-visible:ring-offset-dark-900"
+        >
+          <CloseIcon />
+        </button>
+        <h3 id="device-hint-title" className="mb-2 pr-10 text-lg font-semibold text-dark-50">
           {t('home.deviceHint.title')}
         </h3>
-        <p id="device-hint-desc" className="mb-0 text-sm text-dark-400">
+        <p id="device-hint-desc" className="mb-0 text-sm text-dark-300">
           {t('home.deviceHint.description')}
         </p>
       </div>
-
-      {/* Блокируем остальные элементы, но оставляем «дыру» над настоящей кнопкой Hero. */}
-      {isVisible &&
-        blockers.map((style, index) => (
-          <div
-            key={index}
-            aria-hidden="true"
-            className="absolute"
-            style={{ ...style, pointerEvents: 'auto' }}
-            onPointerDown={(event) => event.preventDefault()}
-            onClick={(event) => event.preventDefault()}
-          />
-        ))}
     </div>,
     document.body,
   );

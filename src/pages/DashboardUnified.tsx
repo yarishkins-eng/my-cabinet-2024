@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate } from 'react-router';
 import { useTranslation } from 'react-i18next';
@@ -240,6 +240,13 @@ export default function DashboardUnified() {
     setShowDeviceHint(false);
   }, [showDeviceHint, successModalOpen]);
 
+  // Закрытие подсказки — осознанный выбор пользователя (×, Escape или другое действие).
+  // Храним его так же, как успешный переход к подключению, чтобы не навязывать подсказку снова.
+  const dismissDeviceHint = useCallback(() => {
+    if (subscriptionId != null) setDeviceHintSeen(subscriptionId);
+    setShowDeviceHint(false);
+  }, [subscriptionId]);
+
   // Баланс/опции покупки — нужны шторкам, чтобы блокировать «Купить» при нуле баланса
   // (§19 п.4). Грузим заранее (когда тариф вообще допускает докупку), чтобы к моменту
   // открытия шторки данные были готовы и не было гонки «тап быстрее загрузки».
@@ -263,10 +270,7 @@ export default function DashboardUnified() {
   // ── Действия верха (3a — безопасные переходы; шторки докупки — 3b) ──
   const actions: HomeActions = {
     onConnect: () => {
-      if (showDeviceHint && subscriptionId != null) {
-        setDeviceHintSeen(subscriptionId);
-        setShowDeviceHint(false);
-      }
+      if (showDeviceHint) dismissDeviceHint();
       navigate(`/connection?sub=${subscriptionId ?? ''}`);
     },
     onSell: () =>
@@ -393,6 +397,7 @@ export default function DashboardUnified() {
                 {showDeviceHint && subscriptionId != null && (
                   <DeviceHintOverlay
                     targetRef={connectButtonRef}
+                    onDismiss={dismissDeviceHint}
                     onTargetUnavailable={() => {
                       setShowDeviceHint(false);
                       deviceHintTriggered.current = false;

@@ -1494,11 +1494,12 @@ input[type='checkbox']:hover:not(:checked) {
 }
 
 .onboarding-spotlight {
-  @apply pointer-events-auto absolute;
+  @apply pointer-events-none absolute;
   border-radius: 16px;
+  border: 2px solid rgb(var(--color-accent-400));
   box-shadow:
-    0 0 0 9999px rgba(0, 0, 0, 0.75),
-    0 0 30px rgba(59, 130, 246, 0.4);
+    0 0 0 4px rgba(var(--color-accent-400), 0.14),
+    0 0 24px rgba(var(--color-accent-400), 0.35);
   transition: all 0.5s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
@@ -1513,28 +1514,12 @@ input[type='checkbox']:hover:not(:checked) {
   transform: rotate(45deg);
 }
 
-/* Light theme onboarding */
-.light .onboarding-spotlight {
-  box-shadow:
-    0 0 0 9999px rgba(0, 0, 0, 0.5),
-    0 0 30px rgba(160, 139, 94, 0.4);
-}
-
 .light .onboarding-tooltip {
   @apply border-champagne-400/50 bg-white shadow-champagne-500/20;
 }
 
 .light .onboarding-tooltip::before {
   @apply border-champagne-400/50 bg-white;
-}
-
-/* FIX: в светлой теме text-dark-50/text-dark-400 почти белые → невидимы на белом фоне */
-.light .onboarding-tooltip h3 {
-  @apply text-dark-900;
-}
-
-.light .onboarding-tooltip p {
-  @apply text-dark-700;
 }
 
 .onboarding-tooltip.tooltip-top::before {
