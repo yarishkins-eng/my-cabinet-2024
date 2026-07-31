@@ -20,8 +20,12 @@ vi.mock('@/hooks/useCurrency', () => ({
 }));
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
-    t: (key: string, values?: { count?: number }) =>
-      values?.count === undefined ? key : `${key}:${values.count}`,
+    t: (key: string, values?: { count?: number; amount?: number | string }) =>
+      values?.amount !== undefined
+        ? `${key}:${values.amount}`
+        : values?.count === undefined
+          ? key
+          : `${key}:${values.count}`,
   }),
 }));
 
@@ -116,6 +120,8 @@ describe('DeviceFirstConfigurator real state rendering', () => {
     expect(html).toContain('aria-checked="true"');
     expect(html).toContain('deviceFirst.review');
     expect(html).toContain('300.00 ₽');
+    expect(html).toContain('deviceFirst.deviceCount:2');
+    expect(html).toContain('deviceFirst.perDeviceMonth:150');
     expect(html).not.toContain('role="dialog"');
   });
 

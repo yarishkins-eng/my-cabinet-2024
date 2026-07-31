@@ -44,6 +44,19 @@ describe('DeviceFirstConfigurator responsive and modal contract', () => {
     expect(source).toContain("t('deviceFirst.unavailable')");
   });
 
+  it('keeps each device card compact: one device label, total, and monthly comparison', () => {
+    const deviceCard = source.slice(
+      source.indexOf('className={`flex min-h-28'),
+      source.indexOf('</button>', source.indexOf('className={`flex min-h-28')),
+    );
+
+    expect(deviceCard).toContain("t('deviceFirst.deviceCount', { count: value })");
+    expect(deviceCard).toContain("t('deviceFirst.perDeviceMonth'");
+    expect(deviceCard).not.toContain("t('deviceFirst.deviceShort'");
+    expect(deviceCard).not.toContain('>{value}</span>');
+    expect(source).toContain('periodDays === 365 ? 12 : periodDays / 30');
+  });
+
   it('provides the complete checkout vocabulary to every language the cabinet advertises', () => {
     const russianKeys = Object.keys(locale('ru').deviceFirst).sort();
     for (const language of ['en', 'zh', 'fa']) {

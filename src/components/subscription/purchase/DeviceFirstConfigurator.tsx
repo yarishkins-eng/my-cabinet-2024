@@ -239,6 +239,14 @@ export function DeviceFirstConfigurator({
   // display-currency converter here: it would show an estimate in another
   // currency while the payment and debit are still fixed in RUB.
   const formatPrice = (kopeks: number) => `${(kopeks / 100).toFixed(2)} ₽`;
+  const pricePerDeviceMonth = (kopeks: number, deviceLimit: number, periodDays: number) => {
+    // This is a compact comparison aid only. The full server-provided matrix
+    // price above remains the amount used for confirmation and payment.
+    const months = periodDays === 365 ? 12 : periodDays / 30;
+    if (!Number.isFinite(months) || months <= 0 || deviceLimit <= 0) return null;
+
+    return Math.round(kopeks / 100 / deviceLimit / months);
+  };
   const periodLabel = (days: number) =>
     days === 365
       ? t('deviceFirst.periodYear')
@@ -408,6 +416,9 @@ export function DeviceFirstConfigurator({
               {options.device_options?.map((value) =>
                 (() => {
                   const optionPrice = priceFor(period, value);
+                  const deviceMonthlyRate = optionPrice
+                    ? pricePerDeviceMonth(optionPrice.price_kopeks, value, period)
+                    : null;
                   const isSelected = devices === value;
                   return (
                     <button
@@ -434,15 +445,19 @@ export function DeviceFirstConfigurator({
                           : 'border-dark-700 bg-dark-800/45 text-dark-300'
                       }`}
                     >
-                      <span className="block text-xl font-bold">{value}</span>
-                      <span className="mt-1 text-xs">
-                        {t('deviceFirst.deviceShort', { count: value })}
+                      <span className="text-base font-semibold leading-tight">
+                        {t('deviceFirst.deviceCount', { count: value })}
                       </span>
-                      <span className="mt-1 text-xs tabular-nums text-dark-400">
+                      <span className="mt-2 text-lg font-bold tabular-nums text-dark-100">
                         {optionPrice
                           ? formatPrice(optionPrice.price_kopeks)
                           : t('deviceFirst.unavailable')}
                       </span>
+                      {deviceMonthlyRate !== null && (
+                        <span className="mt-1 text-xs leading-4 text-dark-400">
+                          {t('deviceFirst.perDeviceMonth', { amount: deviceMonthlyRate })}
+                        </span>
+                      )}
                       {isSelected && <span className="sr-only">{t('deviceFirst.selected')}</span>}
                     </button>
                   );

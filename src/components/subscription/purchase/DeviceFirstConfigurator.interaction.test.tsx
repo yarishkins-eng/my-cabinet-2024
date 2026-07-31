@@ -208,7 +208,7 @@ describe('DeviceFirstConfigurator interaction safety', () => {
     expect(await screen.findByText('deviceFirst.errorResumeUnavailable')).toBeTruthy();
   });
 
-  it('shows the exact server matrix price on every selectable card and updates it on a switch', () => {
+  it('shows one concise device label, the server total, and a monthly per-device comparison', () => {
     const matrixOptions: DeviceFirstOptions = {
       ...options,
       period_options: [30, 365],
@@ -232,12 +232,20 @@ describe('DeviceFirstConfigurator interaction safety', () => {
     };
     renderConfigurator({ options: matrixOptions });
 
-    expect(screen.getAllByText('300.00 ₽').length).toBeGreaterThan(1);
+    const twoDevices = screen.getByRole('radio', { name: /deviceFirst.deviceCount:2/ });
+    expect(twoDevices.textContent).toContain('deviceFirst.deviceCount:2');
+    expect(twoDevices.textContent).toContain('300.00 ₽');
+    expect(twoDevices.textContent).toContain('deviceFirst.perDeviceMonth:150');
+    expect(twoDevices.textContent).not.toContain('deviceFirst.deviceShort');
     expect(screen.getByRole('radio', { name: /deviceFirst.periodYear/ })).toBeTruthy();
     fireEvent.click(screen.getByRole('radio', { name: /deviceFirst.periodYear/ }));
 
-    expect(screen.getAllByText('3000.00 ₽').length).toBeGreaterThan(1);
-    expect(screen.getByText('5000.00 ₽')).toBeTruthy();
+    const annualTwoDevices = screen.getByRole('radio', { name: /deviceFirst.deviceCount:2/ });
+    expect(annualTwoDevices.textContent).toContain('3000.00 ₽');
+    expect(annualTwoDevices.textContent).toContain('deviceFirst.perDeviceMonth:125');
+    expect(screen.getByRole('radio', { name: /deviceFirst.deviceCount:4/ }).textContent).toContain(
+      'deviceFirst.perDeviceMonth:104',
+    );
   });
 
   it('uses Continue only when the server reports that no shortage remains', async () => {
