@@ -70,11 +70,15 @@ export default function ConnectionLinkCard({
     ],
   );
 
-  const copy = () => {
+  const copy = async () => {
     if (!displayedUrl) return;
-    void copyToClipboard(displayedUrl);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    try {
+      await copyToClipboard(displayedUrl);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // Keep the actionable label when both clipboard strategies are unavailable.
+    }
   };
 
   // Скрыта состоянием, спрятана сервером, или ещё не разрешилась — ничего не рисуем.
@@ -101,15 +105,15 @@ export default function ConnectionLinkCard({
 
       <button
         type="button"
-        onClick={copy}
+        onClick={() => void copy()}
         className={`flex w-full items-center justify-center gap-2.5 rounded-2xl p-3.5 text-sm font-semibold transition-all active:scale-[0.99] ${
           copied
-            ? 'bg-success-500/15 text-success-400'
+            ? 'border border-success-700/20 bg-success-500/10 text-success-800 dark:border-success-300/15 dark:text-success-200'
             : 'border border-accent-400/25 bg-accent-500/15 text-accent-300 hover:bg-accent-500/25'
         }`}
       >
         {copied ? <CheckIcon className="h-4 w-4" /> : <CopyIcon className="h-4 w-4" />}
-        {copied ? t('home.link.copied') : t('home.link.copy')}
+        <span>{copied ? t('home.link.copied') : t('home.link.copy')}</span>
       </button>
 
       {/* Сама ссылка — мелким приглушённым (для доверия, что копируется), но не как главный элемент. */}

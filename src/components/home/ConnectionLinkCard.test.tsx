@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import ConnectionLinkCard from './ConnectionLinkCard';
 
@@ -57,7 +57,7 @@ describe('ConnectionLinkCard', () => {
     copyToClipboard.mockReset();
   });
 
-  it('shows the staging fixture and copies its exact value on the first tap', () => {
+  it('shows the staging fixture and confirms its exact value after a successful copy', async () => {
     render(<ConnectionLinkCard subscriptionId={17} subscriptionUrl={null} visible />);
 
     expect(screen.getByTitle(STAGING_TEST_URL)).toBeTruthy();
@@ -66,7 +66,22 @@ describe('ConnectionLinkCard', () => {
 
     expect(copyToClipboard).toHaveBeenCalledTimes(1);
     expect(copyToClipboard).toHaveBeenCalledWith(STAGING_TEST_URL);
-    expect(screen.getByRole('button', { name: 'home.link.copied' })).toBeTruthy();
+    const copiedButton = await screen.findByRole('button', { name: 'home.link.copied' });
+    expect(copiedButton.className.split(/\s+/)).toEqual(
+      expect.arrayContaining(['bg-success-500/10', 'text-success-800', 'dark:text-success-200']),
+    );
+  });
+
+  it('keeps the actionable label when clipboard copy fails', async () => {
+    copyToClipboard.mockRejectedValueOnce(new Error('clipboard unavailable'));
+
+    render(<ConnectionLinkCard subscriptionId={17} subscriptionUrl={null} visible />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'home.link.copy' }));
+
+    await waitFor(() => expect(copyToClipboard).toHaveBeenCalledTimes(1));
+    expect(screen.getByRole('button', { name: 'home.link.copy' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'home.link.copied' })).toBeNull();
   });
 
   it('does not show a card when neither the endpoint nor subscription has a link', () => {

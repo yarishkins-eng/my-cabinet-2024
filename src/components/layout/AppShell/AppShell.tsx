@@ -13,7 +13,7 @@ import { useFeatureFlags } from '@/hooks/useFeatureFlags';
 import { useScrollRestoration } from '@/hooks/useScrollRestoration';
 import { isLogoPreloaded } from '@/api/branding';
 import { cn } from '@/lib/utils';
-import { isStagingThemeContextSmoke } from '@/utils/stagingRelease';
+import { isStagingReleaseSmoke } from '@/utils/stagingRelease';
 
 import WebSocketNotifications from '@/components/WebSocketNotifications';
 import CampaignBonusNotifier from '@/components/CampaignBonusNotifier';
@@ -58,7 +58,7 @@ export function AppShell({ children }: AppShellProps) {
   const { appName, logoLetter, hasCustomLogo, logoUrl } = useBranding();
   const { referralEnabled, wheelEnabled, hasContests, hasPolls, giftEnabled } = useFeatureFlags();
   useScrollRestoration();
-  const showStagingReleaseMarker = isStagingThemeContextSmoke(window.location);
+  const showStagingReleaseMarker = isStagingReleaseSmoke(window.location);
 
   // Only apply fullscreen UI adjustments on mobile Telegram (iOS/Android)
   const isMobileFullscreen = isFullscreen && isMobile;
@@ -298,7 +298,7 @@ export function AppShell({ children }: AppShellProps) {
 
       {showStagingReleaseMarker && (
         <div className="pointer-events-none fixed bottom-2 right-2 z-[60] rounded bg-black/75 px-2 py-1 text-[10px] font-semibold tracking-wide text-white">
-          STG BG1
+          STG CP1
         </div>
       )}
     </div>
