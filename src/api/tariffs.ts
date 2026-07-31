@@ -60,6 +60,8 @@ export interface TariffDetail {
   device_limit: number;
   device_price_kopeks: number | null;
   max_device_limit: number | null;
+  device_purchase_options: number[] | null;
+  pricing_revision: number;
   tier_level: number;
   display_order: number;
   period_prices: PeriodPrice[];
@@ -102,6 +104,7 @@ export interface TariffCreateRequest {
   device_limit?: number;
   device_price_kopeks?: number;
   max_device_limit?: number;
+  device_purchase_options?: number[] | null;
   tier_level?: number;
   period_prices?: PeriodPrice[];
   allowed_squads?: string[];
@@ -145,6 +148,7 @@ export interface TariffUpdateRequest {
   device_limit?: number;
   device_price_kopeks?: number;
   max_device_limit?: number;
+  device_purchase_options?: number[] | null;
   tier_level?: number;
   display_order?: number;
   period_prices?: PeriodPrice[];

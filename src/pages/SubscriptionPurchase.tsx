@@ -13,6 +13,8 @@ import { TariffPurchaseForm } from '../components/subscription/purchase/TariffPu
 import { TariffPickerGrid } from '../components/subscription/purchase/TariffPickerGrid';
 import { ClassicPurchaseWizard } from '../components/subscription/purchase/ClassicPurchaseWizard';
 import { ExclamationIcon, SparklesIcon } from '@/components/icons';
+import { deviceFirstApi } from '@/api/deviceFirst';
+import { DeviceFirstConfigurator } from '@/components/subscription/purchase/DeviceFirstConfigurator';
 
 export default function SubscriptionPurchase() {
   const { t } = useTranslation();
@@ -20,6 +22,7 @@ export default function SubscriptionPurchase() {
   const subscriptionId = searchParams.get('subscriptionId')
     ? parseInt(searchParams.get('subscriptionId')!, 10)
     : undefined;
+  const deviceFirstCheckoutId = searchParams.get('checkout');
   const { isDark } = useTheme();
   const g = getGlassColors(isDark);
 
@@ -32,6 +35,13 @@ export default function SubscriptionPurchase() {
     refetchOnMount: 'always',
   });
   const subscription = subscriptionResponse?.subscription ?? null;
+
+  const { data: deviceFirstOptions, isLoading: deviceFirstLoading } = useQuery({
+    queryKey: ['device-first-options'],
+    queryFn: deviceFirstApi.getOptions,
+    retry: false,
+    staleTime: 0,
+  });
 
   // Purchase options
   const {
@@ -97,7 +107,7 @@ export default function SubscriptionPurchase() {
 
   // (classic-mode helpers moved into <ClassicPurchaseWizard>)
 
-  if (isLoading || optionsLoading) {
+  if (!deviceFirstCheckoutId && (isLoading || optionsLoading || deviceFirstLoading)) {
     return (
       <div className="flex min-h-64 items-center justify-center">
         <div className="h-10 w-10 animate-spin rounded-full border-2 border-accent-500 border-t-transparent" />
@@ -105,7 +115,7 @@ export default function SubscriptionPurchase() {
     );
   }
 
-  if (optionsError || (!purchaseOptions && !optionsLoading)) {
+  if (!deviceFirstCheckoutId && (optionsError || (!purchaseOptions && !optionsLoading))) {
     return (
       <div className="space-y-6">
         <h1 className="text-2xl font-bold text-dark-50 sm:text-3xl">{t('subscription.extend')}</h1>
@@ -148,165 +158,181 @@ export default function SubscriptionPurchase() {
         </h1>
       </div>
 
-      {/* Tariffs Section */}
-      {isTariffsMode && tariffs.length > 0 && (
-        <div
-          className="relative overflow-hidden rounded-3xl"
-          style={{
-            background: g.cardBg,
-            border: `1px solid ${g.cardBorder}`,
-            boxShadow: g.shadow,
-            padding: '24px 28px',
-          }}
-        >
-          {/* Trial upgrade prompt — hidden when expired banner is active */}
-          {subscription?.is_trial &&
-            !(
-              isTariffsMode &&
-              purchaseOptions &&
-              'subscription_is_expired' in purchaseOptions &&
-              purchaseOptions.subscription_is_expired
-            ) && (
-              <div
-                className="mb-6 rounded-[14px] p-4"
-                style={{
-                  background:
-                    'linear-gradient(135deg, rgba(255,184,0,0.08), rgba(var(--color-accent-400),0.06))',
-                  border: '1px solid rgba(255,184,0,0.15)',
-                }}
-              >
-                <div className="flex items-start gap-3">
-                  <div
-                    className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-[10px]"
-                    style={{
-                      background: 'rgba(255,184,0,0.12)',
-                      color: 'rgb(var(--color-urgent-400))',
-                    }}
-                  >
-                    <SparklesIcon className="h-4 w-4" />
-                  </div>
-                  <div>
-                    <div
-                      className="text-sm font-semibold"
-                      style={{ color: 'rgb(var(--color-urgent-400))' }}
-                    >
-                      {t('subscription.trialUpgrade.title')}
-                    </div>
-                    <div className="mt-1 text-[12px] text-dark-50/40">
-                      {t('subscription.trialUpgrade.description')}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-
-          {/* Expired subscription notice */}
-          {isTariffsMode &&
-            purchaseOptions &&
-            'subscription_is_expired' in purchaseOptions &&
-            purchaseOptions.subscription_is_expired && (
-              <div
-                className="mb-6 rounded-[14px] p-4"
-                style={{
-                  background: 'linear-gradient(135deg, rgba(255,59,92,0.08), rgba(255,184,0,0.06))',
-                  border: '1px solid rgba(255,59,92,0.15)',
-                }}
-              >
-                <div className="flex items-start gap-3">
-                  <div
-                    className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-[10px]"
-                    style={{
-                      background: 'rgba(255,59,92,0.12)',
-                      color: 'rgb(var(--color-critical-500))',
-                    }}
-                  >
-                    <ExclamationIcon className="h-4 w-4" />
-                  </div>
-                  <div>
-                    <div
-                      className="text-sm font-semibold"
-                      style={{ color: 'rgb(var(--color-critical-500))' }}
-                    >
-                      {t('subscription.expiredBanner.title')}
-                    </div>
-                    <div className="mt-1 text-[12px] text-dark-50/40">
-                      {t('subscription.expiredBanner.selectTariff')}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-
-          {/* Legacy subscription notice */}
-          {subscription && !subscription.is_trial && !subscription.tariff_id && (
-            <div className="mb-6 rounded-xl border border-accent-500/30 bg-accent-500/10 p-4">
-              <div className="mb-2 font-medium text-accent-400">
-                {t('subscription.legacy.selectTariffTitle')}
-              </div>
-              <div className="text-sm text-dark-300">
-                {t('subscription.legacy.selectTariffDescription')}
-              </div>
-              <div className="mt-2 text-xs text-dark-500">
-                {t('subscription.legacy.currentSubContinues')}
-              </div>
-            </div>
-          )}
-
-          {/* Switch Tariff Preview Modal */}
-          <SwitchTariffSheet
-            open={switchTariffId !== null}
-            tariffId={switchTariffId}
-            subscriptionId={subscriptionId}
-            tariffs={tariffs}
-            onClose={() => setSwitchTariffId(null)}
-            onExpiredFallback={(tariff) => {
-              setSelectedTariff(tariff);
-              setShowTariffPurchase(true);
-            }}
-          />
-
-          {!showTariffPurchase ? (
-            <TariffPickerGrid
-              tariffs={tariffs}
-              subscription={subscription}
-              purchaseOptions={purchaseOptions}
-              isTariffsMode={isTariffsMode}
-              isMultiTariff={isMultiTariff}
-              onSelectTariff={(tariff) => {
-                setSelectedTariff(tariff);
-                setShowTariffPurchase(true);
-              }}
-              onSwitchTariff={(tariffId) => setSwitchTariffId(tariffId)}
-            />
-          ) : (
-            selectedTariff && (
-              /* Tariff Purchase Form (extracted into its own component) */
-              <TariffPurchaseForm
-                key={selectedTariff.id}
-                tariff={selectedTariff}
-                subscriptionId={subscriptionId}
-                balanceKopeks={purchaseOptions?.balance_kopeks}
-                onBack={() => {
-                  setShowTariffPurchase(false);
-                  setSelectedTariff(null);
-                }}
-              />
-            )
-          )}
-        </div>
-      )}
-
-      {/* Purchase/Extend Section - Classic Mode */}
-      {classicOptions && classicOptions.periods.length > 0 && (
-        <ClassicPurchaseWizard
-          classicOptions={classicOptions}
-          subscription={subscription}
-          subscriptionId={subscriptionId}
+      {(deviceFirstOptions?.eligible || deviceFirstCheckoutId) && (
+        <DeviceFirstConfigurator
+          options={deviceFirstOptions ?? { eligible: true }}
+          initialCheckoutId={deviceFirstCheckoutId}
         />
       )}
 
+      {/* Tariffs Section */}
+      {!deviceFirstOptions?.eligible &&
+        !deviceFirstCheckoutId &&
+        isTariffsMode &&
+        tariffs.length > 0 && (
+          <div
+            className="relative overflow-hidden rounded-3xl"
+            style={{
+              background: g.cardBg,
+              border: `1px solid ${g.cardBorder}`,
+              boxShadow: g.shadow,
+              padding: '24px 28px',
+            }}
+          >
+            {/* Trial upgrade prompt — hidden when expired banner is active */}
+            {subscription?.is_trial &&
+              !(
+                isTariffsMode &&
+                purchaseOptions &&
+                'subscription_is_expired' in purchaseOptions &&
+                purchaseOptions.subscription_is_expired
+              ) && (
+                <div
+                  className="mb-6 rounded-[14px] p-4"
+                  style={{
+                    background:
+                      'linear-gradient(135deg, rgba(255,184,0,0.08), rgba(var(--color-accent-400),0.06))',
+                    border: '1px solid rgba(255,184,0,0.15)',
+                  }}
+                >
+                  <div className="flex items-start gap-3">
+                    <div
+                      className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-[10px]"
+                      style={{
+                        background: 'rgba(255,184,0,0.12)',
+                        color: 'rgb(var(--color-urgent-400))',
+                      }}
+                    >
+                      <SparklesIcon className="h-4 w-4" />
+                    </div>
+                    <div>
+                      <div
+                        className="text-sm font-semibold"
+                        style={{ color: 'rgb(var(--color-urgent-400))' }}
+                      >
+                        {t('subscription.trialUpgrade.title')}
+                      </div>
+                      <div className="mt-1 text-[12px] text-dark-50/40">
+                        {t('subscription.trialUpgrade.description')}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+            {/* Expired subscription notice */}
+            {isTariffsMode &&
+              purchaseOptions &&
+              'subscription_is_expired' in purchaseOptions &&
+              purchaseOptions.subscription_is_expired && (
+                <div
+                  className="mb-6 rounded-[14px] p-4"
+                  style={{
+                    background:
+                      'linear-gradient(135deg, rgba(255,59,92,0.08), rgba(255,184,0,0.06))',
+                    border: '1px solid rgba(255,59,92,0.15)',
+                  }}
+                >
+                  <div className="flex items-start gap-3">
+                    <div
+                      className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-[10px]"
+                      style={{
+                        background: 'rgba(255,59,92,0.12)',
+                        color: 'rgb(var(--color-critical-500))',
+                      }}
+                    >
+                      <ExclamationIcon className="h-4 w-4" />
+                    </div>
+                    <div>
+                      <div
+                        className="text-sm font-semibold"
+                        style={{ color: 'rgb(var(--color-critical-500))' }}
+                      >
+                        {t('subscription.expiredBanner.title')}
+                      </div>
+                      <div className="mt-1 text-[12px] text-dark-50/40">
+                        {t('subscription.expiredBanner.selectTariff')}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+            {/* Legacy subscription notice */}
+            {subscription && !subscription.is_trial && !subscription.tariff_id && (
+              <div className="mb-6 rounded-xl border border-accent-500/30 bg-accent-500/10 p-4">
+                <div className="mb-2 font-medium text-accent-400">
+                  {t('subscription.legacy.selectTariffTitle')}
+                </div>
+                <div className="text-sm text-dark-300">
+                  {t('subscription.legacy.selectTariffDescription')}
+                </div>
+                <div className="mt-2 text-xs text-dark-500">
+                  {t('subscription.legacy.currentSubContinues')}
+                </div>
+              </div>
+            )}
+
+            {/* Switch Tariff Preview Modal */}
+            <SwitchTariffSheet
+              open={switchTariffId !== null}
+              tariffId={switchTariffId}
+              subscriptionId={subscriptionId}
+              tariffs={tariffs}
+              onClose={() => setSwitchTariffId(null)}
+              onExpiredFallback={(tariff) => {
+                setSelectedTariff(tariff);
+                setShowTariffPurchase(true);
+              }}
+            />
+
+            {!showTariffPurchase ? (
+              <TariffPickerGrid
+                tariffs={tariffs}
+                subscription={subscription}
+                purchaseOptions={purchaseOptions}
+                isTariffsMode={isTariffsMode}
+                isMultiTariff={isMultiTariff}
+                onSelectTariff={(tariff) => {
+                  setSelectedTariff(tariff);
+                  setShowTariffPurchase(true);
+                }}
+                onSwitchTariff={(tariffId) => setSwitchTariffId(tariffId)}
+              />
+            ) : (
+              selectedTariff && (
+                /* Tariff Purchase Form (extracted into its own component) */
+                <TariffPurchaseForm
+                  key={selectedTariff.id}
+                  tariff={selectedTariff}
+                  subscriptionId={subscriptionId}
+                  balanceKopeks={purchaseOptions?.balance_kopeks}
+                  onBack={() => {
+                    setShowTariffPurchase(false);
+                    setSelectedTariff(null);
+                  }}
+                />
+              )
+            )}
+          </div>
+        )}
+
+      {/* Purchase/Extend Section - Classic Mode */}
+      {!deviceFirstOptions?.eligible &&
+        !deviceFirstCheckoutId &&
+        classicOptions &&
+        classicOptions.periods.length > 0 && (
+          <ClassicPurchaseWizard
+            classicOptions={classicOptions}
+            subscription={subscription}
+            subscriptionId={subscriptionId}
+          />
+        )}
+
       {/* No options available fallback */}
-      {purchaseOptions &&
+      {!deviceFirstOptions?.eligible &&
+        !deviceFirstCheckoutId &&
+        purchaseOptions &&
         !optionsLoading &&
         !(isTariffsMode && tariffs.length > 0) &&
         !(classicOptions && classicOptions.periods.length > 0) && (
