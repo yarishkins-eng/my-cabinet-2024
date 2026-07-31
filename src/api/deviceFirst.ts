@@ -66,6 +66,7 @@ export interface DeviceFirstCheckout {
   estimated_end_at: string;
   balance_kopeks: number | null;
   shortage_kopeks: number | null;
+  top_up_surplus_kopeks: number | null;
 }
 
 export interface DeviceFirstPaymentAttempt {

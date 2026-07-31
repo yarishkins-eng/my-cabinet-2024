@@ -99,6 +99,7 @@ function checkout(
     estimated_end_at: '2026-08-29T12:00:00Z',
     balance_kopeks: 45000 - shortageKopeks,
     shortage_kopeks: shortageKopeks,
+    top_up_surplus_kopeks: 0,
   };
 }
 

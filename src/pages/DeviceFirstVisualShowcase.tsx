@@ -83,6 +83,7 @@ function checkout(uiState: DeviceFirstUiState): DeviceFirstCheckout {
     estimated_end_at: '2026-08-29T12:00:00+03:00',
     balance_kopeks: uiState === 'awaiting_payment' ? 50000 : 150000,
     shortage_kopeks: uiState === 'awaiting_payment' ? 59000 : 0,
+    top_up_surplus_kopeks: 0,
   };
 }
 

@@ -86,6 +86,7 @@ function checkout(uiState: DeviceFirstUiState): DeviceFirstCheckout {
     estimated_end_at: '2026-08-29T12:00:00Z',
     balance_kopeks: 10000,
     shortage_kopeks: uiState === 'awaiting_payment' ? 35000 : 0,
+    top_up_surplus_kopeks: 0,
   };
 }
 
@@ -148,6 +149,17 @@ describe('DeviceFirstConfigurator real state rendering', () => {
     expect(html).toContain('350 ₽');
   });
 
+  it('explains the provider minimum remainder when it stays on balance', () => {
+    const minimumTopUp = {
+      ...checkout('awaiting_payment'),
+      shortage_kopeks: 10000,
+      top_up_surplus_kopeks: 3000,
+    };
+    const html = render(minimumTopUp);
+
+    expect(html).toContain('deviceFirst.topUpSurplusHint:30 ₽');
+  });
+
   it.each(['processing', 'provisioning'] as const)(
     'renders honest pending state for %s',
     (uiState) => {
@@ -182,4 +194,13 @@ describe('DeviceFirstConfigurator real state rendering', () => {
       expect(html).not.toContain('deviceFirst.readyText');
     },
   );
+
+  it('explains an amount-mismatch payment without implying that money was lost', () => {
+    const mismatch = { ...checkout('conflict'), terminal_reason: 'payment_amount_mismatch' };
+    const html = render(mismatch);
+
+    expect(html).toContain('deviceFirst.paymentMismatchTitle');
+    expect(html).toContain('deviceFirst.paymentMismatchText');
+    expect(html).not.toContain('deviceFirst.refreshText');
+  });
 });

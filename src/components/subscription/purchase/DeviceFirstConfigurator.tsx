@@ -572,6 +572,13 @@ export function DeviceFirstConfigurator({
           <h3 className="text-lg font-bold text-dark-50">{t('deviceFirst.needTopup')}</h3>
           <Summary checkout={checkout} formatPrice={formatPrice} />
           <p className="text-sm text-dark-400">{t('deviceFirst.armedNotice')}</p>
+          {(checkout.top_up_surplus_kopeks ?? 0) > 0 && (
+            <p role="status" className="text-sm text-dark-300">
+              {t('deviceFirst.topUpSurplusHint', {
+                amount: formatPrice(checkout.top_up_surplus_kopeks ?? 0),
+              })}
+            </p>
+          )}
           {requiresReconciliation ? (
             <>
               <StateMessage
@@ -770,8 +777,16 @@ export function DeviceFirstConfigurator({
         ) && (
           <div className="space-y-4">
             <StateMessage
-              title={t('deviceFirst.refreshTitle')}
-              text={t('deviceFirst.refreshText')}
+              title={
+                checkout.terminal_reason === 'payment_amount_mismatch'
+                  ? t('deviceFirst.paymentMismatchTitle')
+                  : t('deviceFirst.refreshTitle')
+              }
+              text={
+                checkout.terminal_reason === 'payment_amount_mismatch'
+                  ? t('deviceFirst.paymentMismatchText')
+                  : t('deviceFirst.refreshText')
+              }
             />
             <button
               type="button"
