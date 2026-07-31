@@ -48,7 +48,7 @@ const options: DeviceFirstOptions = {
       prices: [
         {
           device_limit: 2,
-          price_kopeks: 30000,
+          price_kopeks: 30050,
           breakdown: {
             base_price_kopeks: 30000,
             devices_price_kopeks: 0,
@@ -119,7 +119,8 @@ describe('DeviceFirstConfigurator real state rendering', () => {
     expect(html).toContain('role="radio"');
     expect(html).toContain('aria-checked="true"');
     expect(html).toContain('deviceFirst.review');
-    expect(html).toContain('300.00 ₽');
+    expect(html).toContain('301 ₽');
+    expect(html).not.toContain('300,50 ₽');
     expect(html).toContain('deviceFirst.deviceCount:2');
     expect(html).toContain('deviceFirst.perDeviceMonth:150');
     expect(html).not.toContain('role="dialog"');
@@ -144,7 +145,7 @@ describe('DeviceFirstConfigurator real state rendering', () => {
     expect(html).toContain('deviceFirst.sbp');
     expect(html).toContain('deviceFirst.cards');
     expect(html).not.toContain('deviceFirst.crypto');
-    expect(html).toContain('350.00 ₽');
+    expect(html).toContain('350 ₽');
   });
 
   it.each(['processing', 'provisioning'] as const)(

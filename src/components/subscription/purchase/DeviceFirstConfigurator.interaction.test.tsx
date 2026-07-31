@@ -164,7 +164,7 @@ describe('DeviceFirstConfigurator interaction safety', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'deviceFirst.confirm' }));
     const financialConsent = await screen.findByRole('button', {
-      name: 'deviceFirst.topUpAndOrder:350.00 ₽',
+      name: 'deviceFirst.topUpAndOrder:350 ₽',
     });
     fireEvent.click(financialConsent);
 
@@ -234,14 +234,14 @@ describe('DeviceFirstConfigurator interaction safety', () => {
 
     const twoDevices = screen.getByRole('radio', { name: /deviceFirst.deviceCount:2/ });
     expect(twoDevices.textContent).toContain('deviceFirst.deviceCount:2');
-    expect(twoDevices.textContent).toContain('300.00 ₽');
+    expect(twoDevices.textContent).toContain('300 ₽');
     expect(twoDevices.textContent).toContain('deviceFirst.perDeviceMonth:150');
     expect(twoDevices.textContent).not.toContain('deviceFirst.deviceShort');
     expect(screen.getByRole('radio', { name: /deviceFirst.periodYear/ })).toBeTruthy();
     fireEvent.click(screen.getByRole('radio', { name: /deviceFirst.periodYear/ }));
 
     const annualTwoDevices = screen.getByRole('radio', { name: /deviceFirst.deviceCount:2/ });
-    expect(annualTwoDevices.textContent).toContain('3000.00 ₽');
+    expect(annualTwoDevices.textContent).toContain('3000 ₽');
     expect(annualTwoDevices.textContent).toContain('deviceFirst.perDeviceMonth:125');
     expect(screen.getByRole('radio', { name: /deviceFirst.deviceCount:4/ }).textContent).toContain(
       'deviceFirst.perDeviceMonth:104',
@@ -276,7 +276,7 @@ describe('DeviceFirstConfigurator interaction safety', () => {
       screen.getByRole('radiogroup', { name: 'deviceFirst.paymentMethodQuestion' }),
     ).toBeTruthy();
 
-    fireEvent.click(screen.getByRole('button', { name: 'deviceFirst.topUpAmount:350.00 ₽' }));
+    fireEvent.click(screen.getByRole('button', { name: 'deviceFirst.topUpAmount:350 ₽' }));
     await waitFor(() =>
       expect(deviceFirstApi.createPaymentAttempt).toHaveBeenCalledWith('checkout-owned', 'crypto'),
     );
@@ -291,14 +291,12 @@ describe('DeviceFirstConfigurator interaction safety', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'deviceFirst.review' }));
     fireEvent.click(await screen.findByRole('button', { name: 'deviceFirst.confirm' }));
-    fireEvent.click(
-      await screen.findByRole('button', { name: 'deviceFirst.topUpAndOrder:350.00 ₽' }),
-    );
+    fireEvent.click(await screen.findByRole('button', { name: 'deviceFirst.topUpAndOrder:350 ₽' }));
 
     expect((await screen.findByRole('alert')).textContent).toContain(
       'deviceFirst.errorPaymentMethodsLoad',
     );
-    expect(screen.queryByRole('button', { name: 'deviceFirst.topUpAmount:350.00 ₽' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'deviceFirst.topUpAmount:350 ₽' })).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'deviceFirst.retry' }));
     await waitFor(() => expect(deviceFirstApi.paymentMethods).toHaveBeenCalledTimes(2));
     expect(screen.getByRole('button', { name: 'deviceFirst.contactSupport' })).toBeTruthy();

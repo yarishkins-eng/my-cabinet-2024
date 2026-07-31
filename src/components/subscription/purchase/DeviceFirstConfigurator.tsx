@@ -237,8 +237,10 @@ export function DeviceFirstConfigurator({
 
   // Checkout amounts are server-owned Russian kopeks. Do not apply the
   // display-currency converter here: it would show an estimate in another
-  // currency while the payment and debit are still fixed in RUB.
-  const formatPrice = (kopeks: number) => `${(kopeks / 100).toFixed(2)} ₽`;
+  // currency while the payment and debit are still fixed in RUB. The UI
+  // deliberately shows whole rubles; the server remains the source of truth
+  // for the exact amount used during confirmation and payment.
+  const formatPrice = (kopeks: number) => `${Math.round(kopeks / 100)} ₽`;
   const pricePerDeviceMonth = (kopeks: number, deviceLimit: number, periodDays: number) => {
     // This is a compact comparison aid only. The full server-provided matrix
     // price above remains the amount used for confirmation and payment.
