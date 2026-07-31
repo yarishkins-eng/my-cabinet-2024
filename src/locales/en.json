@@ -301,7 +301,7 @@
       "help": "What is this?",
       "hint": "This link adds the VPN to your app. Copy it and paste it into the app to connect.",
       "copy": "Copy link",
-      "copied": "Copied"
+      "copied": "Link copied"
     },
     "manageSubscription": "Manage subscription",
     "deviceHint": {
