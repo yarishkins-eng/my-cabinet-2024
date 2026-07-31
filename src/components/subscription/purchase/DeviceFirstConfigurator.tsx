@@ -892,7 +892,8 @@ function Summary({
       <div className="flex justify-between text-sm text-dark-300">
         <span>{t('deviceFirst.devices')}</span>
         <strong>
-          {checkout.current_device_limit
+          {checkout.current_device_limit !== null &&
+          checkout.current_subscription_is_trial === false
             ? `${checkout.current_device_limit} → ${checkout.selected_device_limit}`
             : checkout.selected_device_limit}
         </strong>

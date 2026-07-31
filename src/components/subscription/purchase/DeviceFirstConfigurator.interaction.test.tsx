@@ -96,6 +96,7 @@ function checkout(
     ui_state: uiState,
     created_subscription_id: null,
     current_device_limit: null,
+    current_subscription_is_trial: null,
     estimated_end_at: '2026-08-29T12:00:00Z',
     balance_kopeks: 45000 - shortageKopeks,
     shortage_kopeks: shortageKopeks,

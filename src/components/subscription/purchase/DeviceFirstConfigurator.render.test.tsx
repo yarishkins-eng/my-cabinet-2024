@@ -83,6 +83,7 @@ function checkout(uiState: DeviceFirstUiState): DeviceFirstCheckout {
     ui_state: uiState,
     created_subscription_id: uiState === 'ready' ? 42 : null,
     current_device_limit: 2,
+    current_subscription_is_trial: false,
     estimated_end_at: '2026-08-29T12:00:00Z',
     balance_kopeks: 10000,
     shortage_kopeks: uiState === 'awaiting_payment' ? 35000 : 0,
@@ -184,6 +185,16 @@ describe('DeviceFirstConfigurator real state rendering', () => {
 
     expect(html).toContain('deviceFirst.periodYearExact');
     expect(html).not.toContain('deviceFirst.periodMonths:12');
+  });
+
+  it('shows a previous device limit only for an explicitly paid target subscription', () => {
+    const paid = render({ ...checkout('confirmation'), current_subscription_is_trial: false });
+    const trial = render({ ...checkout('confirmation'), current_subscription_is_trial: true });
+    const unknown = render({ ...checkout('confirmation'), current_subscription_is_trial: null });
+
+    expect(paid).toContain('2 → 5');
+    expect(trial).not.toContain('2 → 5');
+    expect(unknown).not.toContain('2 → 5');
   });
 
   it.each(['reprice_required', 'conflict', 'expired', 'failed', 'cancelled'] as const)(

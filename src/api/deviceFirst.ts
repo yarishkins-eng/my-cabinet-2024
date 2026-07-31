@@ -63,6 +63,9 @@ export interface DeviceFirstCheckout {
   ui_state: DeviceFirstUiState;
   created_subscription_id: number | null;
   current_device_limit: number | null;
+  // Optional while an older backend can still answer a resumed checkout.
+  // Only an explicit false means that the previous paid limit may be shown.
+  current_subscription_is_trial?: boolean | null;
   estimated_end_at: string;
   balance_kopeks: number | null;
   shortage_kopeks: number | null;
