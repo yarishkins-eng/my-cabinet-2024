@@ -1122,8 +1122,8 @@ export default function QuickPurchase() {
     <div className="min-h-dvh overflow-x-hidden">
       {/* Background: the landing's own per-landing theme when configured, else
           fall back to the cabinet's global animated theme (instead of a bare
-          dark canvas). Both render via a portal behind the content, so the
-          wrapper stays transparent over the body's #0a0f1a. */}
+          dark canvas). Both render via a portal behind the content; the global
+          renderer also owns the active light/dark base colour. */}
       {config.background_config ? (
         <StaticBackgroundRenderer config={config.background_config} />
       ) : (

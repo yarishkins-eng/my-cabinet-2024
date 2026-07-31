@@ -1,4 +1,4 @@
-export const STAGING_THEME_CONTEXT_RELEASE = 'cabinet-6020269';
+export const STAGING_THEME_CONTEXT_RELEASE = 'cabinet-theme-bg-remount-1';
 
 export function isStagingThemeContextSmoke(location: Pick<Location, 'port' | 'search'>): boolean {
   return (

@@ -6,6 +6,7 @@ import type { AnimationConfig, BackgroundType } from '@/components/ui/background
 import { DEFAULT_ANIMATION_CONFIG } from '@/components/ui/backgrounds/types';
 import { backgroundComponents, prefetchBackground } from '@/components/ui/backgrounds/registry';
 import { validateConfig, getCachedConfig, setCachedConfig } from '@/utils/backgroundConfig';
+import { useTheme } from '@/hooks/useTheme';
 
 // Prefetch the background JS chunk immediately based on localStorage cache.
 const cachedConfig = getCachedConfig();
@@ -33,20 +34,29 @@ function reduceMobileSettings(settings: Record<string, unknown>): Record<string,
   return reduced;
 }
 
-function RenderBackground({ config }: { config: AnimationConfig }) {
+function RenderBackground({
+  config,
+  includeThemeBackdrop = false,
+}: {
+  config: AnimationConfig;
+  includeThemeBackdrop?: boolean;
+}) {
+  const { theme, isDark } = useTheme();
   const prefersReducedMotion = useMemo(
     () => window.matchMedia('(prefers-reduced-motion: reduce)').matches,
     [],
   );
 
-  if (!config.enabled || config.type === 'none' || prefersReducedMotion) {
+  const shouldRenderAnimation = config.enabled && config.type !== 'none' && !prefersReducedMotion;
+
+  if (!shouldRenderAnimation && !includeThemeBackdrop) {
     return null;
   }
 
-  const bgType = config.type as Exclude<BackgroundType, 'none'>;
-  const Component = backgroundComponents[bgType];
+  const bgType = shouldRenderAnimation ? (config.type as Exclude<BackgroundType, 'none'>) : null;
+  const Component = bgType ? backgroundComponents[bgType] : null;
 
-  if (!Component) return null;
+  if (shouldRenderAnimation && !Component && !includeThemeBackdrop) return null;
 
   const isMobile = window.innerWidth < 768;
   const settings =
@@ -58,19 +68,40 @@ function RenderBackground({ config }: { config: AnimationConfig }) {
   return createPortal(
     <div
       className="pointer-events-none fixed inset-0"
+      data-app-background-theme={theme}
       style={{
         zIndex: -2,
-        opacity: config.opacity,
-        filter: effectiveBlur > 0 ? `blur(${effectiveBlur}px)` : undefined,
-        contain: 'strict',
-        backfaceVisibility: 'hidden',
+        backgroundColor: includeThemeBackdrop
+          ? isDark
+            ? 'var(--color-dark-bg)'
+            : 'var(--color-light-bg)'
+          : undefined,
       }}
     >
-      <Suspense fallback={null}>
-        <Component settings={settings} />
-      </Suspense>
+      {shouldRenderAnimation && Component && (
+        <div
+          className="absolute inset-0"
+          style={{
+            opacity: config.opacity,
+            filter: effectiveBlur > 0 ? `blur(${effectiveBlur}px)` : undefined,
+            contain: 'strict',
+            backfaceVisibility: 'hidden',
+          }}
+        >
+          <Suspense fallback={null}>
+            <Component settings={settings} />
+          </Suspense>
+        </div>
+      )}
     </div>,
     document.body,
+    // Telegram Desktop/macOS can retain the separately painted body/root canvas
+    // together with this negative-z animated surface after the DOM has already
+    // switched themes. Route navigation happened to invalidate those pixels.
+    // For the application backdrop, replace the portal subtree on every theme
+    // change and paint the base colour inside it; static landing backgrounds keep
+    // a stable key because they do not own the application backdrop.
+    includeThemeBackdrop ? `app-background-${theme}` : 'static-background',
   );
 }
 
@@ -89,7 +120,7 @@ export function BackgroundRenderer() {
   });
 
   const effectiveConfig = config ?? DEFAULT_ANIMATION_CONFIG;
-  return <RenderBackground config={effectiveConfig} />;
+  return <RenderBackground config={effectiveConfig} includeThemeBackdrop />;
 }
 
 export function StaticBackgroundRenderer({ config }: { config: AnimationConfig }) {

@@ -171,7 +171,7 @@ export function AppShell({ children }: AppShellProps) {
 
   return (
     <div className="min-h-viewport">
-      {/* Animated background renders via portal on document.body at z-index: -1 */}
+      {/* Animated background renders via portal on document.body at z-index: -2 */}
       <BackgroundRenderer />
 
       {/* Global components */}
@@ -298,7 +298,7 @@ export function AppShell({ children }: AppShellProps) {
 
       {showStagingReleaseMarker && (
         <div className="pointer-events-none fixed bottom-2 right-2 z-[60] rounded bg-black/75 px-2 py-1 text-[10px] font-semibold tracking-wide text-white">
-          STG 602
+          STG BG1
         </div>
       )}
     </div>
