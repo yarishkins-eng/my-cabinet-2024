@@ -139,8 +139,20 @@ export const deviceFirstApi = {
       { funding_mode: fundingMode, ...(methodKey ? { method_key: methodKey } : {}) },
     ),
 
-  getPendingPayment: async (checkoutId: string): Promise<{ redirect_url: string; status: string }> =>
+  getPendingPayment: async (
+    checkoutId: string,
+  ): Promise<{ redirect_url: string | null; status: string; resume_allowed: boolean }> =>
     (await apiClient.get(`/cabinet/device-first/checkout/${checkoutId}/pending-payment`)).data,
+
+  resumeInvoice: async (
+    checkoutId: string,
+    methodKey: string,
+  ): Promise<DeviceFirstCommitResponse> =>
+    postIntent(
+      `resume-invoice:${checkoutId}:${methodKey}`,
+      `/cabinet/device-first/checkout/${checkoutId}/resume-invoice`,
+      { method_key: methodKey },
+    ),
 
   cancel: async (checkoutId: string): Promise<DeviceFirstCheckout> =>
     postIntent(`cancel:${checkoutId}`, `/cabinet/device-first/checkout/${checkoutId}/cancel`, {}),
