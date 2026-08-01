@@ -129,6 +129,7 @@ describe('DeviceFirstConfigurator real state rendering', () => {
     expect(html).toContain('300,50 ₽');
     expect(html).toContain('deviceFirst.deviceCount:2');
     expect(html).toContain('deviceFirst.perDeviceMonth:150');
+    expect(html).not.toContain('deviceFirst.eyebrow');
     expect(html).not.toContain('role="dialog"');
   });
 

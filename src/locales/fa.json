@@ -4807,7 +4807,6 @@
     "title": "اشتراک‌های من"
   },
   "deviceFirst": {
-    "eyebrow": "VPN برای دستگاه‌های شما",
     "description": "ابتدا مدت VPN و سپس تعداد دستگاه‌ها را انتخاب کنید.",
     "devicesQuestion": "چند دستگاه؟",
     "deviceShort": "{{count}} دستگاه",
@@ -4825,7 +4824,9 @@
     "review": "ادامه ثبت سفارش",
     "reviewHint": "هنوز مبلغی کسر نمی‌شود",
     "confirm": "تأیید",
-    "chargeNotice": "تا پیش از تأیید جداگانه در پایین، مبلغی کسر نمی‌شود.",
+    "preparingCheckout": "در حال آماده‌سازی سفارش",
+    "preparingCheckoutText": "شرایط انتخاب‌شده را بررسی می‌کنیم. هنوز مبلغی کسر نمی‌شود.",
+    "chargeNotice": "مبلغ نهایی را بررسی و روش پرداخت را انتخاب کنید.",
     "payBalance": "پرداخت از موجودی",
     "topUpAndOrder": "افزودن {{amount}} و اشتراک",
     "payAndOrder": "کسر {{amount}} و اشتراک",
@@ -4874,6 +4875,9 @@
     "errorOrderUpdated": "وضعیت سفارش تغییر کرده است. قبل از ادامه آن را تازه کنید.",
     "noMethods": "در حال حاضر روش پرداختی در دسترس نیست.",
     "paymentMethodQuestion": "روش پرداخت",
+    "paymentMethodsAvailable": "روش‌های پرداخت موجود برای این سفارش",
+    "paymentMethodsLoading": "در حال بارگذاری روش‌های پرداخت موجود…",
+    "paymentMethodUnknown": "روش پرداخت دیگر",
     "retry": "تلاش دوباره",
     "devices": "دستگاه‌ها",
     "period": "مدت",
