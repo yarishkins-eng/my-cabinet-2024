@@ -178,6 +178,30 @@ describe('DeviceFirstConfigurator real state rendering', () => {
     expect(html).not.toContain('deviceFirst.periodMonths:12');
   });
 
+  it('uses an external-payment CTA for a direct sale instead of claiming a balance charge', () => {
+    const directExternal = {
+      ...checkout('confirmation'),
+      settlement_mode: 'direct_purchase_v2' as const,
+      funding_mode: null,
+      balance_kopeks: 0,
+      external_payable_kopeks: 45000,
+    };
+    const html = render(directExternal);
+
+    expect(html).toContain('deviceFirst.payExternalAndOrder:450 ₽');
+    expect(html).not.toContain('deviceFirst.payAndOrder:450 ₽');
+  });
+
+  it('shows a previous device limit only for an explicitly paid target subscription', () => {
+    const paid = render({ ...checkout('confirmation'), current_subscription_is_trial: false });
+    const trial = render({ ...checkout('confirmation'), current_subscription_is_trial: true });
+    const unknown = render({ ...checkout('confirmation'), current_subscription_is_trial: null });
+
+    expect(paid).toContain('2 → 5');
+    expect(trial).not.toContain('2 → 5');
+    expect(unknown).not.toContain('2 → 5');
+  });
+
   it.each(['reprice_required', 'conflict', 'expired', 'failed', 'cancelled'] as const)(
     'renders a non-success recovery state for %s',
     (uiState) => {
@@ -186,4 +210,24 @@ describe('DeviceFirstConfigurator real state rendering', () => {
       expect(html).not.toContain('deviceFirst.readyText');
     },
   );
+  it('explains an amount-mismatch payment without implying that money was lost', () => {
+    const mismatch = { ...checkout('conflict'), terminal_reason: 'payment_amount_mismatch' };
+    const html = render(mismatch);
+
+    expect(html).toContain('deviceFirst.paymentMismatchTitle');
+    expect(html).toContain('deviceFirst.paymentMismatchText');
+    expect(html).not.toContain('deviceFirst.refreshText');
+  });
+
+  it('fences an operator-review checkout to support without offering a new quote', () => {
+    const html = render({
+      ...checkout('operator_review'),
+      terminal_reason: 'post_paid_provider_terminal',
+    });
+
+    expect(html).toContain('deviceFirst.paymentMismatchTitle');
+    expect(html).toContain('deviceFirst.paymentMismatchText');
+    expect(html).toContain('deviceFirst.contactSupport');
+    expect(html).not.toContain('deviceFirst.startNew');
+  });
 });

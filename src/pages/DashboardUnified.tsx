@@ -86,6 +86,18 @@ export default function DashboardUnified() {
     retry: false,
     staleTime: 0,
   });
+  // A direct ``ready`` checkout is historical completion, not a recovery
+  // action. Error/operator terminal states remain visible and route only to
+  // their owned checkout, so a post-paid hold cannot be bypassed by Home.
+  const deviceFirstRecovery =
+    openDeviceFirstCheckout &&
+    !(
+      openDeviceFirstCheckout.settlement_mode === 'direct_purchase_v2' &&
+      openDeviceFirstCheckout.ui_state === 'ready'
+    )
+      ? openDeviceFirstCheckout
+      : null;
+  const deviceFirstNeedsOperator = deviceFirstRecovery?.ui_state === 'operator_review';
 
   // Multi-tariff: список подписок (управление через /subscriptions).
   const { data: multiSubData } = useQuery({
@@ -285,11 +297,11 @@ export default function DashboardUnified() {
     },
     onSell: () =>
       navigate(
-        openDeviceFirstCheckout
-          ? `/subscription/purchase?checkout=${encodeURIComponent(openDeviceFirstCheckout.id)}`
+        deviceFirstRecovery
+          ? `/subscription/purchase?checkout=${encodeURIComponent(deviceFirstRecovery.id)}`
           : state.sellZone.kind === 'renew' && subscriptionId != null
-          ? `/subscriptions/${subscriptionId}/renew`
-          : '/subscription/purchase',
+            ? `/subscriptions/${subscriptionId}/renew`
+            : '/subscription/purchase',
       ),
     // Докупка устройств/гигабайтов — инлайн-шторки (lazy), открываются прямо на экране.
     onAddDevice: () => setShowDeviceTopup(true),
@@ -347,17 +359,25 @@ export default function DashboardUnified() {
         <p className="mt-1 text-dark-400">{t('dashboard.yourSubscription')}</p>
       </div>
 
-      {openDeviceFirstCheckout && (
+      {deviceFirstRecovery && (
         <button
           type="button"
           onClick={() =>
-            navigate(`/subscription/purchase?checkout=${encodeURIComponent(openDeviceFirstCheckout.id)}`)
+            navigate(
+              `/subscription/purchase?checkout=${encodeURIComponent(deviceFirstRecovery.id)}`,
+            )
           }
           className="w-full rounded-2xl border border-accent-400/35 bg-accent-500/10 p-4 text-left"
         >
-          <div className="text-sm font-semibold text-accent-200">Оформляем подписку</div>
+          <div className="text-sm font-semibold text-accent-200">
+            {deviceFirstNeedsOperator
+              ? t('deviceFirst.paymentMismatchTitle')
+              : t('deviceFirst.processing')}
+          </div>
           <div className="mt-1 text-sm text-dark-300">
-            {openDeviceFirstCheckout.selected_device_limit} устройств · продолжить
+            {deviceFirstNeedsOperator
+              ? t('deviceFirst.paymentMismatchText')
+              : `${deviceFirstRecovery.selected_device_limit} устройств · продолжить`}
           </div>
         </button>
       )}

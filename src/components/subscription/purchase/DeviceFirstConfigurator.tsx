@@ -107,7 +107,8 @@ export function DeviceFirstConfigurator({
       fixtureMethods === undefined &&
       !!checkout &&
       (checkout.ui_state === 'awaiting_payment' ||
-        (checkout.ui_state === 'confirmation' && checkout.settlement_mode === 'direct_purchase_v2')),
+        (checkout.ui_state === 'confirmation' &&
+          checkout.settlement_mode === 'direct_purchase_v2')),
   });
   useEffect(() => {
     const availableKeys = methods.data?.methods.map((method) => method.key) ?? [];
@@ -204,6 +205,15 @@ export function DeviceFirstConfigurator({
         return;
       }
       window.location.assign(attempt.redirect_url);
+    },
+    onError: recoverAmbiguousCheckout,
+  });
+  const resumeInvoiceMutation = useMutation({
+    mutationFn: () => deviceFirstApi.resumeInvoice(checkout!.id, methodKey),
+    onMutate: () => setActionError(null),
+    onSuccess: (result) => {
+      acceptCheckout(result.checkout);
+      if (result.redirect_url) window.location.assign(result.redirect_url);
     },
     onError: recoverAmbiguousCheckout,
   });
@@ -312,6 +322,7 @@ export function DeviceFirstConfigurator({
     armMutation.isPending ||
     commitMutation.isPending ||
     paymentMutation.isPending ||
+    resumeInvoiceMutation.isPending ||
     cancelMutation.isPending;
   const choiceClass =
     'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-300 focus-visible:ring-offset-2 focus-visible:ring-offset-dark-950';
@@ -585,7 +596,11 @@ export function DeviceFirstConfigurator({
           {checkout.settlement_mode === 'direct_purchase_v2' ? (
             <>
               {(checkout.balance_kopeks ?? 0) < checkout.tariff_total_kopeks && (
-                <div role="radiogroup" aria-label={t('deviceFirst.paymentMethodQuestion')} className="grid gap-2">
+                <div
+                  role="radiogroup"
+                  aria-label={t('deviceFirst.paymentMethodQuestion')}
+                  className="grid gap-2"
+                >
                   {methods.data?.methods.map((method) => {
                     const isSelected = methodKey === method.key;
                     return (
@@ -623,7 +638,13 @@ export function DeviceFirstConfigurator({
                 }
                 className={`w-full rounded-2xl bg-accent-500 px-5 py-3.5 font-semibold text-white disabled:opacity-50 ${choiceClass}`}
               >
-                {t('deviceFirst.payAndOrder', { amount: formatPrice(checkout.tariff_total_kopeks) })}
+                {(checkout.balance_kopeks ?? 0) >= checkout.tariff_total_kopeks
+                  ? t('deviceFirst.payAndOrder', {
+                      amount: formatPrice(checkout.tariff_total_kopeks),
+                    })
+                  : t('deviceFirst.payExternalAndOrder', {
+                      amount: formatPrice(checkout.tariff_total_kopeks),
+                    })}
               </button>
             </>
           ) : (
@@ -676,15 +697,36 @@ export function DeviceFirstConfigurator({
               ? t('deviceFirst.paymentCheckingText')
               : t('deviceFirst.armedNotice')}
           </p>
+          {checkout.settlement_mode !== 'direct_purchase_v2' &&
+            (checkout.top_up_surplus_kopeks ?? 0) > 0 && (
+              <p role="status" className="text-sm text-dark-300">
+                {t('deviceFirst.topUpSurplusHint', {
+                  amount: formatPrice(checkout.top_up_surplus_kopeks ?? 0),
+                })}
+              </p>
+            )}
           {checkout.settlement_mode === 'direct_purchase_v2' ? (
             <>
               {pendingPayment.data?.redirect_url && (
                 <button
                   type="button"
-                  onClick={() => window.location.assign(pendingPayment.data!.redirect_url)}
+                  onClick={() => {
+                    const redirectUrl = pendingPayment.data?.redirect_url;
+                    if (redirectUrl) window.location.assign(redirectUrl);
+                  }}
                   className={`w-full rounded-2xl bg-accent-500 px-5 py-3.5 font-semibold text-white ${choiceClass}`}
                 >
                   {t('deviceFirst.continueExistingInvoice')}
+                </button>
+              )}
+              {pendingPayment.data?.resume_allowed && (
+                <button
+                  type="button"
+                  disabled={resumeInvoiceMutation.isPending || !methodKey}
+                  onClick={() => resumeInvoiceMutation.mutate()}
+                  className={`w-full rounded-2xl bg-accent-500 px-5 py-3.5 font-semibold text-white disabled:opacity-50 ${choiceClass}`}
+                >
+                  {t('deviceFirst.resumeInvoice')}
                 </button>
               )}
               <button
@@ -895,21 +937,46 @@ export function DeviceFirstConfigurator({
         </div>
       )}
       {checkout &&
-        ['reprice_required', 'conflict', 'expired', 'failed', 'cancelled', 'operator_review'].includes(
-          checkout.ui_state,
-        ) && (
+        [
+          'reprice_required',
+          'conflict',
+          'expired',
+          'failed',
+          'cancelled',
+          'operator_review',
+        ].includes(checkout.ui_state) && (
           <div className="space-y-4">
             <StateMessage
-              title={t('deviceFirst.refreshTitle')}
-              text={t('deviceFirst.refreshText')}
+              title={
+                checkout.ui_state === 'operator_review' ||
+                checkout.terminal_reason === 'payment_amount_mismatch'
+                  ? t('deviceFirst.paymentMismatchTitle')
+                  : t('deviceFirst.refreshTitle')
+              }
+              text={
+                checkout.ui_state === 'operator_review' ||
+                checkout.terminal_reason === 'payment_amount_mismatch'
+                  ? t('deviceFirst.paymentMismatchText')
+                  : t('deviceFirst.refreshText')
+              }
             />
-            <button
-              type="button"
-              onClick={startNewQuote}
-              className={`w-full rounded-2xl bg-accent-500 px-5 py-3.5 font-semibold text-white ${choiceClass}`}
-            >
-              {t('deviceFirst.startNew')}
-            </button>
+            {checkout.ui_state === 'operator_review' ? (
+              <button
+                type="button"
+                onClick={() => navigate('/support')}
+                className={`w-full rounded-2xl bg-accent-500 px-5 py-3.5 font-semibold text-white ${choiceClass}`}
+              >
+                {t('deviceFirst.contactSupport')}
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={startNewQuote}
+                className={`w-full rounded-2xl bg-accent-500 px-5 py-3.5 font-semibold text-white ${choiceClass}`}
+              >
+                {t('deviceFirst.startNew')}
+              </button>
+            )}
           </div>
         )}
 
@@ -1030,12 +1097,14 @@ function Summary({
           <strong>{formatPrice(checkout.balance_kopeks)}</strong>
         </div>
       )}
-      {checkout.settlement_mode !== 'direct_purchase_v2' && checkout.shortage_kopeks !== null && checkout.shortage_kopeks > 0 && (
-        <div className="flex justify-between text-sm text-warning-300">
-          <span>{t('deviceFirst.shortage')}</span>
-          <strong>{formatPrice(checkout.shortage_kopeks)}</strong>
-        </div>
-      )}
+      {checkout.settlement_mode !== 'direct_purchase_v2' &&
+        checkout.shortage_kopeks !== null &&
+        checkout.shortage_kopeks > 0 && (
+          <div className="flex justify-between text-sm text-warning-300">
+            <span>{t('deviceFirst.shortage')}</span>
+            <strong>{formatPrice(checkout.shortage_kopeks)}</strong>
+          </div>
+        )}
       <div className="flex justify-between border-t border-dark-700 pt-3 text-dark-50">
         <span>{t('deviceFirst.total')}</span>
         <strong>{formatPrice(checkout.tariff_total_kopeks || checkout.quoted_price_kopeks)}</strong>
