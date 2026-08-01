@@ -26,6 +26,7 @@ import DeviceHintOverlay from '../components/home/DeviceHintOverlay';
 import { getDeviceHintSeen, setDeviceHintSeen } from '../utils/deviceHintTracking';
 import { isDeviceHintEligible } from '../utils/deviceHintEligibility';
 import { useSuccessNotification } from '../store/successNotification';
+import { deviceFirstApi } from '../api/deviceFirst';
 
 // Шторки докупки — отдельный lazy-чанк: код шторок (+ их зависимости) НЕ попадает в
 // eager-бандл «/» (§19 п.4). Грузится только при первом открытии шторки.
@@ -75,6 +76,15 @@ export default function DashboardUnified() {
     queryFn: balanceApi.getBalance,
     staleTime: API.BALANCE_STALE_TIME_MS,
     refetchOnMount: 'always',
+  });
+
+  // One owned server-side checkout is always resumable from Home.  A 404 is
+  // simply the normal no-checkout state, never a reason to create a duplicate.
+  const { data: openDeviceFirstCheckout } = useQuery({
+    queryKey: ['device-first-open-checkout'],
+    queryFn: deviceFirstApi.getOpen,
+    retry: false,
+    staleTime: 0,
   });
 
   // Multi-tariff: список подписок (управление через /subscriptions).
@@ -275,7 +285,9 @@ export default function DashboardUnified() {
     },
     onSell: () =>
       navigate(
-        state.sellZone.kind === 'renew' && subscriptionId != null
+        openDeviceFirstCheckout
+          ? `/subscription/purchase?checkout=${encodeURIComponent(openDeviceFirstCheckout.id)}`
+          : state.sellZone.kind === 'renew' && subscriptionId != null
           ? `/subscriptions/${subscriptionId}/renew`
           : '/subscription/purchase',
       ),
@@ -334,6 +346,21 @@ export default function DashboardUnified() {
         </h1>
         <p className="mt-1 text-dark-400">{t('dashboard.yourSubscription')}</p>
       </div>
+
+      {openDeviceFirstCheckout && (
+        <button
+          type="button"
+          onClick={() =>
+            navigate(`/subscription/purchase?checkout=${encodeURIComponent(openDeviceFirstCheckout.id)}`)
+          }
+          className="w-full rounded-2xl border border-accent-400/35 bg-accent-500/10 p-4 text-left"
+        >
+          <div className="text-sm font-semibold text-accent-200">Оформляем подписку</div>
+          <div className="mt-1 text-sm text-dark-300">
+            {openDeviceFirstCheckout.selected_device_limit} устройств · продолжить
+          </div>
+        </button>
+      )}
 
       {/* Multi-tariff: список подписок (управление через /subscriptions) — паритет со старым экраном */}
       {isMultiTariff && multiSubData?.subscriptions && multiSubData.subscriptions.length > 0 && (
@@ -474,7 +501,7 @@ export default function DashboardUnified() {
       )}
 
       {/* Нет подписки: триал (если доступен) + явная кнопка покупки — паритет */}
-      {hasNoSubscription && !trialLoading && (
+      {hasNoSubscription && !trialLoading && !openDeviceFirstCheckout && (
         <div className="space-y-3">
           {trialInfo?.is_available && (
             <TrialOfferCard

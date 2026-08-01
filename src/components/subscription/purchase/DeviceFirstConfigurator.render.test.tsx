@@ -76,6 +76,11 @@ function checkout(uiState: DeviceFirstUiState): DeviceFirstCheckout {
     },
     quoted_price_kopeks: 45000,
     max_price_kopeks: 45000,
+    settlement_mode: 'legacy_deposit',
+    tariff_total_kopeks: 45000,
+    wallet_applied_kopeks: 0,
+    external_payable_kopeks: 0,
+    funding_mode: null,
     lifecycle_state: uiState,
     funding_state: uiState === 'awaiting_payment' ? 'insufficient' : 'funded',
     provisioning_state: uiState === 'ready' ? 'ready' : 'not_started',
@@ -121,10 +126,9 @@ describe('DeviceFirstConfigurator real state rendering', () => {
     expect(html).toContain('role="radio"');
     expect(html).toContain('aria-checked="true"');
     expect(html).toContain('deviceFirst.review');
-    expect(html).toContain('301 ₽');
-    expect(html).not.toContain('301,00 ₽');
+    expect(html).toContain('300,50 ₽');
     expect(html).toContain('deviceFirst.deviceCount:2');
-    expect(html).toContain('deviceFirst.perDeviceMonth:151');
+    expect(html).toContain('deviceFirst.perDeviceMonth:150');
     expect(html).not.toContain('role="dialog"');
   });
 

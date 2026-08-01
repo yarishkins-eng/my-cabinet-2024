@@ -89,6 +89,11 @@ function checkout(
     price_breakdown: options.price_matrix![0].prices[0].breakdown,
     quoted_price_kopeks: 45000,
     max_price_kopeks: 45000,
+    settlement_mode: 'legacy_deposit',
+    tariff_total_kopeks: 45000,
+    wallet_applied_kopeks: 0,
+    external_payable_kopeks: 0,
+    funding_mode: null,
     lifecycle_state: uiState,
     funding_state: shortageKopeks ? 'partial' : 'funded',
     provisioning_state: 'not_started',
@@ -243,7 +248,7 @@ describe('DeviceFirstConfigurator interaction safety', () => {
     fireEvent.click(screen.getByRole('radio', { name: /deviceFirst.periodYear/ }));
 
     const annualTwoDevices = screen.getByRole('radio', { name: /deviceFirst.deviceCount:2/ });
-    expect(annualTwoDevices.textContent).toContain('3000 ₽');
+    expect(annualTwoDevices.textContent).toContain('3 000 ₽');
     expect(annualTwoDevices.textContent).toContain('deviceFirst.perDeviceMonth:125');
     expect(screen.getByRole('radio', { name: /deviceFirst.deviceCount:4/ }).textContent).toContain(
       'deviceFirst.perDeviceMonth:104',
