@@ -103,7 +103,12 @@ export function DeviceFirstConfigurator({
     queryKey: ['device-first-payment-methods'],
     queryFn: deviceFirstApi.paymentMethods,
     initialData: fixtureMethods ? { methods: fixtureMethods } : undefined,
-    enabled: fixtureMethods === undefined && checkout?.ui_state === 'awaiting_payment',
+    enabled:
+      fixtureMethods === undefined &&
+      !!checkout &&
+      (checkout.ui_state === 'awaiting_payment' ||
+        (checkout.ui_state === 'confirmation' &&
+          checkout.settlement_mode === 'direct_purchase_v2')),
   });
   useEffect(() => {
     const availableKeys = methods.data?.methods.map((method) => method.key) ?? [];
@@ -162,6 +167,32 @@ export function DeviceFirstConfigurator({
     onSuccess: acceptCheckout,
     onError: setActionError,
   });
+  const recoverAmbiguousCheckout = async (error: unknown) => {
+    setActionError(error);
+    if (deviceFirstErrorCode(error) !== 'reconciliation_required' || !checkout) return;
+    try {
+      // Invoice creation may have committed before a timeout. The owned server
+      // state is authoritative and exposes recovery controls without creating
+      // another invoice.
+      acceptCheckout(await deviceFirstApi.get(checkout.id));
+    } catch {
+      // Keep the original reconciliation error; support remains available.
+    }
+  };
+  const commitMutation = useMutation({
+    mutationFn: (fundingMode: 'wallet' | 'platega') =>
+      deviceFirstApi.commit(
+        checkout!.id,
+        fundingMode,
+        fundingMode === 'platega' ? methodKey : undefined,
+      ),
+    onMutate: () => setActionError(null),
+    onSuccess: (result) => {
+      acceptCheckout(result.checkout);
+      if (result.redirect_url) window.location.assign(result.redirect_url);
+    },
+    onError: recoverAmbiguousCheckout,
+  });
   const paymentMutation = useMutation({
     mutationFn: () => deviceFirstApi.createPaymentAttempt(checkout!.id, methodKey),
     onMutate: () => {
@@ -175,7 +206,16 @@ export function DeviceFirstConfigurator({
       }
       window.location.assign(attempt.redirect_url);
     },
-    onError: setActionError,
+    onError: recoverAmbiguousCheckout,
+  });
+  const resumeInvoiceMutation = useMutation({
+    mutationFn: () => deviceFirstApi.resumeInvoice(checkout!.id, methodKey),
+    onMutate: () => setActionError(null),
+    onSuccess: (result) => {
+      acceptCheckout(result.checkout);
+      if (result.redirect_url) window.location.assign(result.redirect_url);
+    },
+    onError: recoverAmbiguousCheckout,
   });
   const cancelMutation = useMutation({
     mutationFn: () => deviceFirstApi.cancel(checkout!.id),
@@ -183,11 +223,23 @@ export function DeviceFirstConfigurator({
     onSuccess: acceptCheckout,
     onError: setActionError,
   });
+  const pendingPayment = useQuery({
+    queryKey: ['device-first-pending-payment', checkout?.id],
+    queryFn: () => deviceFirstApi.getPendingPayment(checkout!.id),
+    enabled:
+      fixtureCheckout === undefined &&
+      checkout?.settlement_mode === 'direct_purchase_v2' &&
+      checkout.ui_state === 'awaiting_payment',
+    retry: false,
+  });
 
   useEffect(() => {
     if (checkout?.ui_state === 'ready') {
       queryClient.invalidateQueries({ queryKey: ['subscription'] });
+      queryClient.invalidateQueries({ queryKey: ['subscriptions-list'] });
+      queryClient.invalidateQueries({ queryKey: ['devices'] });
       queryClient.invalidateQueries({ queryKey: ['balance'] });
+      queryClient.invalidateQueries({ queryKey: ['user'] });
     }
   }, [checkout?.ui_state, queryClient]);
   useEffect(() => {
@@ -235,11 +287,18 @@ export function DeviceFirstConfigurator({
     }
   };
 
-  // Device-first API returns canonical whole-ruble quotes and top-ups. The
-  // server applies that policy before it creates a quote, debits a balance or
-  // asks Platega for an invoice, so this component never rounds a payment
-  // amount only for display.
-  const formatPrice = (kopeks: number) => `${kopeks / 100} ₽`;
+  // Checkout amounts are server-owned Russian kopeks. Do not apply the
+  // display-currency converter here: it would show an estimate in another
+  // currency while the payment and debit are still fixed in RUB. The UI
+  // preserves non-zero kopeks, so it never conceals the exact amount the
+  // server uses during confirmation and payment.
+  const formatPrice = (kopeks: number) => {
+    const sign = kopeks < 0 ? '-' : '';
+    const absolute = Math.abs(kopeks);
+    const rubles = Math.floor(absolute / 100).toLocaleString('ru-RU');
+    const remainder = absolute % 100;
+    return `${sign}${rubles}${remainder ? `,${String(remainder).padStart(2, '0')}` : ''} ₽`;
+  };
   const pricePerDeviceMonth = (kopeks: number, deviceLimit: number, periodDays: number) => {
     // This is a compact comparison aid only. The full server-provided matrix
     // price above remains the amount used for confirmation and payment.
@@ -261,7 +320,9 @@ export function DeviceFirstConfigurator({
     createMutation.isPending ||
     confirmMutation.isPending ||
     armMutation.isPending ||
+    commitMutation.isPending ||
     paymentMutation.isPending ||
+    resumeInvoiceMutation.isPending ||
     cancelMutation.isPending;
   const choiceClass =
     'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-300 focus-visible:ring-offset-2 focus-visible:ring-offset-dark-950';
@@ -532,20 +593,76 @@ export function DeviceFirstConfigurator({
         >
           <Summary checkout={checkout} formatPrice={formatPrice} />
           <p className="text-xs text-dark-400">{t('deviceFirst.chargeNotice')}</p>
-          <button
-            type="button"
-            disabled={armMutation.isPending}
-            onClick={() => armMutation.mutate()}
-            className={`w-full rounded-2xl bg-accent-500 px-5 py-3.5 font-semibold text-white disabled:opacity-50 ${choiceClass}`}
-          >
-            {(checkout.shortage_kopeks ?? 0) > 0
-              ? t('deviceFirst.topUpAndOrder', {
-                  amount: formatPrice(checkout.shortage_kopeks ?? 0),
-                })
-              : t('deviceFirst.payAndOrder', {
-                  amount: formatPrice(checkout.quoted_price_kopeks),
-                })}
-          </button>
+          {checkout.settlement_mode === 'direct_purchase_v2' ? (
+            <>
+              {(checkout.balance_kopeks ?? 0) < checkout.tariff_total_kopeks && (
+                <div
+                  role="radiogroup"
+                  aria-label={t('deviceFirst.paymentMethodQuestion')}
+                  className="grid gap-2"
+                >
+                  {methods.data?.methods.map((method) => {
+                    const isSelected = methodKey === method.key;
+                    return (
+                      <button
+                        key={method.key}
+                        type="button"
+                        role="radio"
+                        aria-checked={isSelected}
+                        onClick={() => setMethodKey(method.key)}
+                        className={`rounded-xl border p-3 text-left text-sm ${choiceClass} ${
+                          isSelected
+                            ? 'border-accent-400 bg-accent-500/10 text-accent-300'
+                            : 'border-dark-700 text-dark-300'
+                        }`}
+                      >
+                        {paymentMethodLabel(method.key)}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+              <button
+                type="button"
+                disabled={
+                  commitMutation.isPending ||
+                  ((checkout.balance_kopeks ?? 0) < checkout.tariff_total_kopeks &&
+                    !methods.data?.methods.length)
+                }
+                onClick={() =>
+                  commitMutation.mutate(
+                    (checkout.balance_kopeks ?? 0) >= checkout.tariff_total_kopeks
+                      ? 'wallet'
+                      : 'platega',
+                  )
+                }
+                className={`w-full rounded-2xl bg-accent-500 px-5 py-3.5 font-semibold text-white disabled:opacity-50 ${choiceClass}`}
+              >
+                {(checkout.balance_kopeks ?? 0) >= checkout.tariff_total_kopeks
+                  ? t('deviceFirst.payAndOrder', {
+                      amount: formatPrice(checkout.tariff_total_kopeks),
+                    })
+                  : t('deviceFirst.payExternalAndOrder', {
+                      amount: formatPrice(checkout.tariff_total_kopeks),
+                    })}
+              </button>
+            </>
+          ) : (
+            <button
+              type="button"
+              disabled={armMutation.isPending}
+              onClick={() => armMutation.mutate()}
+              className={`w-full rounded-2xl bg-accent-500 px-5 py-3.5 font-semibold text-white disabled:opacity-50 ${choiceClass}`}
+            >
+              {(checkout.shortage_kopeks ?? 0) > 0
+                ? t('deviceFirst.topUpAndOrder', {
+                    amount: formatPrice(checkout.shortage_kopeks ?? 0),
+                  })
+                : t('deviceFirst.payAndOrder', {
+                    amount: formatPrice(checkout.quoted_price_kopeks),
+                  })}
+            </button>
+          )}
           <button
             type="button"
             disabled={cancelMutation.isPending}
@@ -569,17 +686,65 @@ export function DeviceFirstConfigurator({
           dialogRef={dialogRef}
           onKeyDown={trapDialogFocus}
         >
-          <h3 className="text-lg font-bold text-dark-50">{t('deviceFirst.needTopup')}</h3>
+          <h3 className="text-lg font-bold text-dark-50">
+            {checkout.settlement_mode === 'direct_purchase_v2'
+              ? t('deviceFirst.paymentChecking')
+              : t('deviceFirst.needTopup')}
+          </h3>
           <Summary checkout={checkout} formatPrice={formatPrice} />
-          <p className="text-sm text-dark-400">{t('deviceFirst.armedNotice')}</p>
-          {(checkout.top_up_surplus_kopeks ?? 0) > 0 && (
-            <p role="status" className="text-sm text-dark-300">
-              {t('deviceFirst.topUpSurplusHint', {
-                amount: formatPrice(checkout.top_up_surplus_kopeks ?? 0),
-              })}
-            </p>
-          )}
-          {requiresReconciliation ? (
+          <p className="text-sm text-dark-400">
+            {checkout.settlement_mode === 'direct_purchase_v2'
+              ? t('deviceFirst.paymentCheckingText')
+              : t('deviceFirst.armedNotice')}
+          </p>
+          {checkout.settlement_mode !== 'direct_purchase_v2' &&
+            (checkout.top_up_surplus_kopeks ?? 0) > 0 && (
+              <p role="status" className="text-sm text-dark-300">
+                {t('deviceFirst.topUpSurplusHint', {
+                  amount: formatPrice(checkout.top_up_surplus_kopeks ?? 0),
+                })}
+              </p>
+            )}
+          {checkout.settlement_mode === 'direct_purchase_v2' ? (
+            <>
+              {pendingPayment.data?.redirect_url && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const redirectUrl = pendingPayment.data?.redirect_url;
+                    if (redirectUrl) window.location.assign(redirectUrl);
+                  }}
+                  className={`w-full rounded-2xl bg-accent-500 px-5 py-3.5 font-semibold text-white ${choiceClass}`}
+                >
+                  {t('deviceFirst.continueExistingInvoice')}
+                </button>
+              )}
+              {pendingPayment.data?.resume_allowed && (
+                <button
+                  type="button"
+                  disabled={resumeInvoiceMutation.isPending || !methodKey}
+                  onClick={() => resumeInvoiceMutation.mutate()}
+                  className={`w-full rounded-2xl bg-accent-500 px-5 py-3.5 font-semibold text-white disabled:opacity-50 ${choiceClass}`}
+                >
+                  {t('deviceFirst.resumeInvoice')}
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={refreshCheckout}
+                className={`w-full rounded-2xl border border-dark-600 px-5 py-3.5 font-semibold text-dark-100 ${choiceClass}`}
+              >
+                {t('deviceFirst.refreshStatus')}
+              </button>
+              <button
+                type="button"
+                onClick={() => navigate('/support')}
+                className={`min-h-11 w-full rounded-xl px-4 py-2 text-sm text-dark-400 hover:text-dark-200 ${choiceClass}`}
+              >
+                {t('deviceFirst.contactSupport')}
+              </button>
+            </>
+          ) : requiresReconciliation ? (
             <>
               <StateMessage
                 title={t('deviceFirst.paymentChecking')}
@@ -772,29 +937,46 @@ export function DeviceFirstConfigurator({
         </div>
       )}
       {checkout &&
-        ['reprice_required', 'conflict', 'expired', 'failed', 'cancelled'].includes(
-          checkout.ui_state,
-        ) && (
+        [
+          'reprice_required',
+          'conflict',
+          'expired',
+          'failed',
+          'cancelled',
+          'operator_review',
+        ].includes(checkout.ui_state) && (
           <div className="space-y-4">
             <StateMessage
               title={
+                checkout.ui_state === 'operator_review' ||
                 checkout.terminal_reason === 'payment_amount_mismatch'
                   ? t('deviceFirst.paymentMismatchTitle')
                   : t('deviceFirst.refreshTitle')
               }
               text={
+                checkout.ui_state === 'operator_review' ||
                 checkout.terminal_reason === 'payment_amount_mismatch'
                   ? t('deviceFirst.paymentMismatchText')
                   : t('deviceFirst.refreshText')
               }
             />
-            <button
-              type="button"
-              onClick={startNewQuote}
-              className={`w-full rounded-2xl bg-accent-500 px-5 py-3.5 font-semibold text-white ${choiceClass}`}
-            >
-              {t('deviceFirst.startNew')}
-            </button>
+            {checkout.ui_state === 'operator_review' ? (
+              <button
+                type="button"
+                onClick={() => navigate('/support')}
+                className={`w-full rounded-2xl bg-accent-500 px-5 py-3.5 font-semibold text-white ${choiceClass}`}
+              >
+                {t('deviceFirst.contactSupport')}
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={startNewQuote}
+                className={`w-full rounded-2xl bg-accent-500 px-5 py-3.5 font-semibold text-white ${choiceClass}`}
+              >
+                {t('deviceFirst.startNew')}
+              </button>
+            )}
           </div>
         )}
 
@@ -916,15 +1098,17 @@ function Summary({
           <strong>{formatPrice(checkout.balance_kopeks)}</strong>
         </div>
       )}
-      {checkout.shortage_kopeks !== null && checkout.shortage_kopeks > 0 && (
-        <div className="flex justify-between text-sm text-warning-300">
-          <span>{t('deviceFirst.shortage')}</span>
-          <strong>{formatPrice(checkout.shortage_kopeks)}</strong>
-        </div>
-      )}
+      {checkout.settlement_mode !== 'direct_purchase_v2' &&
+        checkout.shortage_kopeks !== null &&
+        checkout.shortage_kopeks > 0 && (
+          <div className="flex justify-between text-sm text-warning-300">
+            <span>{t('deviceFirst.shortage')}</span>
+            <strong>{formatPrice(checkout.shortage_kopeks)}</strong>
+          </div>
+        )}
       <div className="flex justify-between border-t border-dark-700 pt-3 text-dark-50">
         <span>{t('deviceFirst.total')}</span>
-        <strong>{formatPrice(checkout.quoted_price_kopeks)}</strong>
+        <strong>{formatPrice(checkout.tariff_total_kopeks || checkout.quoted_price_kopeks)}</strong>
       </div>
     </div>
   );

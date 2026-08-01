@@ -57,6 +57,7 @@ function checkout(uiState: DeviceFirstUiState): DeviceFirstCheckout {
     cancelled: 'cancelled',
     expired: 'expired',
     failed: 'failed',
+    operator_review: 'operator_review',
   };
   return {
     id: `fixture-${uiState}`,
@@ -72,6 +73,11 @@ function checkout(uiState: DeviceFirstUiState): DeviceFirstCheckout {
     },
     quoted_price_kopeks: 109000,
     max_price_kopeks: 109000,
+    settlement_mode: 'direct_purchase_v2',
+    tariff_total_kopeks: 109000,
+    wallet_applied_kopeks: 0,
+    external_payable_kopeks: uiState === 'awaiting_payment' ? 109000 : 0,
+    funding_mode: uiState === 'awaiting_payment' ? 'platega' : null,
     lifecycle_state: lifecycleByUi[uiState],
     funding_state: uiState === 'awaiting_payment' ? 'insufficient' : 'funded',
     provisioning_state:

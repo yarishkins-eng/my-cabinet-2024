@@ -48,7 +48,7 @@ const options: DeviceFirstOptions = {
       prices: [
         {
           device_limit: 2,
-          price_kopeks: 30100,
+          price_kopeks: 30050,
           breakdown: {
             base_price_kopeks: 30000,
             devices_price_kopeks: 0,
@@ -76,6 +76,11 @@ function checkout(uiState: DeviceFirstUiState): DeviceFirstCheckout {
     },
     quoted_price_kopeks: 45000,
     max_price_kopeks: 45000,
+    settlement_mode: 'legacy_deposit',
+    tariff_total_kopeks: 45000,
+    wallet_applied_kopeks: 0,
+    external_payable_kopeks: 0,
+    funding_mode: null,
     lifecycle_state: uiState,
     funding_state: uiState === 'awaiting_payment' ? 'insufficient' : 'funded',
     provisioning_state: uiState === 'ready' ? 'ready' : 'not_started',
@@ -121,10 +126,9 @@ describe('DeviceFirstConfigurator real state rendering', () => {
     expect(html).toContain('role="radio"');
     expect(html).toContain('aria-checked="true"');
     expect(html).toContain('deviceFirst.review');
-    expect(html).toContain('301 ₽');
-    expect(html).not.toContain('301,00 ₽');
+    expect(html).toContain('300,50 ₽');
     expect(html).toContain('deviceFirst.deviceCount:2');
-    expect(html).toContain('deviceFirst.perDeviceMonth:151');
+    expect(html).toContain('deviceFirst.perDeviceMonth:150');
     expect(html).not.toContain('role="dialog"');
   });
 
@@ -187,6 +191,20 @@ describe('DeviceFirstConfigurator real state rendering', () => {
     expect(html).not.toContain('deviceFirst.periodMonths:12');
   });
 
+  it('uses an external-payment CTA for a direct sale instead of claiming a balance charge', () => {
+    const directExternal = {
+      ...checkout('confirmation'),
+      settlement_mode: 'direct_purchase_v2' as const,
+      funding_mode: null,
+      balance_kopeks: 0,
+      external_payable_kopeks: 45000,
+    };
+    const html = render(directExternal);
+
+    expect(html).toContain('deviceFirst.payExternalAndOrder:450 ₽');
+    expect(html).not.toContain('deviceFirst.payAndOrder:450 ₽');
+  });
+
   it('shows a previous device limit only for an explicitly paid target subscription', () => {
     const paid = render({ ...checkout('confirmation'), current_subscription_is_trial: false });
     const trial = render({ ...checkout('confirmation'), current_subscription_is_trial: true });
@@ -213,5 +231,17 @@ describe('DeviceFirstConfigurator real state rendering', () => {
     expect(html).toContain('deviceFirst.paymentMismatchTitle');
     expect(html).toContain('deviceFirst.paymentMismatchText');
     expect(html).not.toContain('deviceFirst.refreshText');
+  });
+
+  it('fences an operator-review checkout to support without offering a new quote', () => {
+    const html = render({
+      ...checkout('operator_review'),
+      terminal_reason: 'post_paid_provider_terminal',
+    });
+
+    expect(html).toContain('deviceFirst.paymentMismatchTitle');
+    expect(html).toContain('deviceFirst.paymentMismatchText');
+    expect(html).toContain('deviceFirst.contactSupport');
+    expect(html).not.toContain('deviceFirst.startNew');
   });
 });
