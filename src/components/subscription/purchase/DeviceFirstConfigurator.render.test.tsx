@@ -48,7 +48,7 @@ const options: DeviceFirstOptions = {
       prices: [
         {
           device_limit: 2,
-          price_kopeks: 30100,
+          price_kopeks: 30050,
           breakdown: {
             base_price_kopeks: 30000,
             devices_price_kopeks: 0,
