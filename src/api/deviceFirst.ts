@@ -16,7 +16,8 @@ export type DeviceFirstUiState =
   | 'conflict'
   | 'cancelled'
   | 'expired'
-  | 'failed';
+  | 'failed'
+  | 'operator_review';
 
 export interface DeviceFirstPrice {
   device_limit: number;
@@ -56,6 +57,11 @@ export interface DeviceFirstCheckout {
   price_breakdown: DeviceFirstPrice['breakdown'];
   quoted_price_kopeks: number;
   max_price_kopeks: number;
+  settlement_mode: 'legacy_deposit' | 'direct_purchase_v2';
+  tariff_total_kopeks: number;
+  wallet_applied_kopeks: number;
+  external_payable_kopeks: number;
+  funding_mode: 'wallet' | 'platega' | null;
   lifecycle_state: string;
   funding_state: string;
   provisioning_state: string;
@@ -74,6 +80,12 @@ export interface DeviceFirstPaymentAttempt {
   amount_kopeks: number;
   currency: string;
   redirect_url: string;
+}
+
+export interface DeviceFirstCommitResponse {
+  checkout: DeviceFirstCheckout;
+  /** Returned only by an authenticated owner command, never by checkout reads. */
+  redirect_url?: string;
 }
 
 function intentKey(intent: string): string {
@@ -111,6 +123,20 @@ export const deviceFirstApi = {
 
   arm: async (checkoutId: string): Promise<DeviceFirstCheckout> =>
     postIntent(`arm:${checkoutId}`, `/cabinet/device-first/checkout/${checkoutId}/arm`, {}),
+
+  commit: async (
+    checkoutId: string,
+    fundingMode: 'wallet' | 'platega',
+    methodKey?: string,
+  ): Promise<DeviceFirstCommitResponse> =>
+    postIntent(
+      `commit:${checkoutId}:${fundingMode}:${methodKey ?? ''}`,
+      `/cabinet/device-first/checkout/${checkoutId}/commit`,
+      { funding_mode: fundingMode, ...(methodKey ? { method_key: methodKey } : {}) },
+    ),
+
+  getPendingPayment: async (checkoutId: string): Promise<{ redirect_url: string; status: string }> =>
+    (await apiClient.get(`/cabinet/device-first/checkout/${checkoutId}/pending-payment`)).data,
 
   cancel: async (checkoutId: string): Promise<DeviceFirstCheckout> =>
     postIntent(`cancel:${checkoutId}`, `/cabinet/device-first/checkout/${checkoutId}/cancel`, {}),
