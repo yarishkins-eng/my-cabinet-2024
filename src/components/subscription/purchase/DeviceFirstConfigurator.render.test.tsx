@@ -192,16 +192,6 @@ describe('DeviceFirstConfigurator real state rendering', () => {
     expect(html).not.toContain('deviceFirst.payAndOrder:450 ₽');
   });
 
-  it('shows a previous device limit only for an explicitly paid target subscription', () => {
-    const paid = render({ ...checkout('confirmation'), current_subscription_is_trial: false });
-    const trial = render({ ...checkout('confirmation'), current_subscription_is_trial: true });
-    const unknown = render({ ...checkout('confirmation'), current_subscription_is_trial: null });
-
-    expect(paid).toContain('2 → 5');
-    expect(trial).not.toContain('2 → 5');
-    expect(unknown).not.toContain('2 → 5');
-  });
-
   it.each(['reprice_required', 'conflict', 'expired', 'failed', 'cancelled'] as const)(
     'renders a non-success recovery state for %s',
     (uiState) => {

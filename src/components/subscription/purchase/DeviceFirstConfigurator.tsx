@@ -697,14 +697,6 @@ export function DeviceFirstConfigurator({
               ? t('deviceFirst.paymentCheckingText')
               : t('deviceFirst.armedNotice')}
           </p>
-          {checkout.settlement_mode !== 'direct_purchase_v2' &&
-            (checkout.top_up_surplus_kopeks ?? 0) > 0 && (
-              <p role="status" className="text-sm text-dark-300">
-                {t('deviceFirst.topUpSurplusHint', {
-                  amount: formatPrice(checkout.top_up_surplus_kopeks ?? 0),
-                })}
-              </p>
-            )}
           {checkout.settlement_mode === 'direct_purchase_v2' ? (
             <>
               {pendingPayment.data?.redirect_url && (
