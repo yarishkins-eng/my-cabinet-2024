@@ -90,6 +90,7 @@ function checkout(uiState: DeviceFirstUiState): DeviceFirstCheckout {
     current_device_limit: 2,
     current_subscription_is_trial: false,
     estimated_end_at: '2026-08-29T12:00:00Z',
+    expires_at: '2026-08-02T12:15:00Z',
     balance_kopeks: 10000,
     shortage_kopeks: uiState === 'awaiting_payment' ? 35000 : 0,
     top_up_surplus_kopeks: 0,
@@ -192,7 +193,7 @@ describe('DeviceFirstConfigurator real state rendering', () => {
     expect(html).not.toContain('deviceFirst.periodMonths:12');
   });
 
-  it('uses an external-payment CTA for a direct sale instead of claiming a balance charge', () => {
+  it('makes each direct-payment method the single external-payment CTA', () => {
     const directExternal = {
       ...checkout('confirmation'),
       settlement_mode: 'direct_purchase_v2' as const,
@@ -202,8 +203,9 @@ describe('DeviceFirstConfigurator real state rendering', () => {
     };
     const html = render(directExternal);
 
-    expect(html).toContain('deviceFirst.payExternalAndOrder:450 ₽');
+    expect(html).toContain('deviceFirst.paymentMethodAmount:450 ₽');
     expect(html).not.toContain('deviceFirst.payAndOrder:450 ₽');
+    expect(html).not.toContain('deviceFirst.payExternalAndOrder:450 ₽');
   });
 
   it('shows a previous device limit only for an explicitly paid target subscription', () => {

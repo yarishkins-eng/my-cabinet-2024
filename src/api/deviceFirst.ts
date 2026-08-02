@@ -62,6 +62,9 @@ export interface DeviceFirstCheckout {
   wallet_applied_kopeks: number;
   external_payable_kopeks: number;
   funding_mode: 'wallet' | 'platega' | null;
+  // Before an external method is chosen this is the quote TTL. Once Platega
+  // returns a live invoice it is the provider-owned payment deadline.
+  expires_at: string;
   lifecycle_state: string;
   funding_state: string;
   provisioning_state: string;
