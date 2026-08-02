@@ -139,6 +139,13 @@ export const deviceFirstApi = {
       { funding_mode: fundingMode, ...(methodKey ? { method_key: methodKey } : {}) },
     ),
 
+  nativeLaunch: async (checkoutId: string, methodKey: string): Promise<DeviceFirstCommitResponse> =>
+    postIntent(
+      `native-launch:${checkoutId}:${methodKey}`,
+      `/cabinet/device-first/checkout/${checkoutId}/native-launch`,
+      { method_key: methodKey },
+    ),
+
   getPendingPayment: async (
     checkoutId: string,
   ): Promise<{ redirect_url: string | null; status: string; resume_allowed: boolean }> =>

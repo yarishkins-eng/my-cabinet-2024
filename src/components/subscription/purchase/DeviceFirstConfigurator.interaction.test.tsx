@@ -20,6 +20,7 @@ vi.mock('@/api/deviceFirst', () => ({
     confirm: vi.fn(),
     arm: vi.fn(),
     commit: vi.fn(),
+    nativeLaunch: vi.fn(),
     cancel: vi.fn(),
     paymentMethods: vi.fn(),
     createPaymentAttempt: vi.fn(),
@@ -121,14 +122,15 @@ function renderConfigurator(
     fixtureCheckout?: DeviceFirstCheckout;
     fixtureMethods?: Array<{ key: string; provider_code: number }>;
     options?: DeviceFirstOptions;
+    initialPath?: string;
   } = {},
 ) {
-  const { options: testOptions, ...componentProps } = props;
+  const { options: testOptions, initialPath = '/subscription/purchase', ...componentProps } = props;
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
   return render(
-    <MemoryRouter initialEntries={['/subscription/purchase']}>
+    <MemoryRouter initialEntries={[initialPath]}>
       <QueryClientProvider client={queryClient}>
         <LocationProbe />
         <DeviceFirstConfigurator options={testOptions ?? options} {...componentProps} />
@@ -190,6 +192,82 @@ describe('DeviceFirstConfigurator interaction safety', () => {
       expect(deviceFirstApi.commit).toHaveBeenCalledWith('checkout-owned', 'platega', 'sbp'),
     );
     expect(deviceFirstApi.arm).not.toHaveBeenCalled();
+  });
+
+  it('consumes the Telegram native-launch query once and calls only the strict native endpoint', async () => {
+    const directConfirmation = {
+      ...checkout('confirmation'),
+      settlement_mode: 'direct_purchase_v2' as const,
+      balance_kopeks: 0,
+      external_payable_kopeks: 45000,
+    };
+    vi.mocked(deviceFirstApi.get).mockResolvedValue(directConfirmation);
+    vi.mocked(deviceFirstApi.nativeLaunch).mockReturnValue(new Promise(() => {}));
+
+    renderConfigurator({
+      initialCheckoutId: 'checkout-owned',
+      initialPath: '/subscription/purchase?checkout=checkout-owned&method=sbp&autostart=1',
+    });
+
+    await waitFor(() =>
+      expect(deviceFirstApi.nativeLaunch).toHaveBeenCalledWith('checkout-owned', 'sbp'),
+    );
+    expect(deviceFirstApi.nativeLaunch).toHaveBeenCalledTimes(1);
+    expect(deviceFirstApi.commit).not.toHaveBeenCalled();
+    expect(screen.getByTestId('location').textContent).toBe(
+      '/subscription/purchase?checkout=checkout-owned',
+    );
+  });
+
+  it('never launches an unavailable query method and removes its one-shot parameters', async () => {
+    const directConfirmation = {
+      ...checkout('confirmation'),
+      settlement_mode: 'direct_purchase_v2' as const,
+      balance_kopeks: 0,
+      external_payable_kopeks: 45000,
+    };
+    vi.mocked(deviceFirstApi.get).mockResolvedValue(directConfirmation);
+
+    renderConfigurator({
+      initialCheckoutId: 'checkout-owned',
+      initialPath: '/subscription/purchase?checkout=checkout-owned&method=cards_ru&autostart=1',
+    });
+
+    expect(
+      (await screen.findAllByRole('alert')).some((alert) =>
+        alert.textContent?.includes('deviceFirst.errorPaymentMethod'),
+      ),
+    ).toBe(true);
+    expect(deviceFirstApi.nativeLaunch).not.toHaveBeenCalled();
+    expect(screen.getByTestId('location').textContent).toBe(
+      '/subscription/purchase?checkout=checkout-owned',
+    );
+  });
+
+  it('does not launch payment when live payment methods cannot be loaded', async () => {
+    const directConfirmation = {
+      ...checkout('confirmation'),
+      settlement_mode: 'direct_purchase_v2' as const,
+      balance_kopeks: 0,
+      external_payable_kopeks: 45000,
+    };
+    vi.mocked(deviceFirstApi.get).mockResolvedValue(directConfirmation);
+    vi.mocked(deviceFirstApi.paymentMethods).mockRejectedValue(new Error('offline'));
+
+    renderConfigurator({
+      initialCheckoutId: 'checkout-owned',
+      initialPath: '/subscription/purchase?checkout=checkout-owned&method=sbp&autostart=1',
+    });
+
+    expect(
+      (await screen.findAllByRole('alert')).some((alert) =>
+        alert.textContent?.includes('deviceFirst.errorPaymentMethodsLoad'),
+      ),
+    ).toBe(true);
+    expect(deviceFirstApi.nativeLaunch).not.toHaveBeenCalled();
+    expect(screen.getByTestId('location').textContent).toBe(
+      '/subscription/purchase?checkout=checkout-owned',
+    );
   });
 
   it('does not briefly expose a duplicate manual confirmation while auto-confirm is pending', async () => {

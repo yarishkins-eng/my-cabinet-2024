@@ -4825,6 +4825,8 @@
     "confirm": "确认",
     "preparingCheckout": "正在准备订单",
     "preparingCheckoutText": "正在核对所选条件，暂不会扣款。",
+    "openingPayment": "正在打开支付",
+    "openingPaymentText": "正在核对订单并打开所选支付方式。",
     "chargeNotice": "请核对总额并选择支付方式。",
     "payBalance": "使用余额支付",
     "topUpAndOrder": "充值 {{amount}} 并订阅",

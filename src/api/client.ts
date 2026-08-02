@@ -118,14 +118,13 @@ apiClient.interceptors.request.use(async (config: InternalAxiosRequestConfig) =>
     }
   }
 
-  const isTelegramAuthEndpoint =
-    config.url?.startsWith('/cabinet/auth/telegram') ||
-    config.url?.startsWith('/cabinet/auth/account/link/telegram');
-  if (isTelegramAuthEndpoint) {
-    const telegramInitData = getTelegramInitData();
-    if (telegramInitData && config.headers) {
-      config.headers['X-Telegram-Init-Data'] = telegramInitData;
-    }
+  // A Cabinet JWT can survive a Telegram WebView account switch.  Supplying
+  // the signed current initData on every Mini App request lets protected
+  // backend routes bind that JWT to the account currently open in Telegram.
+  // Normal browsers simply have no initData and keep their existing flow.
+  const telegramInitData = getTelegramInitData();
+  if (telegramInitData && config.headers) {
+    config.headers['X-Telegram-Init-Data'] = telegramInitData;
   }
 
   const method = config.method?.toUpperCase();
