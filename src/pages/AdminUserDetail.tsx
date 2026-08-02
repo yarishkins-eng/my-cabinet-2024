@@ -54,6 +54,11 @@ export default function AdminUserDetail() {
   const [syncStatus, setSyncStatus] = useState<PanelSyncStatusResponse | null>(null);
   const [tariffs, setTariffs] = useState<UserAvailableTariff[]>([]);
   const [actionLoading, setActionLoading] = useState(false);
+  const [erasureResolutionCode, setErasureResolutionCode] = useState<
+    'provider_terminal_verified' | 'refund_completed' | 'chargeback_resolved' | 'balance_writeoff_approved'
+  >('provider_terminal_verified');
+  const [erasureResolutionNote, setErasureResolutionNote] = useState('');
+  const [erasureResolving, setErasureResolving] = useState(false);
 
   // Referrals
   const [referrals, setReferrals] = useState<UserListItem[]>([]);
@@ -671,15 +676,49 @@ export default function AdminUserDetail() {
     try {
       const result = await adminUsersApi.fullDeleteUser(userId);
       if (result.success) {
-        notify.success(t('admin.users.userActions.success.delete'), t('common.success'));
-        navigate('/admin/users');
+        notify.success(result.message || t('admin.users.userActions.success.delete'), t('common.success'));
+        if (!result.account_closed || result.deletion_state === 'completed') {
+          navigate('/admin/users');
+        } else {
+          await loadUser();
+        }
       } else {
         notify.error(result.message || t('admin.users.userActions.error'), t('common.error'));
       }
-    } catch {
-      notify.error(t('admin.users.userActions.error'), t('common.error'));
+    } catch (error) {
+      const detail = (error as { response?: { data?: { detail?: string | { message?: string } } } })?.response
+        ?.data?.detail;
+      const apiMessage = typeof detail === 'string' ? detail : detail?.message;
+      notify.error(apiMessage || t('admin.users.userActions.error'), t('common.error'));
     } finally {
       setActionLoading(false);
+    }
+  };
+
+  const handleResolveFinancialErasure = async () => {
+    if (!userId || erasureResolutionNote.trim().length < 8) {
+      notify.error('Укажите основание сверки: минимум 8 символов.', t('common.error'));
+      return;
+    }
+    setErasureResolving(true);
+    try {
+      const result = await adminUsersApi.resolveFinancialAccountErasure(userId, {
+        resolution_code: erasureResolutionCode,
+        resolution_note: erasureResolutionNote.trim(),
+      });
+      notify.success(result.message, t('common.success'));
+      if (result.deletion_state === 'completed') {
+        navigate('/admin/users');
+      } else {
+        await loadUser();
+      }
+    } catch (error) {
+      const detail = (error as { response?: { data?: { detail?: string | { message?: string } } } })?.response
+        ?.data?.detail;
+      const apiMessage = typeof detail === 'string' ? detail : detail?.message;
+      notify.error(apiMessage || 'Не удалось завершить финансовую сверку.', t('common.error'));
+    } finally {
+      setErasureResolving(false);
     }
   };
 
@@ -770,6 +809,45 @@ export default function AdminUserDetail() {
           <RefreshIcon className={loading ? 'animate-spin' : ''} />
         </button>
       </div>
+
+      {user.account_erasure_state && user.account_erasure_state !== 'completed' && (
+        <section className="mb-6 rounded-2xl border border-amber-500/30 bg-amber-500/10 p-4 text-dark-100">
+          <h2 className="font-semibold">Закрытие аккаунта: {user.account_erasure_state}</h2>
+          <p className="mt-1 text-sm text-dark-300">
+            Вход, покупки и VPN уже отключены. Данные профиля будут обезличены только после финансовой сверки;
+            это защищает от позднего платежа и двойного списания.
+          </p>
+          {user.account_erasure_state === 'awaiting_manual_resolution' && hasPermission('users:delete') && (
+            <div className="mt-4 grid gap-3">
+              <select
+                value={erasureResolutionCode}
+                onChange={(event) => setErasureResolutionCode(event.target.value as typeof erasureResolutionCode)}
+                className="rounded-lg border border-dark-600 bg-dark-900 px-3 py-2"
+              >
+                <option value="provider_terminal_verified">Провайдер подтвердил финальный статус</option>
+                <option value="refund_completed">Возврат завершён</option>
+                <option value="chargeback_resolved">Спор/чарджбэк завершён</option>
+                <option value="balance_writeoff_approved">Подтверждено списание остатка</option>
+              </select>
+              <textarea
+                value={erasureResolutionNote}
+                onChange={(event) => setErasureResolutionNote(event.target.value)}
+                minLength={8}
+                placeholder="Номер операции или ссылка на сверку (видна только администрации)"
+                className="min-h-24 rounded-lg border border-dark-600 bg-dark-900 px-3 py-2"
+              />
+              <button
+                type="button"
+                onClick={handleResolveFinancialErasure}
+                disabled={erasureResolving}
+                className="rounded-lg bg-amber-500 px-4 py-2 font-medium text-dark-950 disabled:opacity-50"
+              >
+                {erasureResolving ? 'Сверяем…' : 'Завершить сверку и обезличить'}
+              </button>
+            </div>
+          )}
+        </section>
+      )}
 
       {/* Tabs */}
       <div

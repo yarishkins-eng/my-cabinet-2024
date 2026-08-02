@@ -141,6 +141,9 @@ export interface UserDetailResponse {
   promo_offer_discount_expires_at: string | null;
   recent_transactions: UserTransactionItem[];
   remnawave_uuid: string | null;
+  account_erasure_state: string | null;
+  account_erasure_resolution_code: string | null;
+  account_erasure_requested_at: string | null;
 }
 
 export interface UserPanelInfo {
@@ -560,7 +563,8 @@ export const adminUsersApi = {
     return response.data;
   },
 
-  // Full delete user (removes from bot DB + Remnawave panel)
+  // Full close: physical delete without invoices, or a financial tombstone
+  // with PII removal after provider reconciliation.
   fullDeleteUser: async (
     userId: number,
   ): Promise<{
@@ -569,8 +573,21 @@ export const adminUsersApi = {
     deleted_from_bot: boolean;
     deleted_from_panel: boolean;
     panel_error: string | null;
+    account_closed: boolean;
+    deletion_state: string | null;
   }> => {
     const response = await apiClient.delete(`/cabinet/admin/users/${userId}/full`);
+    return response.data;
+  },
+
+  resolveFinancialAccountErasure: async (
+    userId: number,
+    data: {
+      resolution_code: 'provider_terminal_verified' | 'refund_completed' | 'chargeback_resolved' | 'balance_writeoff_approved';
+      resolution_note: string;
+    },
+  ): Promise<{ success: boolean; message: string; deletion_state: string | null; account_closed: boolean }> => {
+    const response = await apiClient.post(`/cabinet/admin/users/${userId}/account-erasure/resolve`, data);
     return response.data;
   },
 
