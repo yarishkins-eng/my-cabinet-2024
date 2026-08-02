@@ -19,6 +19,7 @@ vi.mock('@/api/deviceFirst', () => ({
     getOpen: vi.fn(),
     confirm: vi.fn(),
     arm: vi.fn(),
+    commit: vi.fn(),
     cancel: vi.fn(),
     paymentMethods: vi.fn(),
     createPaymentAttempt: vi.fn(),
@@ -147,15 +148,22 @@ describe('DeviceFirstConfigurator interaction safety', () => {
 
   afterEach(() => cleanup());
 
-  it('creates once, persists checkout in the URL, then uses the explicit financial consent CTA', async () => {
+  it('creates once, auto-confirms the non-financial quote, then commits only from the payment CTA', async () => {
     let resolveCreate!: (value: DeviceFirstCheckout) => void;
+    const directConfiguration = {
+      ...checkout('configuration'),
+      settlement_mode: 'direct_purchase_v2' as const,
+      balance_kopeks: 0,
+      external_payable_kopeks: 45000,
+    };
+    const directConfirmation = { ...directConfiguration, ui_state: 'confirmation' as const };
     vi.mocked(deviceFirstApi.create).mockReturnValue(
       new Promise((resolve) => {
         resolveCreate = resolve;
       }),
     );
-    vi.mocked(deviceFirstApi.confirm).mockResolvedValue(checkout('confirmation'));
-    vi.mocked(deviceFirstApi.arm).mockResolvedValue(checkout('awaiting_payment'));
+    vi.mocked(deviceFirstApi.confirm).mockResolvedValue(directConfirmation);
+    vi.mocked(deviceFirstApi.commit).mockReturnValue(new Promise(() => {}));
     renderConfigurator();
 
     const review = screen.getByRole('button', { name: 'deviceFirst.review' });
@@ -164,18 +172,53 @@ describe('DeviceFirstConfigurator interaction safety', () => {
     fireEvent.click(review);
     expect(deviceFirstApi.create).toHaveBeenCalledTimes(1);
 
-    resolveCreate(checkout('configuration'));
+    resolveCreate(directConfiguration);
     await waitFor(() =>
       expect(screen.getByTestId('location').textContent).toContain('checkout=checkout-owned'),
     );
 
-    fireEvent.click(screen.getByRole('button', { name: 'deviceFirst.confirm' }));
+    await waitFor(() => expect(deviceFirstApi.confirm).toHaveBeenCalledWith('checkout-owned'));
+    expect(
+      screen.getByRole('radiogroup', { name: 'deviceFirst.paymentMethodQuestion' }),
+    ).toBeTruthy();
     const financialConsent = await screen.findByRole('button', {
-      name: 'deviceFirst.topUpAndOrder:350 ₽',
+      name: 'deviceFirst.payExternalAndOrder:450 ₽',
     });
     fireEvent.click(financialConsent);
 
-    await waitFor(() => expect(deviceFirstApi.arm).toHaveBeenCalledWith('checkout-owned'));
+    await waitFor(() =>
+      expect(deviceFirstApi.commit).toHaveBeenCalledWith('checkout-owned', 'platega', 'sbp'),
+    );
+    expect(deviceFirstApi.arm).not.toHaveBeenCalled();
+  });
+
+  it('does not briefly expose a duplicate manual confirmation while auto-confirm is pending', async () => {
+    let resolveConfirm!: (value: DeviceFirstCheckout) => void;
+    const directConfiguration = {
+      ...checkout('configuration'),
+      settlement_mode: 'direct_purchase_v2' as const,
+      balance_kopeks: 0,
+      external_payable_kopeks: 45000,
+    };
+    vi.mocked(deviceFirstApi.create).mockResolvedValue(directConfiguration);
+    vi.mocked(deviceFirstApi.confirm).mockReturnValue(
+      new Promise((resolve) => {
+        resolveConfirm = resolve;
+      }),
+    );
+    renderConfigurator();
+
+    fireEvent.click(screen.getByRole('button', { name: 'deviceFirst.review' }));
+
+    await waitFor(() => expect(deviceFirstApi.confirm).toHaveBeenCalledTimes(1));
+    expect(screen.queryByRole('button', { name: 'deviceFirst.confirm' })).toBeNull();
+    expect(screen.getByText('deviceFirst.preparingCheckout')).toBeTruthy();
+
+    resolveConfirm({ ...directConfiguration, ui_state: 'confirmation' });
+    expect(
+      await screen.findByRole('button', { name: 'deviceFirst.payExternalAndOrder:450 ₽' }),
+    ).toBeTruthy();
+    expect(deviceFirstApi.confirm).toHaveBeenCalledTimes(1);
   });
 
   it('restores a returned checkout without needing purchase options and resumes it by id', async () => {
@@ -290,23 +333,51 @@ describe('DeviceFirstConfigurator interaction safety', () => {
   });
 
   it('explains a payment-method loading failure and offers retry and support instead of a dead CTA', async () => {
-    vi.mocked(deviceFirstApi.create).mockResolvedValue(checkout('configuration'));
-    vi.mocked(deviceFirstApi.confirm).mockResolvedValue(checkout('confirmation'));
-    vi.mocked(deviceFirstApi.arm).mockResolvedValue(checkout('awaiting_payment'));
+    const directConfiguration = {
+      ...checkout('configuration'),
+      settlement_mode: 'direct_purchase_v2' as const,
+      balance_kopeks: 0,
+      external_payable_kopeks: 45000,
+    };
+    vi.mocked(deviceFirstApi.create).mockResolvedValue(directConfiguration);
+    vi.mocked(deviceFirstApi.confirm).mockResolvedValue({
+      ...directConfiguration,
+      ui_state: 'confirmation',
+    });
     vi.mocked(deviceFirstApi.paymentMethods).mockRejectedValue(new Error('offline'));
     renderConfigurator();
 
     fireEvent.click(screen.getByRole('button', { name: 'deviceFirst.review' }));
-    fireEvent.click(await screen.findByRole('button', { name: 'deviceFirst.confirm' }));
-    fireEvent.click(await screen.findByRole('button', { name: 'deviceFirst.topUpAndOrder:350 ₽' }));
 
     expect((await screen.findByRole('alert')).textContent).toContain(
       'deviceFirst.errorPaymentMethodsLoad',
     );
-    expect(screen.queryByRole('button', { name: 'deviceFirst.topUpAmount:350 ₽' })).toBeNull();
+    expect(
+      screen.queryByRole('button', { name: 'deviceFirst.payExternalAndOrder:450 ₽' }),
+    ).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'deviceFirst.retry' }));
     await waitFor(() => expect(deviceFirstApi.paymentMethods).toHaveBeenCalledTimes(2));
     expect(screen.getByRole('button', { name: 'deviceFirst.contactSupport' })).toBeTruthy();
+  });
+
+  it('returns to the preserved configuration after a server-confirmed pre-payment cancellation', async () => {
+    const directConfirmation = {
+      ...checkout('confirmation'),
+      settlement_mode: 'direct_purchase_v2' as const,
+      balance_kopeks: 0,
+      external_payable_kopeks: 45000,
+    };
+    vi.mocked(deviceFirstApi.cancel).mockResolvedValue({
+      ...directConfirmation,
+      ui_state: 'cancelled',
+    });
+    renderConfigurator({ fixtureCheckout: directConfirmation });
+
+    fireEvent.click(screen.getByRole('button', { name: 'deviceFirst.cancel' }));
+
+    await waitFor(() => expect(deviceFirstApi.cancel).toHaveBeenCalledWith('checkout-owned'));
+    expect(await screen.findByRole('button', { name: 'deviceFirst.review' })).toBeTruthy();
+    expect(screen.queryByText('deviceFirst.refreshTitle')).toBeNull();
   });
 
   it.each(['processing', 'provisioning'] as const)(

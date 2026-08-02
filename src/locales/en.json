@@ -5240,7 +5240,6 @@
     }
   },
   "deviceFirst": {
-    "eyebrow": "VPN for your devices",
     "description": "Choose the VPN term first, then the number of devices.",
     "devicesQuestion": "How many devices?",
     "deviceShort": "{{count}} devices",
@@ -5258,7 +5257,9 @@
     "review": "Proceed to checkout",
     "reviewHint": "No money is charged yet",
     "confirm": "Confirm",
-    "chargeNotice": "No funds are charged until the separate confirmation below.",
+    "preparingCheckout": "Preparing your order",
+    "preparingCheckoutText": "We are checking the selected terms. No money is charged yet.",
+    "chargeNotice": "Review the total and choose a payment method.",
     "payBalance": "Pay from balance",
     "topUpAndOrder": "Top up {{amount}} and subscribe",
     "payAndOrder": "Charge {{amount}} and subscribe",
@@ -5307,6 +5308,9 @@
     "errorOrderUpdated": "The order state changed. Refresh it before the next action.",
     "noMethods": "No payment methods are currently available.",
     "paymentMethodQuestion": "Payment method",
+    "paymentMethodsAvailable": "Payment methods available for this purchase",
+    "paymentMethodsLoading": "Loading available payment methods…",
+    "paymentMethodUnknown": "Another payment method",
     "retry": "Try again",
     "devices": "Devices",
     "period": "Term",

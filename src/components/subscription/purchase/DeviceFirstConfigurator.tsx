@@ -44,6 +44,7 @@ export function DeviceFirstConfigurator({
   const [devices, setDevices] = useState(options.device_options?.[0] ?? 1);
   const [checkout, setCheckout] = useState<DeviceFirstCheckout | null>(fixtureCheckout ?? null);
   const [actionError, setActionError] = useState<unknown>(null);
+  const [autoConfirming, setAutoConfirming] = useState(false);
   const [existingPaymentAttempt, setExistingPaymentAttempt] =
     useState<DeviceFirstPaymentAttempt | null>(null);
   const checkoutUiState = checkout?.ui_state;
@@ -129,11 +130,39 @@ export function DeviceFirstConfigurator({
       setSearchParams(nextParams, { replace: searchParams.has('checkout') });
     }
   };
+  const returnToConfiguration = () => {
+    // A server-confirmed pre-payment cancellation is complete: retain the
+    // person's selected term/devices, but drop only the abandoned quote and
+    // its URL. Confirmation/payment intent keys remain untouched elsewhere.
+    deviceFirstApi.clearCreateIntents();
+    setActionError(null);
+    setExistingPaymentAttempt(null);
+    setCheckout(null);
+    if (fixtureCheckout === undefined) {
+      const nextParams = new URLSearchParams(searchParams);
+      nextParams.delete('checkout');
+      setSearchParams(nextParams, { replace: true });
+    }
+  };
 
   const createMutation = useMutation({
     mutationFn: () => deviceFirstApi.create(period, devices),
     onMutate: () => setActionError(null),
-    onSuccess: acceptCheckout,
+    onSuccess: async (created) => {
+      setAutoConfirming(true);
+      acceptCheckout(created);
+      try {
+        // This is a non-financial state transition. It removes the duplicate
+        // "Confirm" screen while retaining its own durable idempotency key.
+        acceptCheckout(await deviceFirstApi.confirm(created.id));
+      } catch (error) {
+        // Keep the owned draft + confirmation key. A retry resumes the same
+        // order and can never create a second quote or provider invoice.
+        setActionError(error);
+      } finally {
+        setAutoConfirming(false);
+      }
+    },
     onError: async (error) => {
       if (deviceFirstErrorCode(error) === 'open_checkout_exists') {
         try {
@@ -220,7 +249,13 @@ export function DeviceFirstConfigurator({
   const cancelMutation = useMutation({
     mutationFn: () => deviceFirstApi.cancel(checkout!.id),
     onMutate: () => setActionError(null),
-    onSuccess: acceptCheckout,
+    onSuccess: (next) => {
+      if (next.ui_state === 'cancelled') {
+        returnToConfiguration();
+        return;
+      }
+      acceptCheckout(next);
+    },
     onError: setActionError,
   });
   const pendingPayment = useQuery({
@@ -318,6 +353,7 @@ export function DeviceFirstConfigurator({
   const requiresReconciliation = actionErrorCode === 'reconciliation_required';
   const isPending =
     createMutation.isPending ||
+    autoConfirming ||
     confirmMutation.isPending ||
     armMutation.isPending ||
     commitMutation.isPending ||
@@ -365,24 +401,20 @@ export function DeviceFirstConfigurator({
     // A prior conflicting create can belong to a different selection than the
     // resumed checkout. This explicit "start over" action clears every local
     // create key, but never confirmation/payment idempotency keys.
-    deviceFirstApi.clearCreateIntents();
-    setActionError(null);
-    setCheckout(null);
-    if (fixtureCheckout === undefined) {
-      const nextParams = new URLSearchParams(searchParams);
-      nextParams.delete('checkout');
-      setSearchParams(nextParams, { replace: true });
-    }
+    returnToConfiguration();
   };
   const refreshCheckout = () => {
     void statusQuery.refetch();
+    void pendingPayment.refetch();
   };
   const paymentMethodLabel = (key: string) =>
     key === 'sbp'
       ? t('deviceFirst.sbp')
       : key === 'cards_ru'
         ? t('deviceFirst.cards')
-        : t('deviceFirst.crypto');
+        : key === 'crypto'
+          ? t('deviceFirst.crypto')
+          : t('deviceFirst.paymentMethodUnknown');
 
   return (
     <section
@@ -392,9 +424,6 @@ export function DeviceFirstConfigurator({
       style={{ background: g.cardBg, border: `1px solid ${g.cardBorder}`, boxShadow: g.shadow }}
     >
       <div className="mb-6" aria-hidden={modalOpen || undefined} inert={modalOpen || undefined}>
-        <div className="mb-2 text-xs font-semibold uppercase tracking-[0.16em] text-accent-400">
-          {t('deviceFirst.eyebrow')}
-        </div>
         <h2 className="text-xl font-bold text-dark-50">{options.tariff?.name}</h2>
         <p className="mt-2 text-sm text-dark-400">{t('deviceFirst.description')}</p>
       </div>
@@ -559,23 +588,32 @@ export function DeviceFirstConfigurator({
           dialogRef={dialogRef}
           onKeyDown={trapDialogFocus}
         >
-          <Summary checkout={checkout} formatPrice={formatPrice} />
-          <button
-            type="button"
-            disabled={confirmMutation.isPending}
-            onClick={() => confirmMutation.mutate()}
-            className={`w-full rounded-2xl bg-accent-500 px-5 py-3.5 font-semibold text-white disabled:opacity-50 ${choiceClass}`}
-          >
-            {t('deviceFirst.confirm')}
-          </button>
-          <button
-            type="button"
-            disabled={cancelMutation.isPending}
-            onClick={() => cancelMutation.mutate()}
-            className={`min-h-11 w-full rounded-xl px-4 py-2 text-sm text-dark-500 hover:text-dark-300 disabled:opacity-50 ${choiceClass}`}
-          >
-            {t('deviceFirst.cancel')}
-          </button>
+          {autoConfirming ? (
+            <StateMessage
+              title={t('deviceFirst.preparingCheckout')}
+              text={t('deviceFirst.preparingCheckoutText')}
+            />
+          ) : (
+            <>
+              <Summary checkout={checkout} formatPrice={formatPrice} />
+              <button
+                type="button"
+                disabled={confirmMutation.isPending}
+                onClick={() => confirmMutation.mutate()}
+                className={`w-full rounded-2xl bg-accent-500 px-5 py-3.5 font-semibold text-white disabled:opacity-50 ${choiceClass}`}
+              >
+                {t('deviceFirst.confirm')}
+              </button>
+              <button
+                type="button"
+                disabled={cancelMutation.isPending}
+                onClick={() => cancelMutation.mutate()}
+                className={`min-h-11 w-full rounded-xl px-4 py-2 text-sm text-dark-500 hover:text-dark-300 disabled:opacity-50 ${choiceClass}`}
+              >
+                {t('deviceFirst.cancel')}
+              </button>
+            </>
+          )}
           {errorMessage && (
             <p role="alert" className="text-sm text-error-400">
               {errorMessage}
@@ -596,56 +634,104 @@ export function DeviceFirstConfigurator({
           {checkout.settlement_mode === 'direct_purchase_v2' ? (
             <>
               {(checkout.balance_kopeks ?? 0) < checkout.tariff_total_kopeks && (
-                <div
-                  role="radiogroup"
-                  aria-label={t('deviceFirst.paymentMethodQuestion')}
-                  className="grid gap-2"
-                >
-                  {methods.data?.methods.map((method) => {
-                    const isSelected = methodKey === method.key;
-                    return (
+                <>
+                  <p className="text-sm text-dark-300">
+                    {t('deviceFirst.paymentMethodsAvailable')}
+                  </p>
+                  {methods.isLoading ? (
+                    <p role="status" className="text-sm text-dark-400">
+                      {t('deviceFirst.paymentMethodsLoading')}
+                    </p>
+                  ) : methods.isError ? (
+                    <div className="space-y-2">
+                      <p role="alert" className="text-sm text-error-400">
+                        {t('deviceFirst.errorPaymentMethodsLoad')}
+                      </p>
                       <button
-                        key={method.key}
                         type="button"
-                        role="radio"
-                        aria-checked={isSelected}
-                        onClick={() => setMethodKey(method.key)}
-                        className={`rounded-xl border p-3 text-left text-sm ${choiceClass} ${
-                          isSelected
-                            ? 'border-accent-400 bg-accent-500/10 text-accent-300'
-                            : 'border-dark-700 text-dark-300'
-                        }`}
+                        onClick={() => void methods.refetch()}
+                        className={`w-full rounded-xl border border-dark-600 px-4 py-3 text-sm font-semibold text-dark-100 ${choiceClass}`}
                       >
-                        {paymentMethodLabel(method.key)}
+                        {t('deviceFirst.retry')}
                       </button>
-                    );
-                  })}
-                </div>
+                      <button
+                        type="button"
+                        onClick={() => navigate('/support')}
+                        className={`min-h-11 w-full rounded-xl px-4 py-2 text-sm text-dark-400 hover:text-dark-200 ${choiceClass}`}
+                      >
+                        {t('deviceFirst.contactSupport')}
+                      </button>
+                    </div>
+                  ) : methods.data?.methods.length ? (
+                    <div
+                      role="radiogroup"
+                      aria-label={t('deviceFirst.paymentMethodQuestion')}
+                      className="grid gap-2"
+                    >
+                      {methods.data.methods.map((method) => {
+                        const isSelected = methodKey === method.key;
+                        const availableKeys = methods.data?.methods.map((item) => item.key) ?? [];
+                        return (
+                          <button
+                            key={method.key}
+                            type="button"
+                            role="radio"
+                            aria-checked={isSelected}
+                            tabIndex={isSelected ? 0 : -1}
+                            onKeyDown={(event) =>
+                              changeChoiceWithArrows(event, availableKeys, methodKey, setMethodKey)
+                            }
+                            onClick={() => setMethodKey(method.key)}
+                            className={`rounded-xl border p-3 text-left text-sm ${choiceClass} ${
+                              isSelected
+                                ? 'border-accent-400 bg-accent-500/10 text-accent-300'
+                                : 'border-dark-700 text-dark-300'
+                            }`}
+                          >
+                            {paymentMethodLabel(method.key)}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      <p role="status" className="text-sm text-warning-400">
+                        {t('deviceFirst.noMethods')}
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => navigate('/support')}
+                        className={`min-h-11 w-full rounded-xl px-4 py-2 text-sm text-dark-400 hover:text-dark-200 ${choiceClass}`}
+                      >
+                        {t('deviceFirst.contactSupport')}
+                      </button>
+                    </div>
+                  )}
+                </>
               )}
-              <button
-                type="button"
-                disabled={
-                  commitMutation.isPending ||
-                  ((checkout.balance_kopeks ?? 0) < checkout.tariff_total_kopeks &&
-                    !methods.data?.methods.length)
-                }
-                onClick={() =>
-                  commitMutation.mutate(
-                    (checkout.balance_kopeks ?? 0) >= checkout.tariff_total_kopeks
-                      ? 'wallet'
-                      : 'platega',
-                  )
-                }
-                className={`w-full rounded-2xl bg-accent-500 px-5 py-3.5 font-semibold text-white disabled:opacity-50 ${choiceClass}`}
-              >
-                {(checkout.balance_kopeks ?? 0) >= checkout.tariff_total_kopeks
-                  ? t('deviceFirst.payAndOrder', {
-                      amount: formatPrice(checkout.tariff_total_kopeks),
-                    })
-                  : t('deviceFirst.payExternalAndOrder', {
-                      amount: formatPrice(checkout.tariff_total_kopeks),
-                    })}
-              </button>
+              {((checkout.balance_kopeks ?? 0) >= checkout.tariff_total_kopeks ||
+                methods.data?.methods.length) && (
+                <button
+                  type="button"
+                  disabled={commitMutation.isPending}
+                  onClick={() =>
+                    commitMutation.mutate(
+                      (checkout.balance_kopeks ?? 0) >= checkout.tariff_total_kopeks
+                        ? 'wallet'
+                        : 'platega',
+                    )
+                  }
+                  className={`w-full rounded-2xl bg-accent-500 px-5 py-3.5 font-semibold text-white disabled:opacity-50 ${choiceClass}`}
+                >
+                  {(checkout.balance_kopeks ?? 0) >= checkout.tariff_total_kopeks
+                    ? t('deviceFirst.payAndOrder', {
+                        amount: formatPrice(checkout.tariff_total_kopeks),
+                      })
+                    : t('deviceFirst.payExternalAndOrder', {
+                        amount: formatPrice(checkout.tariff_total_kopeks),
+                      })}
+                </button>
+              )}
             </>
           ) : (
             <button
@@ -877,16 +963,18 @@ export function DeviceFirstConfigurator({
               {t('deviceFirst.continueAndOrder')}
             </button>
           )}
-          {!requiresReconciliation && !existingPaymentAttempt && (
-            <button
-              type="button"
-              disabled={cancelMutation.isPending}
-              onClick={() => cancelMutation.mutate()}
-              className={`min-h-11 w-full rounded-xl px-4 py-2 text-sm text-dark-500 hover:text-dark-300 disabled:opacity-50 ${choiceClass}`}
-            >
-              {t('deviceFirst.cancel')}
-            </button>
-          )}
+          {checkout.settlement_mode !== 'direct_purchase_v2' &&
+            !requiresReconciliation &&
+            !existingPaymentAttempt && (
+              <button
+                type="button"
+                disabled={cancelMutation.isPending}
+                onClick={() => cancelMutation.mutate()}
+                className={`min-h-11 w-full rounded-xl px-4 py-2 text-sm text-dark-500 hover:text-dark-300 disabled:opacity-50 ${choiceClass}`}
+              >
+                {t('deviceFirst.cancel')}
+              </button>
+            )}
           {errorMessage && (
             <p role="alert" className="text-sm text-error-400">
               {errorMessage}
@@ -1046,6 +1134,7 @@ function deviceFirstErrorMessage(
     rate_limited: 'deviceFirst.errorRateLimited',
     idempotency_conflict: 'deviceFirst.errorRetryQuote',
     reconciliation_required: 'deviceFirst.errorPaymentChecking',
+    external_invoice_active: 'deviceFirst.errorPaymentChecking',
     payment_method_unavailable: 'deviceFirst.errorPaymentMethod',
     provider_amount_out_of_range: 'deviceFirst.errorProviderAmount',
     feature_disabled: 'deviceFirst.errorUnavailable',
