@@ -96,8 +96,8 @@ export function DeviceFirstConfigurator({
       ['awaiting_payment', 'processing', 'provisioning'].includes(checkout.ui_state),
     refetchInterval: (query) => {
       const providerDeadline =
-        checkout?.settlement_mode === 'direct_purchase_v2' && checkout.expires_at
-          ? Date.parse(checkout.expires_at)
+        checkout?.settlement_mode === 'direct_purchase_v2' && checkout.provider_invoice_expires_at
+          ? Date.parse(checkout.provider_invoice_expires_at)
           : Number.NaN;
       // A direct invoice remains customer-visible for the provider-owned
       // payment window, not an arbitrary two-minute browser interval. The
@@ -105,7 +105,10 @@ export function DeviceFirstConfigurator({
       // its canonical terminal result without asking the person to reload.
       if (Number.isFinite(providerDeadline)) {
         if (Date.now() > providerDeadline + 30_000) return false;
-      } else if (Date.now() - pollStartedAt.current > 2 * 60 * 1000) {
+      } else if (
+        checkout?.settlement_mode !== 'direct_purchase_v2' &&
+        Date.now() - pollStartedAt.current > 2 * 60 * 1000
+      ) {
         return false;
       }
       const updates = query.state.dataUpdateCount;
@@ -525,9 +528,9 @@ export function DeviceFirstConfigurator({
           : t('deviceFirst.paymentMethodUnknown');
   const paymentMethodAmountLabel = (key: string, amount: string) =>
     t('deviceFirst.paymentMethodAmount', { method: paymentMethodLabel(key), amount });
-  const invoiceDeadline = checkout?.expires_at
+  const invoiceDeadline = checkout?.provider_invoice_expires_at
     ? new Intl.DateTimeFormat(undefined, { dateStyle: 'short', timeStyle: 'short' }).format(
-        new Date(checkout.expires_at),
+        new Date(checkout.provider_invoice_expires_at),
       )
     : null;
 
