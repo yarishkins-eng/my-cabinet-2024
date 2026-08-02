@@ -5259,6 +5259,8 @@
     "confirm": "Confirm",
     "preparingCheckout": "Preparing your order",
     "preparingCheckoutText": "We are checking the selected terms. No money is charged yet.",
+    "openingPayment": "Opening payment",
+    "openingPaymentText": "We are checking your order and opening the selected payment method.",
     "chargeNotice": "Review the total and choose a payment method.",
     "payBalance": "Pay from balance",
     "topUpAndOrder": "Top up {{amount}} and subscribe",

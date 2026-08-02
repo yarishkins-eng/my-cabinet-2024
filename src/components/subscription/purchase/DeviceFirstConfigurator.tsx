@@ -1,4 +1,5 @@
 import {
+  useCallback,
   useEffect,
   useRef,
   useState,
@@ -53,6 +54,9 @@ export function DeviceFirstConfigurator({
     !!checkoutUiState &&
     ['configuration', 'confirmation', 'awaiting_payment'].includes(checkoutUiState);
   const [methodKey, setMethodKey] = useState('sbp');
+  const nativeLaunchMethod = searchParams.get('method');
+  const nativeAutostart = searchParams.get('autostart') === '1';
+  const nativeLaunchRef = useRef<string | null>(null);
   const pollStartedAt = useRef(Date.now());
   const dialogRef = useRef<HTMLDivElement>(null);
   const previousFocusRef = useRef<HTMLElement | null>(null);
@@ -124,6 +128,11 @@ export function DeviceFirstConfigurator({
     if (fixtureCheckout === undefined) {
       const nextParams = new URLSearchParams(searchParams);
       nextParams.set('checkout', next.id);
+      // The Telegram launch query is deliberately single-use.  The durable
+      // checkout id remains for recovery, while browser Back/reload cannot
+      // automatically submit another payment command.
+      nextParams.delete('method');
+      nextParams.delete('autostart');
       // The initial C1 → C2 transition is a real user navigation, so Back
       // returns to the configuration. State refreshes for that same checkout
       // replace instead of growing the history on every poll.
@@ -144,6 +153,13 @@ export function DeviceFirstConfigurator({
       setSearchParams(nextParams, { replace: true });
     }
   };
+  const consumeNativeLaunchParams = useCallback(() => {
+    if (fixtureCheckout !== undefined) return;
+    const nextParams = new URLSearchParams(searchParams);
+    nextParams.delete('method');
+    nextParams.delete('autostart');
+    setSearchParams(nextParams, { replace: true });
+  }, [fixtureCheckout, searchParams, setSearchParams]);
 
   const createMutation = useMutation({
     mutationFn: () => deviceFirstApi.create(period, devices),
@@ -222,6 +238,16 @@ export function DeviceFirstConfigurator({
     },
     onError: recoverAmbiguousCheckout,
   });
+  const nativeLaunchMutation = useMutation({
+    mutationFn: ({ checkoutId, method }: { checkoutId: string; method: string }) =>
+      deviceFirstApi.nativeLaunch(checkoutId, method),
+    onMutate: () => setActionError(null),
+    onSuccess: (result) => {
+      acceptCheckout(result.checkout);
+      if (result.redirect_url) window.location.replace(result.redirect_url);
+    },
+    onError: recoverAmbiguousCheckout,
+  });
   const paymentMutation = useMutation({
     mutationFn: () => deviceFirstApi.createPaymentAttempt(checkout!.id, methodKey),
     onMutate: () => {
@@ -267,6 +293,54 @@ export function DeviceFirstConfigurator({
       checkout.ui_state === 'awaiting_payment',
     retry: false,
   });
+
+  useEffect(() => {
+    if (
+      fixtureCheckout !== undefined ||
+      !nativeAutostart ||
+      !nativeLaunchMethod ||
+      !checkout ||
+      checkout.settlement_mode !== 'direct_purchase_v2' ||
+      checkout.ui_state !== 'confirmation' ||
+      methods.isLoading
+    ) {
+      return;
+    }
+
+    const launchKey = `${checkout.id}:${nativeLaunchMethod}`;
+    if (nativeLaunchRef.current === launchKey) return;
+    nativeLaunchRef.current = launchKey;
+
+    const availableMethods = methods.data?.methods.map((method) => method.key) ?? [];
+    consumeNativeLaunchParams();
+    if (methods.isError) {
+      setActionError({
+        response: { data: { detail: { code: 'payment_methods_load_failed' } } },
+      });
+      return;
+    }
+    if (!availableMethods.includes(nativeLaunchMethod)) {
+      setActionError({
+        response: { data: { detail: { code: 'payment_method_unavailable' } } },
+      });
+      return;
+    }
+
+    // This is the only automatic financial call.  The native endpoint requires
+    // signed current Telegram initData, owner-scopes the checkout and reuses
+    // the same durable idempotency/one-invoice protections as a manual commit.
+    nativeLaunchMutation.mutate({ checkoutId: checkout.id, method: nativeLaunchMethod });
+  }, [
+    checkout,
+    consumeNativeLaunchParams,
+    fixtureCheckout,
+    methods.data?.methods,
+    methods.isError,
+    methods.isLoading,
+    nativeAutostart,
+    nativeLaunchMethod,
+    nativeLaunchMutation,
+  ]);
 
   useEffect(() => {
     if (checkout?.ui_state === 'ready') {
@@ -357,6 +431,7 @@ export function DeviceFirstConfigurator({
     confirmMutation.isPending ||
     armMutation.isPending ||
     commitMutation.isPending ||
+    nativeLaunchMutation.isPending ||
     paymentMutation.isPending ||
     resumeInvoiceMutation.isPending ||
     cancelMutation.isPending;
@@ -632,107 +707,119 @@ export function DeviceFirstConfigurator({
           <Summary checkout={checkout} formatPrice={formatPrice} />
           <p className="text-xs text-dark-400">{t('deviceFirst.chargeNotice')}</p>
           {checkout.settlement_mode === 'direct_purchase_v2' ? (
-            <>
-              {(checkout.balance_kopeks ?? 0) < checkout.tariff_total_kopeks && (
-                <>
-                  <p className="text-sm text-dark-300">
-                    {t('deviceFirst.paymentMethodsAvailable')}
-                  </p>
-                  {methods.isLoading ? (
-                    <p role="status" className="text-sm text-dark-400">
-                      {t('deviceFirst.paymentMethodsLoading')}
+            nativeLaunchMutation.isPending ? (
+              <StateMessage
+                title={t('deviceFirst.openingPayment')}
+                text={t('deviceFirst.openingPaymentText')}
+              />
+            ) : (
+              <>
+                {(checkout.balance_kopeks ?? 0) < checkout.tariff_total_kopeks && (
+                  <>
+                    <p className="text-sm text-dark-300">
+                      {t('deviceFirst.paymentMethodsAvailable')}
                     </p>
-                  ) : methods.isError ? (
-                    <div className="space-y-2">
-                      <p role="alert" className="text-sm text-error-400">
-                        {t('deviceFirst.errorPaymentMethodsLoad')}
+                    {methods.isLoading ? (
+                      <p role="status" className="text-sm text-dark-400">
+                        {t('deviceFirst.paymentMethodsLoading')}
                       </p>
-                      <button
-                        type="button"
-                        onClick={() => void methods.refetch()}
-                        className={`w-full rounded-xl border border-dark-600 px-4 py-3 text-sm font-semibold text-dark-100 ${choiceClass}`}
+                    ) : methods.isError ? (
+                      <div className="space-y-2">
+                        <p role="alert" className="text-sm text-error-400">
+                          {t('deviceFirst.errorPaymentMethodsLoad')}
+                        </p>
+                        <button
+                          type="button"
+                          onClick={() => void methods.refetch()}
+                          className={`w-full rounded-xl border border-dark-600 px-4 py-3 text-sm font-semibold text-dark-100 ${choiceClass}`}
+                        >
+                          {t('deviceFirst.retry')}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => navigate('/support')}
+                          className={`min-h-11 w-full rounded-xl px-4 py-2 text-sm text-dark-400 hover:text-dark-200 ${choiceClass}`}
+                        >
+                          {t('deviceFirst.contactSupport')}
+                        </button>
+                      </div>
+                    ) : methods.data?.methods.length ? (
+                      <div
+                        role="radiogroup"
+                        aria-label={t('deviceFirst.paymentMethodQuestion')}
+                        className="grid gap-2"
                       >
-                        {t('deviceFirst.retry')}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => navigate('/support')}
-                        className={`min-h-11 w-full rounded-xl px-4 py-2 text-sm text-dark-400 hover:text-dark-200 ${choiceClass}`}
-                      >
-                        {t('deviceFirst.contactSupport')}
-                      </button>
-                    </div>
-                  ) : methods.data?.methods.length ? (
-                    <div
-                      role="radiogroup"
-                      aria-label={t('deviceFirst.paymentMethodQuestion')}
-                      className="grid gap-2"
-                    >
-                      {methods.data.methods.map((method) => {
-                        const isSelected = methodKey === method.key;
-                        const availableKeys = methods.data?.methods.map((item) => item.key) ?? [];
-                        return (
-                          <button
-                            key={method.key}
-                            type="button"
-                            role="radio"
-                            aria-checked={isSelected}
-                            tabIndex={isSelected ? 0 : -1}
-                            onKeyDown={(event) =>
-                              changeChoiceWithArrows(event, availableKeys, methodKey, setMethodKey)
-                            }
-                            onClick={() => setMethodKey(method.key)}
-                            className={`rounded-xl border p-3 text-left text-sm ${choiceClass} ${
-                              isSelected
-                                ? 'border-accent-400 bg-accent-500/10 text-accent-300'
-                                : 'border-dark-700 text-dark-300'
-                            }`}
-                          >
-                            {paymentMethodLabel(method.key)}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  ) : (
-                    <div className="space-y-2">
-                      <p role="status" className="text-sm text-warning-400">
-                        {t('deviceFirst.noMethods')}
-                      </p>
-                      <button
-                        type="button"
-                        onClick={() => navigate('/support')}
-                        className={`min-h-11 w-full rounded-xl px-4 py-2 text-sm text-dark-400 hover:text-dark-200 ${choiceClass}`}
-                      >
-                        {t('deviceFirst.contactSupport')}
-                      </button>
-                    </div>
-                  )}
-                </>
-              )}
-              {((checkout.balance_kopeks ?? 0) >= checkout.tariff_total_kopeks ||
-                methods.data?.methods.length) && (
-                <button
-                  type="button"
-                  disabled={commitMutation.isPending}
-                  onClick={() =>
-                    commitMutation.mutate(
-                      (checkout.balance_kopeks ?? 0) >= checkout.tariff_total_kopeks
-                        ? 'wallet'
-                        : 'platega',
-                    )
-                  }
-                  className={`w-full rounded-2xl bg-accent-500 px-5 py-3.5 font-semibold text-white disabled:opacity-50 ${choiceClass}`}
-                >
-                  {(checkout.balance_kopeks ?? 0) >= checkout.tariff_total_kopeks
-                    ? t('deviceFirst.payAndOrder', {
-                        amount: formatPrice(checkout.tariff_total_kopeks),
-                      })
-                    : t('deviceFirst.payExternalAndOrder', {
-                        amount: formatPrice(checkout.tariff_total_kopeks),
-                      })}
-                </button>
-              )}
-            </>
+                        {methods.data.methods.map((method) => {
+                          const isSelected = methodKey === method.key;
+                          const availableKeys = methods.data?.methods.map((item) => item.key) ?? [];
+                          return (
+                            <button
+                              key={method.key}
+                              type="button"
+                              role="radio"
+                              aria-checked={isSelected}
+                              tabIndex={isSelected ? 0 : -1}
+                              onKeyDown={(event) =>
+                                changeChoiceWithArrows(
+                                  event,
+                                  availableKeys,
+                                  methodKey,
+                                  setMethodKey,
+                                )
+                              }
+                              onClick={() => setMethodKey(method.key)}
+                              className={`rounded-xl border p-3 text-left text-sm ${choiceClass} ${
+                                isSelected
+                                  ? 'border-accent-400 bg-accent-500/10 text-accent-300'
+                                  : 'border-dark-700 text-dark-300'
+                              }`}
+                            >
+                              {paymentMethodLabel(method.key)}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        <p role="status" className="text-sm text-warning-400">
+                          {t('deviceFirst.noMethods')}
+                        </p>
+                        <button
+                          type="button"
+                          onClick={() => navigate('/support')}
+                          className={`min-h-11 w-full rounded-xl px-4 py-2 text-sm text-dark-400 hover:text-dark-200 ${choiceClass}`}
+                        >
+                          {t('deviceFirst.contactSupport')}
+                        </button>
+                      </div>
+                    )}
+                  </>
+                )}
+                {((checkout.balance_kopeks ?? 0) >= checkout.tariff_total_kopeks ||
+                  methods.data?.methods.length) && (
+                  <button
+                    type="button"
+                    disabled={commitMutation.isPending}
+                    onClick={() =>
+                      commitMutation.mutate(
+                        (checkout.balance_kopeks ?? 0) >= checkout.tariff_total_kopeks
+                          ? 'wallet'
+                          : 'platega',
+                      )
+                    }
+                    className={`w-full rounded-2xl bg-accent-500 px-5 py-3.5 font-semibold text-white disabled:opacity-50 ${choiceClass}`}
+                  >
+                    {(checkout.balance_kopeks ?? 0) >= checkout.tariff_total_kopeks
+                      ? t('deviceFirst.payAndOrder', {
+                          amount: formatPrice(checkout.tariff_total_kopeks),
+                        })
+                      : t('deviceFirst.payExternalAndOrder', {
+                          amount: formatPrice(checkout.tariff_total_kopeks),
+                        })}
+                  </button>
+                )}
+              </>
+            )
           ) : (
             <button
               type="button"
@@ -749,14 +836,16 @@ export function DeviceFirstConfigurator({
                   })}
             </button>
           )}
-          <button
-            type="button"
-            disabled={cancelMutation.isPending}
-            onClick={() => cancelMutation.mutate()}
-            className={`min-h-11 w-full rounded-xl px-4 py-2 text-sm text-dark-500 hover:text-dark-300 disabled:opacity-50 ${choiceClass}`}
-          >
-            {t('deviceFirst.cancel')}
-          </button>
+          {!nativeLaunchMutation.isPending && (
+            <button
+              type="button"
+              disabled={cancelMutation.isPending}
+              onClick={() => cancelMutation.mutate()}
+              className={`min-h-11 w-full rounded-xl px-4 py-2 text-sm text-dark-500 hover:text-dark-300 disabled:opacity-50 ${choiceClass}`}
+            >
+              {t('deviceFirst.cancel')}
+            </button>
+          )}
           {errorMessage && (
             <p role="alert" className="text-sm text-error-400">
               {errorMessage}
@@ -1136,6 +1225,7 @@ function deviceFirstErrorMessage(
     reconciliation_required: 'deviceFirst.errorPaymentChecking',
     external_invoice_active: 'deviceFirst.errorPaymentChecking',
     payment_method_unavailable: 'deviceFirst.errorPaymentMethod',
+    payment_methods_load_failed: 'deviceFirst.errorPaymentMethodsLoad',
     provider_amount_out_of_range: 'deviceFirst.errorProviderAmount',
     feature_disabled: 'deviceFirst.errorUnavailable',
     legacy_only: 'deviceFirst.errorUnavailable',
