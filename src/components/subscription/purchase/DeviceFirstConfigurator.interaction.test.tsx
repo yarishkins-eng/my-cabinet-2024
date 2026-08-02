@@ -105,6 +105,7 @@ function checkout(
     current_device_limit: null,
     current_subscription_is_trial: null,
     estimated_end_at: '2026-08-29T12:00:00Z',
+    expires_at: '2026-08-02T12:15:00Z',
     balance_kopeks: 45000 - shortageKopeks,
     shortage_kopeks: shortageKopeks,
     top_up_surplus_kopeks: 0,
@@ -181,10 +182,10 @@ describe('DeviceFirstConfigurator interaction safety', () => {
 
     await waitFor(() => expect(deviceFirstApi.confirm).toHaveBeenCalledWith('checkout-owned'));
     expect(
-      screen.getByRole('radiogroup', { name: 'deviceFirst.paymentMethodQuestion' }),
-    ).toBeTruthy();
+      screen.queryByRole('radiogroup', { name: 'deviceFirst.paymentMethodQuestion' }),
+    ).toBeNull();
     const financialConsent = await screen.findByRole('button', {
-      name: 'deviceFirst.payExternalAndOrder:450 ₽',
+      name: 'deviceFirst.paymentMethodAmount:450 ₽',
     });
     fireEvent.click(financialConsent);
 
@@ -293,9 +294,7 @@ describe('DeviceFirstConfigurator interaction safety', () => {
     expect(screen.getByText('deviceFirst.preparingCheckout')).toBeTruthy();
 
     resolveConfirm({ ...directConfiguration, ui_state: 'confirmation' });
-    expect(
-      await screen.findByRole('button', { name: 'deviceFirst.payExternalAndOrder:450 ₽' }),
-    ).toBeTruthy();
+    expect(await screen.findByRole('button', { name: 'deviceFirst.paymentMethodAmount:450 ₽' })).toBeTruthy();
     expect(deviceFirstApi.confirm).toHaveBeenCalledTimes(1);
   });
 
@@ -431,7 +430,7 @@ describe('DeviceFirstConfigurator interaction safety', () => {
       'deviceFirst.errorPaymentMethodsLoad',
     );
     expect(
-      screen.queryByRole('button', { name: 'deviceFirst.payExternalAndOrder:450 ₽' }),
+      screen.queryByRole('button', { name: 'deviceFirst.paymentMethodAmount:450 ₽' }),
     ).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'deviceFirst.retry' }));
     await waitFor(() => expect(deviceFirstApi.paymentMethods).toHaveBeenCalledTimes(2));
