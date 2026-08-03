@@ -50,6 +50,7 @@ import { SCREEN_SHOWCASE_ENABLED } from './config/featureFlags';
 
 // User pages - lazy load
 const DashboardUnified = lazyWithRetry(() => import('./pages/DashboardUnified'));
+const TrialStart = lazyWithRetry(() => import('./pages/TrialStart'));
 const ScreenStateShowcase = lazyWithRetry(() => import('./pages/ScreenStateShowcase'));
 const DeviceFirstVisualShowcase = lazyWithRetry(() => import('./pages/DeviceFirstVisualShowcase'));
 const Subscriptions = lazyWithRetry(() => import('./pages/Subscriptions'));
@@ -348,6 +349,16 @@ function App() {
             <ProtectedRoute>
               <LazyPage>
                 <DashboardUnified />
+              </LazyPage>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/trial"
+          element={
+            <ProtectedRoute>
+              <LazyPage>
+                <TrialStart />
               </LazyPage>
             </ProtectedRoute>
           }

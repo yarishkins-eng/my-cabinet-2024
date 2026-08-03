@@ -1,5 +1,4 @@
-import { useState } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import { Navigate, useNavigate } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { ClipboardIcon, PlusIcon } from '@/components/icons';
@@ -7,7 +6,6 @@ import { subscriptionApi } from '../api/subscription';
 import { balanceApi } from '../api/balance';
 import { useTheme } from '../hooks/useTheme';
 import { getGlassColors } from '../utils/glassTheme';
-import { useAuthStore } from '../store/auth';
 import SubscriptionListCard from '../components/subscription/SubscriptionListCard';
 import TrialOfferCard from '../components/dashboard/TrialOfferCard';
 
@@ -48,9 +46,6 @@ export default function Subscriptions() {
   const navigate = useNavigate();
   const { isDark } = useTheme();
   const g = getGlassColors(isDark);
-  const queryClient = useQueryClient();
-  const refreshUser = useAuthStore((state) => state.refreshUser);
-  const [trialError, setTrialError] = useState<string | null>(null);
 
   const { data, isLoading } = useQuery({
     queryKey: ['subscriptions-list'],
@@ -83,22 +78,6 @@ export default function Subscriptions() {
     queryFn: balanceApi.getBalance,
     enabled: hasNoSubscriptions && !!trialInfo?.is_available,
     staleTime: 30_000,
-  });
-
-  const activateTrialMutation = useMutation({
-    mutationFn: () => subscriptionApi.activateTrial(),
-    onSuccess: () => {
-      setTrialError(null);
-      queryClient.invalidateQueries({ queryKey: ['subscription'] });
-      queryClient.invalidateQueries({ queryKey: ['subscriptions-list'] });
-      queryClient.invalidateQueries({ queryKey: ['trial-info'] });
-      queryClient.invalidateQueries({ queryKey: ['balance'] });
-      queryClient.invalidateQueries({ queryKey: ['purchase-options'] });
-      refreshUser();
-    },
-    onError: (error: { response?: { data?: { detail?: string } } }) => {
-      setTrialError(error.response?.data?.detail || t('common.error'));
-    },
   });
 
   // Single-tariff mode with one subscription: skip list, go directly to detail
@@ -162,8 +141,6 @@ export default function Subscriptions() {
             trialInfo={trialInfo}
             balanceKopeks={balanceData?.balance_kopeks ?? 0}
             balanceRubles={balanceData?.balance_rubles ?? 0}
-            activateTrialMutation={activateTrialMutation}
-            trialError={trialError}
           />
           {/* Новый пользователь не обязан активировать триал, чтобы попасть
               в витрину — даём явный путь к покупке подписки. Раньше при

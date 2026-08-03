@@ -362,10 +362,27 @@ export const subscriptionApi = {
     return response.data;
   },
 
-  activateTrial: async (): Promise<Subscription> => {
-    const response = await apiClient.post<Subscription>('/cabinet/subscription/trial', {
-      yandex_cid: getYandexCid() || undefined,
-    });
+  activateTrial: async (options?: {
+    resolution?: 'activate' | 'abandon_pending_invoice';
+    expectedCheckoutId?: string;
+    idempotencyKey?: string;
+  }): Promise<Subscription> => {
+    const idempotencyKey =
+      options?.idempotencyKey ??
+      (typeof crypto?.randomUUID === 'function'
+        ? crypto.randomUUID()
+        : `${Date.now()}-${Math.random()}`);
+    const response = await apiClient.post<Subscription>(
+      '/cabinet/subscription/trial',
+      {
+        yandex_cid: getYandexCid() || undefined,
+        resolution: options?.resolution ?? 'activate',
+        expected_checkout_id: options?.expectedCheckoutId,
+      },
+      {
+        headers: { 'Idempotency-Key': idempotencyKey },
+      },
+    );
     return response.data;
   },
 

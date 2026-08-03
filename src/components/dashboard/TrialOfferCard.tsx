@@ -1,6 +1,5 @@
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router';
-import { UseMutationResult } from '@tanstack/react-query';
 import type { TrialInfo } from '../../types';
 import { useCurrency } from '../../hooks/useCurrency';
 import { useTheme } from '../../hooks/useTheme';
@@ -11,16 +10,12 @@ interface TrialOfferCardProps {
   trialInfo: TrialInfo;
   balanceKopeks: number;
   balanceRubles: number;
-  activateTrialMutation: UseMutationResult<unknown, unknown, void, unknown>;
-  trialError: string | null;
 }
 
 export default function TrialOfferCard({
   trialInfo,
   balanceKopeks,
   balanceRubles,
-  activateTrialMutation,
-  trialError,
 }: TrialOfferCardProps) {
   const { t } = useTranslation();
   const { formatAmount, currencySymbol } = useCurrency();
@@ -199,19 +194,13 @@ export default function TrialOfferCard({
         </div>
       )}
 
-      {/* Error */}
-      {trialError && (
-        <div className="mb-4 rounded-xl border border-error-500/30 bg-error-500/10 p-3 text-center text-sm text-error-400">
-          {trialError}
-        </div>
-      )}
-
-      {/* CTA Button */}
+      {/* Every trial CTA goes through the explicit intent route.  That route
+          first resolves any unfinished Device-First invoice on the server;
+          no card may post activation directly. */}
       {!isFree && trialInfo.price_kopeks > 0 ? (
         canAfford ? (
-          <button
-            onClick={() => !activateTrialMutation.isPending && activateTrialMutation.mutate()}
-            disabled={activateTrialMutation.isPending}
+          <Link
+            to="/trial"
             className="w-full rounded-[14px] py-4 text-base font-bold tracking-tight transition-all duration-300 disabled:opacity-50"
             style={{
               background: 'linear-gradient(135deg, #FFB800, #FF8C42)',
@@ -219,10 +208,8 @@ export default function TrialOfferCard({
               boxShadow: '0 4px 20px rgba(255,184,0,0.2)',
             }}
           >
-            {activateTrialMutation.isPending
-              ? t('common.loading')
-              : t('subscription.trial.payAndActivate')}
-          </button>
+            {t('subscription.trial.payAndActivate')}
+          </Link>
         ) : (
           <Link
             to="/balance"
@@ -237,9 +224,8 @@ export default function TrialOfferCard({
           </Link>
         )
       ) : (
-        <button
-          onClick={() => !activateTrialMutation.isPending && activateTrialMutation.mutate()}
-          disabled={activateTrialMutation.isPending}
+        <Link
+          to="/trial"
           className="w-full rounded-[14px] py-4 text-base font-bold tracking-tight transition-all duration-300 disabled:opacity-50"
           style={
             isDark
@@ -257,8 +243,8 @@ export default function TrialOfferCard({
                 }
           }
         >
-          {activateTrialMutation.isPending ? t('common.loading') : t('subscription.trial.activate')}
-        </button>
+          {t('subscription.trial.activate')}
+        </Link>
       )}
     </div>
   );

@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { useAuthStore } from '../store/auth';
@@ -33,7 +33,6 @@ export default function Dashboard() {
   const { isCompleted: isOnboardingCompleted, complete: completeOnboarding } = useOnboarding();
   const [showOnboarding, setShowOnboarding] = useState(false);
   const blockingType = useBlockingStore((state) => state.blockingType);
-  const [trialError, setTrialError] = useState<string | null>(null);
 
   // Refresh user data on mount
   useEffect(() => {
@@ -129,22 +128,6 @@ export default function Dashboard() {
     queryFn: promoApi.getGroupDiscounts,
     staleTime: 60_000,
     retry: false,
-  });
-
-  const activateTrialMutation = useMutation({
-    mutationFn: () => subscriptionApi.activateTrial(),
-    onSuccess: () => {
-      setTrialError(null);
-      queryClient.invalidateQueries({ queryKey: ['subscription'] });
-      queryClient.invalidateQueries({ queryKey: ['subscriptions-list'] });
-      queryClient.invalidateQueries({ queryKey: ['trial-info'] });
-      queryClient.invalidateQueries({ queryKey: ['balance'] });
-      queryClient.invalidateQueries({ queryKey: ['purchase-options'] });
-      refreshUser();
-    },
-    onError: (error: { response?: { data?: { detail?: string } } }) => {
-      setTrialError(error.response?.data?.detail || t('common.error'));
-    },
   });
 
   // Свежий трафик (ручное/авто обновление) — общий хук, без дубля с детальной.
@@ -337,8 +320,6 @@ export default function Dashboard() {
               trialInfo={trialInfo}
               balanceKopeks={balanceData?.balance_kopeks || 0}
               balanceRubles={balanceData?.balance_rubles || 0}
-              activateTrialMutation={activateTrialMutation}
-              trialError={trialError}
             />
           )}
           <Link

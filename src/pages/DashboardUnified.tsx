@@ -1,5 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { useAuthStore } from '../store/auth';
@@ -13,6 +13,7 @@ import { useTrafficRefresh } from '../hooks/useTrafficRefresh';
 import { usePullToRefresh } from '../hooks/usePullToRefresh';
 import { useScreenState, type ScreenStateInput } from '../hooks/useScreenState';
 import { useTheme } from '../hooks/useTheme';
+import { useCurrency } from '../hooks/useCurrency';
 import { useHaptic } from '../platform';
 import HeroZone from '../components/home/HeroZone';
 import StatusCard from '../components/home/StatusCard';
@@ -52,8 +53,8 @@ export default function DashboardUnified() {
   const refreshUser = useAuthStore((state) => state.refreshUser);
   const queryClient = useQueryClient();
   const { isDark } = useTheme();
+  const { formatAmount, currencySymbol } = useCurrency();
   const haptic = useHaptic();
-  const [trialError, setTrialError] = useState<string | null>(null);
   const [showDeviceHint, setShowDeviceHint] = useState(false);
   const connectButtonRef = useRef<HTMLButtonElement>(null);
   const successModalOpen = useSuccessNotification((state) => state.isOpen);
@@ -98,6 +99,7 @@ export default function DashboardUnified() {
       ? openDeviceFirstCheckout
       : null;
   const deviceFirstNeedsOperator = deviceFirstRecovery?.ui_state === 'operator_review';
+  const deviceFirstAwaitingPayment = deviceFirstRecovery?.ui_state === 'awaiting_payment';
 
   // Multi-tariff: список подписок (управление через /subscriptions).
   const { data: multiSubData } = useQuery({
@@ -149,22 +151,6 @@ export default function DashboardUnified() {
     queryFn: () => subscriptionApi.getDevices(subscriptionId),
     enabled: !!subscription && !isMultiTariff && subscriptionId != null,
     staleTime: API.BALANCE_STALE_TIME_MS,
-  });
-
-  const activateTrialMutation = useMutation({
-    mutationFn: () => subscriptionApi.activateTrial(),
-    onSuccess: () => {
-      setTrialError(null);
-      queryClient.invalidateQueries({ queryKey: ['subscription'] });
-      queryClient.invalidateQueries({ queryKey: ['subscriptions-list'] });
-      queryClient.invalidateQueries({ queryKey: ['trial-info'] });
-      queryClient.invalidateQueries({ queryKey: ['balance'] });
-      queryClient.invalidateQueries({ queryKey: ['purchase-options'] });
-      refreshUser();
-    },
-    onError: (error: { response?: { data?: { detail?: string } } }) => {
-      setTrialError(error.response?.data?.detail || t('common.error'));
-    },
   });
 
   // Свежий трафик — общий хук (тот же, что у детальной; без дубля).
@@ -372,12 +358,21 @@ export default function DashboardUnified() {
           <div className="text-sm font-semibold text-accent-200">
             {deviceFirstNeedsOperator
               ? t('deviceFirst.paymentMismatchTitle')
-              : t('deviceFirst.processing')}
+              : deviceFirstAwaitingPayment
+                ? t('deviceFirst.unfinishedOrder', 'Незавершённый заказ')
+                : t('deviceFirst.processing')}
           </div>
           <div className="mt-1 text-sm text-dark-300">
             {deviceFirstNeedsOperator
               ? t('deviceFirst.paymentMismatchText')
-              : `${deviceFirstRecovery.selected_device_limit} устройств · продолжить`}
+              : deviceFirstAwaitingPayment
+                ? t('deviceFirst.awaitingPaymentSummary', {
+                    devices: `${deviceFirstRecovery.selected_device_limit} ${t('common.units.devices', 'устр.')}`,
+                    period: `${deviceFirstRecovery.period_days} ${t('common.units.days')}`,
+                    amount: `${formatAmount(deviceFirstRecovery.tariff_total_kopeks / 100)} ${currencySymbol}`,
+                    action: t('deviceFirst.continuePayment', 'продолжить оплату'),
+                  })
+                : `${deviceFirstRecovery.selected_device_limit} устройств · продолжить`}
           </div>
         </button>
       )}
@@ -528,8 +523,6 @@ export default function DashboardUnified() {
               trialInfo={trialInfo}
               balanceKopeks={balanceData?.balance_kopeks || 0}
               balanceRubles={balanceData?.balance_rubles || 0}
-              activateTrialMutation={activateTrialMutation}
-              trialError={trialError}
             />
           )}
           <Link

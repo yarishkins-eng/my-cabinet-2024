@@ -483,7 +483,20 @@ export function DeviceFirstConfigurator({
         : t('deviceFirst.periodDays', { count: days });
   const errorMessage = actionError ? deviceFirstErrorMessage(t, actionError) : null;
   const actionErrorCode = deviceFirstErrorCode(actionError);
+  const choiceClass =
+    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-300 focus-visible:ring-offset-2 focus-visible:ring-offset-dark-950';
   const requiresReconciliation = actionErrorCode === 'reconciliation_required';
+  const requiresLegacyTrialReconciliation =
+    actionErrorCode === 'legacy_trial_reconciliation_required';
+  const legacyTrialSupportAction = requiresLegacyTrialReconciliation ? (
+    <button
+      type="button"
+      onClick={() => navigate('/support')}
+      className={`min-h-11 w-full rounded-xl border border-warning-400/40 px-4 py-2 text-sm font-semibold text-warning-200 hover:bg-warning-400/10 ${choiceClass}`}
+    >
+      {t('deviceFirst.contactSupport')}
+    </button>
+  ) : null;
   const isPending =
     createMutation.isPending ||
     autoConfirming ||
@@ -494,8 +507,6 @@ export function DeviceFirstConfigurator({
     paymentMutation.isPending ||
     resumeInvoiceMutation.isPending ||
     cancelMutation.isPending;
-  const choiceClass =
-    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-300 focus-visible:ring-offset-2 focus-visible:ring-offset-dark-950';
   const changeChoiceWithArrows = <Value extends string | number>(
     event: KeyboardEvent<HTMLButtonElement>,
     values: Value[],
@@ -756,9 +767,10 @@ export function DeviceFirstConfigurator({
             </>
           )}
           {errorMessage && (
-            <p role="alert" className="text-sm text-error-400">
-              {errorMessage}
-            </p>
+            <div role="alert" className="space-y-2 text-sm text-error-400">
+              <p>{errorMessage}</p>
+              {legacyTrialSupportAction}
+            </div>
           )}
         </CheckoutSurface>
       )}
@@ -888,9 +900,10 @@ export function DeviceFirstConfigurator({
             </button>
           )}
           {errorMessage && (
-            <p role="alert" className="text-sm text-error-400">
-              {errorMessage}
-            </p>
+            <div role="alert" className="space-y-2 text-sm text-error-400">
+              <p>{errorMessage}</p>
+              {legacyTrialSupportAction}
+            </div>
           )}
         </CheckoutSurface>
       )}
@@ -1147,9 +1160,10 @@ export function DeviceFirstConfigurator({
               </button>
             )}
           {errorMessage && (
-            <p role="alert" className="text-sm text-error-400">
-              {errorMessage}
-            </p>
+            <div role="alert" className="space-y-2 text-sm text-error-400">
+              <p>{errorMessage}</p>
+              {legacyTrialSupportAction}
+            </div>
           )}
         </CheckoutSurface>
       )}
@@ -1240,9 +1254,10 @@ export function DeviceFirstConfigurator({
         )}
 
       {errorMessage && !modalOpen && (
-        <p role="alert" className="mt-4 text-sm text-error-400">
-          {errorMessage}
-        </p>
+        <div role="alert" className="mt-4 space-y-2 text-sm text-error-400">
+          <p>{errorMessage}</p>
+          {legacyTrialSupportAction}
+        </div>
       )}
     </section>
   );
@@ -1305,6 +1320,7 @@ function deviceFirstErrorMessage(
     rate_limited: 'deviceFirst.errorRateLimited',
     idempotency_conflict: 'deviceFirst.errorRetryQuote',
     reconciliation_required: 'deviceFirst.errorPaymentChecking',
+    legacy_trial_reconciliation_required: 'deviceFirst.errorLegacyTrialReconciliation',
     external_invoice_active: 'deviceFirst.errorPaymentChecking',
     payment_method_unavailable: 'deviceFirst.errorPaymentMethod',
     payment_methods_load_failed: 'deviceFirst.errorPaymentMethodsLoad',

@@ -223,6 +223,14 @@ export interface TrialInfo {
   price_kopeks: number;
   price_rubles: number;
   reason_unavailable: string | null;
+  checkout_state?: 'ready' | 'discardable_quote' | 'pending_invoice' | 'reconciliation_required';
+  checkout?: {
+    id: string;
+    tariff_name: string;
+    period_days: number;
+    device_limit: number;
+    amount_kopeks: number;
+  } | null;
 }
 
 // Purchase options types

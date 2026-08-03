@@ -264,8 +264,10 @@ describe('DeviceFirstConfigurator interaction safety', () => {
     );
     expect(deviceFirstApi.nativeLaunch).toHaveBeenCalledTimes(1);
     expect(deviceFirstApi.commit).not.toHaveBeenCalled();
-    expect(screen.getByTestId('location').textContent).toBe(
-      '/subscription/purchase?checkout=checkout-owned',
+    await waitFor(() =>
+      expect(screen.getByTestId('location').textContent).toBe(
+        '/subscription/purchase?checkout=checkout-owned',
+      ),
     );
   });
 
@@ -384,6 +386,18 @@ describe('DeviceFirstConfigurator interaction safety', () => {
 
     await waitFor(() => expect(deviceFirstApi.clearCreateIntents).toHaveBeenCalledTimes(1));
     expect(await screen.findByText('deviceFirst.errorResumeUnavailable')).toBeTruthy();
+  });
+
+  it('explains a historical pending trial hold and offers support instead of a generic error', async () => {
+    vi.mocked(deviceFirstApi.create).mockRejectedValue({
+      response: { data: { detail: { code: 'legacy_trial_reconciliation_required' } } },
+    });
+    renderConfigurator();
+
+    fireEvent.click(screen.getByRole('button', { name: 'deviceFirst.review' }));
+
+    expect(await screen.findByText('deviceFirst.errorLegacyTrialReconciliation')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'deviceFirst.contactSupport' })).toBeTruthy();
   });
 
   it('shows one concise device label, the server total, and a monthly per-device comparison', () => {
