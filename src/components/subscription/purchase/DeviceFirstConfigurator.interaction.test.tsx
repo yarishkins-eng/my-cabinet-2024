@@ -291,8 +291,10 @@ describe('DeviceFirstConfigurator interaction safety', () => {
       ),
     ).toBe(true);
     expect(deviceFirstApi.nativeLaunch).not.toHaveBeenCalled();
-    expect(screen.getByTestId('location').textContent).toBe(
-      '/subscription/purchase?checkout=checkout-owned',
+    await waitFor(() =>
+      expect(screen.getByTestId('location').textContent).toBe(
+        '/subscription/purchase?checkout=checkout-owned',
+      ),
     );
   });
 
@@ -317,8 +319,10 @@ describe('DeviceFirstConfigurator interaction safety', () => {
       ),
     ).toBe(true);
     expect(deviceFirstApi.nativeLaunch).not.toHaveBeenCalled();
-    expect(screen.getByTestId('location').textContent).toBe(
-      '/subscription/purchase?checkout=checkout-owned',
+    await waitFor(() =>
+      expect(screen.getByTestId('location').textContent).toBe(
+        '/subscription/purchase?checkout=checkout-owned',
+      ),
     );
   });
 
