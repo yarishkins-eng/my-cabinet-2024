@@ -156,6 +156,20 @@ describe('DeviceFirstConfigurator real state rendering', () => {
     expect(html).toContain('350 ₽');
   });
 
+  it('renders direct invoice controls without silently cancelling the invoice', () => {
+    const directInvoice = {
+      ...checkout('awaiting_payment'),
+      settlement_mode: 'direct_purchase_v2' as const,
+      funding_state: 'invoice_pending',
+      external_payable_kopeks: 45000,
+    };
+    const html = render(directInvoice);
+
+    expect(html).toContain('deviceFirst.changeOptions');
+    expect(html).toContain('deviceFirst.cancel');
+    expect(html).not.toContain('deviceFirst.abandonConfirm');
+  });
+
   it('explains the provider minimum remainder when it stays on balance', () => {
     const minimumTopUp = {
       ...checkout('awaiting_payment'),

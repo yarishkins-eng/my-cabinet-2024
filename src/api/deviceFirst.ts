@@ -170,6 +170,13 @@ export const deviceFirstApi = {
   cancel: async (checkoutId: string): Promise<DeviceFirstCheckout> =>
     postIntent(`cancel:${checkoutId}`, `/cabinet/device-first/checkout/${checkoutId}/cancel`, {}),
 
+  // A provider invoice is not an ordinary local quote.  This distinct intent
+  // fences a verified pending invoice from stale fulfilment while preserving
+  // it for canonical provider reconciliation and a possible late wallet
+  // credit.  The server owns all eligibility checks.
+  abandon: async (checkoutId: string): Promise<DeviceFirstCheckout> =>
+    postIntent(`abandon:${checkoutId}`, `/cabinet/device-first/checkout/${checkoutId}/abandon`, {}),
+
   paymentMethods: async (): Promise<{ methods: Array<{ key: string; provider_code: number }> }> =>
     (await apiClient.get('/cabinet/device-first/payment-methods')).data,
 

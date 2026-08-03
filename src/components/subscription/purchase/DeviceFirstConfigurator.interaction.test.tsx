@@ -22,6 +22,7 @@ vi.mock('@/api/deviceFirst', () => ({
     commit: vi.fn(),
     nativeLaunch: vi.fn(),
     cancel: vi.fn(),
+    abandon: vi.fn(),
     paymentMethods: vi.fn(),
     createPaymentAttempt: vi.fn(),
   },
@@ -195,6 +196,54 @@ describe('DeviceFirstConfigurator interaction safety', () => {
     expect(deviceFirstApi.arm).not.toHaveBeenCalled();
   });
 
+  it('keeps a direct invoice resumable while changing options and requires a separate abandon confirmation', async () => {
+    const directInvoice = {
+      ...checkout('awaiting_payment'),
+      settlement_mode: 'direct_purchase_v2' as const,
+      funding_state: 'invoice_pending',
+      external_payable_kopeks: 45000,
+      balance_kopeks: 0,
+    };
+    vi.mocked(deviceFirstApi.abandon).mockResolvedValue({
+      ...directInvoice,
+      lifecycle_state: 'cancelled',
+      ui_state: 'cancelled',
+    });
+
+    renderConfigurator({ fixtureCheckout: directInvoice });
+
+    fireEvent.click(screen.getByRole('button', { name: 'deviceFirst.cancel' }));
+    expect(deviceFirstApi.abandon).not.toHaveBeenCalled();
+    expect(screen.getByText('deviceFirst.abandonTitle')).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: 'deviceFirst.abandonConfirm' }));
+    await waitFor(() => expect(deviceFirstApi.abandon).toHaveBeenCalledWith('checkout-owned'));
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'deviceFirst.review' })).toBeTruthy(),
+    );
+  });
+
+  it('returns to configuration without abandoning a direct invoice and resumes that exact invoice', async () => {
+    const directInvoice = {
+      ...checkout('awaiting_payment'),
+      settlement_mode: 'direct_purchase_v2' as const,
+      funding_state: 'invoice_pending',
+      external_payable_kopeks: 45000,
+      balance_kopeks: 0,
+    };
+    vi.mocked(deviceFirstApi.create).mockResolvedValue(directInvoice);
+    renderConfigurator({ fixtureCheckout: directInvoice });
+
+    fireEvent.click(screen.getByRole('button', { name: 'deviceFirst.changeOptions' }));
+    expect(deviceFirstApi.abandon).not.toHaveBeenCalled();
+    expect(screen.getByRole('button', { name: 'deviceFirst.review' })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: 'deviceFirst.review' }));
+    await waitFor(() => expect(deviceFirstApi.create).toHaveBeenCalledWith(30, 2));
+    expect(deviceFirstApi.confirm).not.toHaveBeenCalled();
+    expect(await screen.findByRole('button', { name: 'deviceFirst.changeOptions' })).toBeTruthy();
+  });
+
   it('consumes the Telegram native-launch query once and calls only the strict native endpoint', async () => {
     const directConfirmation = {
       ...checkout('confirmation'),
@@ -294,7 +343,9 @@ describe('DeviceFirstConfigurator interaction safety', () => {
     expect(screen.getByText('deviceFirst.preparingCheckout')).toBeTruthy();
 
     resolveConfirm({ ...directConfiguration, ui_state: 'confirmation' });
-    expect(await screen.findByRole('button', { name: 'deviceFirst.paymentMethodAmount:450 ₽' })).toBeTruthy();
+    expect(
+      await screen.findByRole('button', { name: 'deviceFirst.paymentMethodAmount:450 ₽' }),
+    ).toBeTruthy();
     expect(deviceFirstApi.confirm).toHaveBeenCalledTimes(1);
   });
 

@@ -46,6 +46,7 @@ export function DeviceFirstConfigurator({
   const [checkout, setCheckout] = useState<DeviceFirstCheckout | null>(fixtureCheckout ?? null);
   const [actionError, setActionError] = useState<unknown>(null);
   const [autoConfirming, setAutoConfirming] = useState(false);
+  const [confirmAbandon, setConfirmAbandon] = useState(false);
   const [existingPaymentAttempt, setExistingPaymentAttempt] =
     useState<DeviceFirstPaymentAttempt | null>(null);
   const checkoutUiState = checkout?.ui_state;
@@ -78,6 +79,7 @@ export function DeviceFirstConfigurator({
       setCheckout(null);
       setActionError(null);
       setExistingPaymentAttempt(null);
+      setConfirmAbandon(false);
     }
   }, [fixtureCheckout, initialCheckoutId]);
 
@@ -140,6 +142,7 @@ export function DeviceFirstConfigurator({
   }, [methodKey, methods.data]);
   const acceptCheckout = (next: DeviceFirstCheckout) => {
     setCheckout(next);
+    if (next.ui_state !== 'awaiting_payment') setConfirmAbandon(false);
     if (fixtureCheckout === undefined) {
       const nextParams = new URLSearchParams(searchParams);
       nextParams.set('checkout', next.id);
@@ -155,12 +158,13 @@ export function DeviceFirstConfigurator({
     }
   };
   const returnToConfiguration = useCallback(() => {
-    // A server-confirmed pre-payment cancellation is complete: retain the
-    // person's selected term/devices, but drop only the abandoned quote and
-    // its URL. Confirmation/payment intent keys remain untouched elsewhere.
+    // Keep the person's selection, but leave the currently displayed order.
+    // This is navigation only: a live provider invoice remains resumable
+    // until an explicit abandonment or a completed different configuration.
     deviceFirstApi.clearCreateIntents();
     setActionError(null);
     setExistingPaymentAttempt(null);
+    setConfirmAbandon(false);
     setCheckout(null);
     if (fixtureCheckout === undefined) {
       const nextParams = new URLSearchParams(searchParams);
@@ -180,6 +184,13 @@ export function DeviceFirstConfigurator({
     mutationFn: () => deviceFirstApi.create(period, devices),
     onMutate: () => setActionError(null),
     onSuccess: async (created) => {
+      // A repeated configuration can return the server-owned invoice.  It is
+      // already beyond the quote step, so never send a redundant confirm
+      // command or create another payment transition from the browser.
+      if (created.ui_state !== 'configuration') {
+        acceptCheckout(created);
+        return;
+      }
       setAutoConfirming(true);
       acceptCheckout(created);
       try {
@@ -311,6 +322,18 @@ export function DeviceFirstConfigurator({
       acceptCheckout(next);
     },
     onError: setActionError,
+  });
+  const abandonMutation = useMutation({
+    mutationFn: () => deviceFirstApi.abandon(checkout!.id),
+    onMutate: () => setActionError(null),
+    onSuccess: (next) => {
+      if (next.ui_state === 'cancelled') {
+        returnToConfiguration();
+        return;
+      }
+      acceptCheckout(next);
+    },
+    onError: recoverAmbiguousCheckout,
   });
   useEffect(() => {
     if (
@@ -828,9 +851,7 @@ export function DeviceFirstConfigurator({
                   <button
                     type="button"
                     disabled={commitMutation.isPending}
-                    onClick={() =>
-                      commitMutation.mutate({ fundingMode: 'wallet' })
-                    }
+                    onClick={() => commitMutation.mutate({ fundingMode: 'wallet' })}
                     className={`w-full rounded-2xl bg-accent-500 px-5 py-3.5 font-semibold text-white disabled:opacity-50 ${choiceClass}`}
                   >
                     {t('deviceFirst.payAndOrder', {
@@ -895,10 +916,10 @@ export function DeviceFirstConfigurator({
           {checkout.settlement_mode === 'direct_purchase_v2' &&
             pendingPayment.data?.redirect_url &&
             invoiceDeadline && (
-            <p className="text-sm text-dark-300">
-              {t('deviceFirst.invoiceValidUntil', { date: invoiceDeadline })}
-            </p>
-          )}
+              <p className="text-sm text-dark-300">
+                {t('deviceFirst.invoiceValidUntil', { date: invoiceDeadline })}
+              </p>
+            )}
           {checkout.settlement_mode !== 'direct_purchase_v2' &&
             (checkout.top_up_surplus_kopeks ?? 0) > 0 && (
               <p role="status" className="text-sm text-dark-300">
@@ -938,6 +959,47 @@ export function DeviceFirstConfigurator({
               >
                 {t('deviceFirst.refreshStatus')}
               </button>
+              {confirmAbandon ? (
+                <div className="space-y-3 rounded-xl border border-warning-500/40 bg-warning-500/10 p-4">
+                  <p className="text-sm font-semibold text-dark-100">
+                    {t('deviceFirst.abandonTitle')}
+                  </p>
+                  <p className="text-sm text-dark-300">{t('deviceFirst.abandonText')}</p>
+                  <button
+                    type="button"
+                    disabled={abandonMutation.isPending}
+                    onClick={() => abandonMutation.mutate()}
+                    className={`w-full rounded-xl bg-error-500 px-4 py-3 font-semibold text-white disabled:opacity-50 ${choiceClass}`}
+                  >
+                    {t('deviceFirst.abandonConfirm')}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={abandonMutation.isPending}
+                    onClick={() => setConfirmAbandon(false)}
+                    className={`min-h-11 w-full rounded-xl px-4 py-2 text-sm text-dark-400 hover:text-dark-200 disabled:opacity-50 ${choiceClass}`}
+                  >
+                    {t('deviceFirst.abandonKeep')}
+                  </button>
+                </div>
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    onClick={returnToConfiguration}
+                    className={`min-h-11 w-full rounded-xl border border-dark-600 px-4 py-2 text-sm font-semibold text-dark-100 ${choiceClass}`}
+                  >
+                    {t('deviceFirst.changeOptions')}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setConfirmAbandon(true)}
+                    className={`min-h-11 w-full rounded-xl px-4 py-2 text-sm text-dark-500 hover:text-dark-300 ${choiceClass}`}
+                  >
+                    {t('deviceFirst.cancel')}
+                  </button>
+                </>
+              )}
             </>
           ) : requiresReconciliation ? (
             <>
