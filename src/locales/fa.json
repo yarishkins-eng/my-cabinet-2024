@@ -4891,6 +4891,7 @@
     "paymentMethodsLoading": "در حال بارگذاری روش‌های پرداخت موجود…",
     "paymentMethodUnknown": "روش پرداخت دیگر",
     "continuePayment": "ادامه پرداخت",
+    "draftContinue": "ادامه سفارش",
     "unfinishedOrder": "سفارش ناتمام",
     "awaitingPaymentSummary": "{{devices}} · {{period}} · {{amount}} · {{action}}",
     "retry": "تلاش دوباره",

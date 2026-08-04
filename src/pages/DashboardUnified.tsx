@@ -28,6 +28,11 @@ import { getDeviceHintSeen, setDeviceHintSeen } from '../utils/deviceHintTrackin
 import { isDeviceHintEligible } from '../utils/deviceHintEligibility';
 import { useSuccessNotification } from '../store/successNotification';
 import { deviceFirstApi } from '../api/deviceFirst';
+import {
+  deviceFirstRecoveryVariant,
+  isMoneyInFlightRecovery,
+  shouldHideRecoveryCard,
+} from '../components/home/deviceFirstRecovery';
 
 // Шторки докупки — отдельный lazy-чанк: код шторок (+ их зависимости) НЕ попадает в
 // eager-бандл «/» (§19 п.4). Грузится только при первом открытии шторки.
@@ -98,8 +103,9 @@ export default function DashboardUnified() {
     )
       ? openDeviceFirstCheckout
       : null;
-  const deviceFirstNeedsOperator = deviceFirstRecovery?.ui_state === 'operator_review';
-  const deviceFirstAwaitingPayment = deviceFirstRecovery?.ui_state === 'awaiting_payment';
+  const recoveryVariant = deviceFirstRecovery
+    ? deviceFirstRecoveryVariant(deviceFirstRecovery.ui_state)
+    : null;
 
   // Multi-tariff: список подписок (управление через /subscriptions).
   const { data: multiSubData } = useQuery({
@@ -309,6 +315,21 @@ export default function DashboardUnified() {
     (s) => !s.is_trial && (s.status === 'active' || s.status === 'limited'),
   );
 
+  // Открытый заказ без денег в полёте (витринный черновик, неоплаченный счёт) НЕ
+  // подавляет блок «нет подписки»: триал — осознанный бесплатный выбор, его CTA идёт
+  // через /trial, где сервер явно разрешит живой счёт. При provisioning/operator_review
+  // (деньги или выдача уже в полёте) блок гасим — иначе рядом с «проверяем оплату»
+  // показывался бы CTA в тупиковый экран.
+  // Витринный черновик прячем, пока показан триал-оффер (и пока он грузится — иначе
+  // карточка мелькает и исчезает); счёт/operator/provisioning видимы всегда.
+  const moneyInFlightRecovery = isMoneyInFlightRecovery(recoveryVariant);
+  const showTrialBlock = hasNoSubscription && !trialLoading && !moneyInFlightRecovery;
+  const showTrialOffer = showTrialBlock && (trialInfo?.is_available ?? false);
+  const showRecoveryCard =
+    deviceFirstRecovery != null &&
+    recoveryVariant != null &&
+    !shouldHideRecoveryCard(recoveryVariant, showTrialOffer || (hasNoSubscription && trialLoading));
+
   return (
     <div className="space-y-6">
       {/* Pull-to-refresh: индикатор сверху — стрелка-кольцо доворачивается по мере оттягивания,
@@ -345,7 +366,7 @@ export default function DashboardUnified() {
         <p className="mt-1 text-dark-400">{t('dashboard.yourSubscription')}</p>
       </div>
 
-      {deviceFirstRecovery && (
+      {showRecoveryCard && deviceFirstRecovery && recoveryVariant && (
         <button
           type="button"
           onClick={() =>
@@ -356,23 +377,26 @@ export default function DashboardUnified() {
           className="w-full rounded-2xl border border-accent-400/35 bg-accent-500/10 p-4 text-left"
         >
           <div className="text-sm font-semibold text-accent-200">
-            {deviceFirstNeedsOperator
+            {recoveryVariant === 'operator'
               ? t('deviceFirst.paymentMismatchTitle')
-              : deviceFirstAwaitingPayment
-                ? t('deviceFirst.unfinishedOrder', 'Незавершённый заказ')
-                : t('deviceFirst.processing')}
+              : recoveryVariant === 'processing'
+                ? t('deviceFirst.processing')
+                : t('deviceFirst.unfinishedOrder', 'Незавершённый заказ')}
           </div>
           <div className="mt-1 text-sm text-dark-300">
-            {deviceFirstNeedsOperator
+            {recoveryVariant === 'operator'
               ? t('deviceFirst.paymentMismatchText')
-              : deviceFirstAwaitingPayment
-                ? t('deviceFirst.awaitingPaymentSummary', {
+              : recoveryVariant === 'processing'
+                ? t('deviceFirst.processingText')
+                : t('deviceFirst.awaitingPaymentSummary', {
                     devices: `${deviceFirstRecovery.selected_device_limit} ${t('common.units.devices', 'устр.')}`,
                     period: `${deviceFirstRecovery.period_days} ${t('common.units.days')}`,
                     amount: `${formatAmount(deviceFirstRecovery.tariff_total_kopeks / 100)} ${currencySymbol}`,
-                    action: t('deviceFirst.continuePayment', 'продолжить оплату'),
-                  })
-                : `${deviceFirstRecovery.selected_device_limit} устройств · продолжить`}
+                    action:
+                      recoveryVariant === 'draft'
+                        ? t('deviceFirst.draftContinue', 'продолжить оформление')
+                        : t('deviceFirst.continuePayment', 'продолжить оплату'),
+                  })}
           </div>
         </button>
       )}
@@ -515,8 +539,12 @@ export default function DashboardUnified() {
         </>
       )}
 
-      {/* Нет подписки: триал (если доступен) + явная кнопка покупки — паритет */}
-      {hasNoSubscription && !trialLoading && !openDeviceFirstCheckout && (
+      {/* Нет подписки: триал (если доступен) + явная кнопка покупки — паритет.
+          Открытый заказ без денег в полёте этот блок не гасит: живой счёт сервер
+          разрешает на /trial явным выбором, а витринный черновик спрятан выше,
+          пока виден триал-оффер. При provisioning/operator_review блок выключен
+          в moneyInFlightRecovery — там уже идёт выдача или ручной разбор. */}
+      {showTrialBlock && (
         <div className="space-y-3">
           {trialInfo?.is_available && (
             <TrialOfferCard

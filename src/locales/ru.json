@@ -5842,6 +5842,7 @@
     "goPay": "Перейти к оплате",
     "unfinishedOrder": "Незавершённый заказ",
     "continuePayment": "продолжить оплату",
+    "draftContinue": "продолжить оформление",
     "awaitingPaymentSummary": "{{devices}} · {{period}} · {{amount}} · {{action}}",
     "processing": "Настраиваем VPN",
     "processingText": "Оплата учтена. Обычно это занимает несколько секунд.",

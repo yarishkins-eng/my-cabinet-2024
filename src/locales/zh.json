@@ -4890,6 +4890,7 @@
     "paymentMethodsLoading": "正在加载可用支付方式…",
     "paymentMethodUnknown": "其他支付方式",
     "continuePayment": "继续付款",
+    "draftContinue": "继续完成订单",
     "unfinishedOrder": "未完成的订单",
     "awaitingPaymentSummary": "{{devices}} · {{period}} · {{amount}} · {{action}}",
     "retry": "重试",

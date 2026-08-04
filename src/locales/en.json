@@ -5281,6 +5281,7 @@
     "goPay": "Continue to payment",
     "unfinishedOrder": "Unfinished order",
     "continuePayment": "continue payment",
+    "draftContinue": "continue order",
     "awaitingPaymentSummary": "{{devices}} · {{period}} · {{amount}} · {{action}}",
     "processing": "Setting up VPN",
     "processingText": "Payment is recorded. This normally takes a few seconds.",
