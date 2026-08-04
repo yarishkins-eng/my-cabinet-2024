@@ -3262,12 +3262,14 @@
         "active": "Active",
         "blocked": "Blocked",
         "deleted": "Deleted",
+        "deletedArchive": "Deleted (archive)",
         "subscription": "Subscription",
         "trial": "Trial",
         "expired": "Expired"
       },
       "filters": {
         "allStatuses": "All statuses",
+        "currentAccounts": "Current accounts",
         "byDate": "By date",
         "byBalance": "By balance",
         "byActivity": "By activity",

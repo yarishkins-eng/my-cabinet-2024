@@ -281,10 +281,10 @@ export default function AdminUsers() {
             }}
             className="rounded-xl border border-dark-700 bg-dark-800 px-3 py-2 text-dark-100"
           >
-            <option value="">{t('admin.users.filters.allStatuses')}</option>
+            <option value="">{t('admin.users.filters.currentAccounts')}</option>
             <option value="active">{t('admin.users.status.active')}</option>
             <option value="blocked">{t('admin.users.status.blocked')}</option>
-            <option value="deleted">{t('admin.users.status.deleted')}</option>
+            <option value="deleted">{t('admin.users.status.deletedArchive')}</option>
           </select>
           <select
             value={sortBy}

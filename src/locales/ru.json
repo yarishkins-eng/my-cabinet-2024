@@ -3668,12 +3668,14 @@
         "active": "Активные",
         "blocked": "Заблокированные",
         "deleted": "Удалённые",
+        "deletedArchive": "Удалённые (архив)",
         "subscription": "Подписка",
         "trial": "Триал",
         "expired": "Истекла"
       },
       "filters": {
         "allStatuses": "Все статусы",
+        "currentAccounts": "Текущие аккаунты",
         "byDate": "По дате",
         "byBalance": "По балансу",
         "byActivity": "По активности",

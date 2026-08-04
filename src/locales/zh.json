@@ -2797,12 +2797,14 @@
         "active": "活跃",
         "blocked": "已封禁",
         "deleted": "已删除",
+        "deletedArchive": "已删除（归档）",
         "subscription": "订阅",
         "trial": "试用",
         "expired": "已过期"
       },
       "filters": {
         "allStatuses": "所有状态",
+        "currentAccounts": "当前账户",
         "byDate": "按日期",
         "byBalance": "按余额",
         "byActivity": "按活跃度",

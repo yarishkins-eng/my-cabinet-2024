@@ -2798,12 +2798,14 @@
         "active": "فعال",
         "blocked": "مسدود شده",
         "deleted": "حذف شده",
+        "deletedArchive": "حذف شده (آرشیو)",
         "subscription": "اشتراک",
         "trial": "آزمایشی",
         "expired": "منقضی شده"
       },
       "filters": {
         "allStatuses": "همه وضعیت‌ها",
+        "currentAccounts": "حساب‌های فعلی",
         "byDate": "بر اساس تاریخ",
         "byBalance": "بر اساس موجودی",
         "byActivity": "بر اساس فعالیت",
