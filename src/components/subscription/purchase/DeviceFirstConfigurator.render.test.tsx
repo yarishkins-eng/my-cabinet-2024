@@ -134,19 +134,45 @@ describe('DeviceFirstConfigurator real state rendering', () => {
     expect(html).not.toContain('role="dialog"');
   });
 
-  it.each([
-    ['configuration', 'deviceFirst.confirm'],
-    ['confirmation', 'deviceFirst.payAndOrder'],
-    ['awaiting_payment', 'deviceFirst.topUpAmount'],
-  ] as const)(
-    'renders interactive %s fixture state without a second modal overlay',
-    (uiState, expectedAction) => {
+  it.each(['configuration', 'confirmation'] as const)(
+    'drains a legacy %s showcase draft instead of rendering it as a live order',
+    (uiState) => {
       const html = render(checkout(uiState));
       expect(html).not.toContain('role="dialog"');
-      expect(html).toContain(expectedAction);
-      expect(html).toContain('deviceFirst.cancel');
+      expect(html).toContain('deviceFirst.refreshTitle');
+      expect(html).toContain('deviceFirst.refreshText');
+      expect(html).toContain('deviceFirst.startNew');
+      expect(html).not.toContain('deviceFirst.payAndOrder');
+      expect(html).not.toContain('deviceFirst.paymentMethodAmount');
     },
   );
+
+  it('resumes a fused-born direct confirmation instead of draining it', () => {
+    // A direct-settlement confirmed row is a live order interrupted before its
+    // payment attempt: the row-wired confirmation (with its immutable total)
+    // renders, never the drain/cancel screen.
+    const directConfirmed = {
+      ...checkout('confirmation'),
+      selected_device_limit: 2,
+      settlement_mode: 'direct_purchase_v2' as const,
+      balance_kopeks: 0,
+      external_payable_kopeks: 45000,
+    };
+    const html = render(directConfirmed);
+
+    expect(html).not.toContain('role="dialog"');
+    expect(html).toContain('deviceFirst.paymentMethodAmount:450 ₽');
+    expect(html).toContain('deviceFirst.changeOptions');
+    expect(html).not.toContain('deviceFirst.refreshTitle');
+    expect(html).not.toContain('deviceFirst.startNew');
+  });
+
+  it('renders interactive awaiting_payment fixture state without a second modal overlay', () => {
+    const html = render(checkout('awaiting_payment'));
+    expect(html).not.toContain('role="dialog"');
+    expect(html).toContain('deviceFirst.topUpAmount');
+    expect(html).toContain('deviceFirst.cancel');
+  });
 
   it('renders only server-approved payment methods and shortage', () => {
     const html = render(checkout('awaiting_payment'));
@@ -199,33 +225,21 @@ describe('DeviceFirstConfigurator real state rendering', () => {
     expect(html).not.toContain('deviceFirst.cancel');
   });
 
-  it('uses the short year label only in selectors and keeps the exact 365-day term in confirmation', () => {
-    const annualCheckout = { ...checkout('confirmation'), period_days: 365 };
+  it('uses the short year label only in selectors and keeps the exact 365-day term in the summary', () => {
+    const annualCheckout = { ...checkout('awaiting_payment'), period_days: 365 };
     const html = render(annualCheckout);
 
     expect(html).toContain('deviceFirst.periodYearExact');
     expect(html).not.toContain('deviceFirst.periodMonths:12');
   });
 
-  it('makes each direct-payment method the single external-payment CTA', () => {
-    const directExternal = {
-      ...checkout('confirmation'),
-      settlement_mode: 'direct_purchase_v2' as const,
-      funding_mode: null,
-      balance_kopeks: 0,
-      external_payable_kopeks: 45000,
-    };
-    const html = render(directExternal);
-
-    expect(html).toContain('deviceFirst.paymentMethodAmount:450 ₽');
-    expect(html).not.toContain('deviceFirst.payAndOrder:450 ₽');
-    expect(html).not.toContain('deviceFirst.payExternalAndOrder:450 ₽');
-  });
-
   it('shows a previous device limit only for an explicitly paid target subscription', () => {
-    const paid = render({ ...checkout('confirmation'), current_subscription_is_trial: false });
-    const trial = render({ ...checkout('confirmation'), current_subscription_is_trial: true });
-    const unknown = render({ ...checkout('confirmation'), current_subscription_is_trial: null });
+    const paid = render({ ...checkout('awaiting_payment'), current_subscription_is_trial: false });
+    const trial = render({ ...checkout('awaiting_payment'), current_subscription_is_trial: true });
+    const unknown = render({
+      ...checkout('awaiting_payment'),
+      current_subscription_is_trial: null,
+    });
 
     expect(paid).toContain('2 → 5');
     expect(trial).not.toContain('2 → 5');

@@ -4884,6 +4884,8 @@
     "errorPaymentMethodsLoad": "无法加载支付方式。请重试或联系支持。",
     "errorUnavailable": "暂时无法购买。请刷新页面或联系支持。",
     "errorOrderUpdated": "订单状态已变化。请在下一步前刷新。",
+    "errorWalletInsufficient": "余额不足以完成此购买。请充值或选择其他支付方式。",
+    "errorFundingLocked": "该订单已在等待使用其他方式支付。请支付当前账单或先取消订单。",
     "noMethods": "当前没有可用的支付方式。",
     "paymentMethodQuestion": "支付方式",
     "paymentMethodsAvailable": "此订单可用的支付方式",

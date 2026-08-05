@@ -96,6 +96,7 @@ function checkout(uiState: DeviceFirstUiState): DeviceFirstCheckout {
 }
 
 const states: DeviceFirstUiState[] = [
+  'configuration',
   'confirmation',
   'awaiting_payment',
   'processing',
@@ -126,7 +127,16 @@ export default function DeviceFirstVisualShowcase() {
           </article>
           {states.map((state) => (
             <article key={state} data-state={state}>
-              <div className="mb-2 font-mono text-xs text-dark-500">{state}</div>
+              <div className="mb-2 font-mono text-xs text-dark-500">
+                {/* A configuration fixture renders the legacy-draft drain
+                    screen; a direct-settlement confirmation is a live order
+                    and resumes through the row-wired local confirmation. */}
+                {state === 'configuration'
+                  ? 'legacy draft → drain'
+                  : state === 'confirmation'
+                    ? 'direct confirmation → resume'
+                    : state}
+              </div>
               <DeviceFirstConfigurator
                 options={options}
                 fixtureCheckout={checkout(state)}

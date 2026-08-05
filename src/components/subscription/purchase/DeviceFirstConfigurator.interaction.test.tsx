@@ -3,7 +3,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { MemoryRouter, useLocation } from 'react-router';
+import { MemoryRouter, useLocation, useSearchParams } from 'react-router';
 import { DeviceFirstConfigurator } from './DeviceFirstConfigurator';
 import {
   deviceFirstApi,
@@ -17,14 +17,18 @@ vi.mock('@/api/deviceFirst', () => ({
     clearCreateIntents: vi.fn(),
     get: vi.fn(),
     getOpen: vi.fn(),
+    getPendingPayment: vi.fn(),
     confirm: vi.fn(),
     arm: vi.fn(),
     commit: vi.fn(),
     nativeLaunch: vi.fn(),
+    payDirect: vi.fn(),
+    nativeLaunchDirect: vi.fn(),
     cancel: vi.fn(),
     abandon: vi.fn(),
     paymentMethods: vi.fn(),
     createPaymentAttempt: vi.fn(),
+    resumeInvoice: vi.fn(),
   },
 }));
 vi.mock('@/hooks/useTheme', () => ({
@@ -113,21 +117,61 @@ function checkout(
   };
 }
 
+function directInvoice(): DeviceFirstCheckout {
+  return {
+    ...checkout('awaiting_payment'),
+    settlement_mode: 'direct_purchase_v2',
+    funding_state: 'invoice_pending',
+    external_payable_kopeks: 45000,
+    balance_kopeks: 0,
+  };
+}
+
+const plategaPayPayload = {
+  period_days: 30,
+  selected_device_limit: 2,
+  funding_mode: 'platega',
+  method_key: 'sbp',
+  expected_tariff_total_kopeks: 45000,
+};
+
 function LocationProbe() {
   const location = useLocation();
   return <output data-testid="location">{location.pathname + location.search}</output>;
 }
 
+// The page derives the restored checkout id from the URL; the test harness
+// mirrors that exactly so navigation (drain, Back, acceptCheckout) behaves
+// like production instead of freezing a static prop.
+function ConfiguratorFromRoute({
+  options: routeOptions = options,
+  fixtureCheckout,
+  fixtureMethods,
+}: {
+  options?: DeviceFirstOptions;
+  fixtureCheckout?: DeviceFirstCheckout;
+  fixtureMethods?: Array<{ key: string; provider_code: number }>;
+}) {
+  const [searchParams] = useSearchParams();
+  return (
+    <DeviceFirstConfigurator
+      options={routeOptions}
+      initialCheckoutId={searchParams.get('checkout')}
+      fixtureCheckout={fixtureCheckout}
+      fixtureMethods={fixtureMethods}
+    />
+  );
+}
+
 function renderConfigurator(
   props: {
-    initialCheckoutId?: string;
     fixtureCheckout?: DeviceFirstCheckout;
     fixtureMethods?: Array<{ key: string; provider_code: number }>;
     options?: DeviceFirstOptions;
     initialPath?: string;
   } = {},
 ) {
-  const { options: testOptions, initialPath = '/subscription/purchase', ...componentProps } = props;
+  const { initialPath = '/subscription/purchase', ...componentProps } = props;
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
@@ -135,7 +179,7 @@ function renderConfigurator(
     <MemoryRouter initialEntries={[initialPath]}>
       <QueryClientProvider client={queryClient}>
         <LocationProbe />
-        <DeviceFirstConfigurator options={testOptions ?? options} {...componentProps} />
+        <ConfiguratorFromRoute {...componentProps} />
       </QueryClientProvider>
     </MemoryRouter>,
   );
@@ -148,69 +192,58 @@ describe('DeviceFirstConfigurator interaction safety', () => {
     vi.mocked(deviceFirstApi.paymentMethods).mockResolvedValue({
       methods: [{ key: 'sbp', provider_code: 2 }],
     });
+    vi.mocked(deviceFirstApi.getPendingPayment).mockResolvedValue({
+      redirect_url: null,
+      status: 'pending',
+      resume_allowed: false,
+    });
   });
 
   afterEach(() => cleanup());
 
-  it('creates once, auto-confirms the non-financial quote, then commits only from the payment CTA', async () => {
-    let resolveCreate!: (value: DeviceFirstCheckout) => void;
-    const directConfiguration = {
-      ...checkout('configuration'),
-      settlement_mode: 'direct_purchase_v2' as const,
-      balance_kopeks: 0,
-      external_payable_kopeks: 45000,
-    };
-    const directConfirmation = { ...directConfiguration, ui_state: 'confirmation' as const };
-    vi.mocked(deviceFirstApi.create).mockReturnValue(
-      new Promise((resolve) => {
-        resolveCreate = resolve;
-      }),
-    );
-    vi.mocked(deviceFirstApi.confirm).mockResolvedValue(directConfirmation);
-    vi.mocked(deviceFirstApi.commit).mockReturnValue(new Promise(() => {}));
+  it('confirms locally without a server order and births it only from the payment CTA', async () => {
+    vi.mocked(deviceFirstApi.payDirect).mockResolvedValue({ checkout: directInvoice() });
+    vi.mocked(deviceFirstApi.get).mockResolvedValue(directInvoice());
     renderConfigurator();
 
-    const review = screen.getByRole('button', { name: 'deviceFirst.review' });
-    fireEvent.click(review);
-    await waitFor(() => expect(deviceFirstApi.create).toHaveBeenCalledTimes(1));
-    fireEvent.click(review);
-    expect(deviceFirstApi.create).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole('button', { name: 'deviceFirst.review' }));
 
-    resolveCreate(directConfiguration);
-    await waitFor(() =>
-      expect(screen.getByTestId('location').textContent).toContain('checkout=checkout-owned'),
-    );
-
-    await waitFor(() => expect(deviceFirstApi.confirm).toHaveBeenCalledWith('checkout-owned'));
-    expect(
-      screen.queryByRole('radiogroup', { name: 'deviceFirst.paymentMethodQuestion' }),
-    ).toBeNull();
+    // The confirmation step is local: nothing was created server-side and the
+    // URL still carries no durable checkout id.
+    expect(deviceFirstApi.payDirect).not.toHaveBeenCalled();
+    expect(deviceFirstApi.create).not.toHaveBeenCalled();
+    expect(screen.getByTestId('location').textContent).toBe('/subscription/purchase');
     const financialConsent = await screen.findByRole('button', {
       name: 'deviceFirst.paymentMethodAmount:450 ₽',
     });
+    // The balance does not cover the price: provider methods are the only
+    // payment CTAs, no wallet button and no duplicate order action.
+    expect(screen.queryByRole('button', { name: /deviceFirst.payAndOrder/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'deviceFirst.confirm' })).toBeNull();
     fireEvent.click(financialConsent);
 
-    await waitFor(() =>
-      expect(deviceFirstApi.commit).toHaveBeenCalledWith('checkout-owned', 'platega', 'sbp'),
-    );
+    await waitFor(() => expect(deviceFirstApi.payDirect).toHaveBeenCalledWith(plategaPayPayload));
+    expect(deviceFirstApi.payDirect).toHaveBeenCalledTimes(1);
+    expect(deviceFirstApi.create).not.toHaveBeenCalled();
+    expect(deviceFirstApi.confirm).not.toHaveBeenCalled();
+    expect(deviceFirstApi.commit).not.toHaveBeenCalled();
     expect(deviceFirstApi.arm).not.toHaveBeenCalled();
+    // The fused response is the canonical server checkout; its id becomes the
+    // durable recovery handle.
+    await waitFor(() =>
+      expect(screen.getByTestId('location').textContent).toContain('checkout=checkout-owned'),
+    );
+    expect(await screen.findByRole('button', { name: 'deviceFirst.changeOptions' })).toBeTruthy();
   });
 
   it('keeps a direct invoice resumable while changing options and requires a separate abandon confirmation', async () => {
-    const directInvoice = {
-      ...checkout('awaiting_payment'),
-      settlement_mode: 'direct_purchase_v2' as const,
-      funding_state: 'invoice_pending',
-      external_payable_kopeks: 45000,
-      balance_kopeks: 0,
-    };
     vi.mocked(deviceFirstApi.abandon).mockResolvedValue({
-      ...directInvoice,
+      ...directInvoice(),
       lifecycle_state: 'cancelled',
       ui_state: 'cancelled',
     });
 
-    renderConfigurator({ fixtureCheckout: directInvoice });
+    renderConfigurator({ fixtureCheckout: directInvoice() });
 
     fireEvent.click(screen.getByRole('button', { name: 'deviceFirst.cancel' }));
     expect(deviceFirstApi.abandon).not.toHaveBeenCalled();
@@ -223,66 +256,50 @@ describe('DeviceFirstConfigurator interaction safety', () => {
     );
   });
 
-  it('returns to configuration without abandoning a direct invoice and resumes that exact invoice', async () => {
-    const directInvoice = {
-      ...checkout('awaiting_payment'),
-      settlement_mode: 'direct_purchase_v2' as const,
-      funding_state: 'invoice_pending',
-      external_payable_kopeks: 45000,
-      balance_kopeks: 0,
-    };
-    vi.mocked(deviceFirstApi.create).mockResolvedValue(directInvoice);
-    renderConfigurator({ fixtureCheckout: directInvoice });
+  it('returns to configuration without abandoning a direct invoice and resumes that exact invoice at pay time', async () => {
+    vi.mocked(deviceFirstApi.payDirect).mockResolvedValue({ checkout: directInvoice() });
+    renderConfigurator({ fixtureCheckout: directInvoice() });
 
     fireEvent.click(screen.getByRole('button', { name: 'deviceFirst.changeOptions' }));
     expect(deviceFirstApi.abandon).not.toHaveBeenCalled();
     expect(screen.getByRole('button', { name: 'deviceFirst.review' })).toBeTruthy();
 
     fireEvent.click(screen.getByRole('button', { name: 'deviceFirst.review' }));
-    await waitFor(() => expect(deviceFirstApi.create).toHaveBeenCalledWith(30, 2));
+    expect(deviceFirstApi.create).not.toHaveBeenCalled();
     expect(deviceFirstApi.confirm).not.toHaveBeenCalled();
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'deviceFirst.paymentMethodAmount:450 ₽' }),
+    );
+
+    // The server resolves the resume: the same invoice comes back and no new
+    // payment transition was ever requested from the browser.
+    await waitFor(() => expect(deviceFirstApi.payDirect).toHaveBeenCalledWith(plategaPayPayload));
+    expect(deviceFirstApi.payDirect).toHaveBeenCalledTimes(1);
+    expect(deviceFirstApi.abandon).not.toHaveBeenCalled();
     expect(await screen.findByRole('button', { name: 'deviceFirst.changeOptions' })).toBeTruthy();
   });
 
-  it('consumes the Telegram native-launch query once and calls only the strict native endpoint', async () => {
-    const directConfirmation = {
-      ...checkout('confirmation'),
-      settlement_mode: 'direct_purchase_v2' as const,
-      balance_kopeks: 0,
-      external_payable_kopeks: 45000,
-    };
-    vi.mocked(deviceFirstApi.get).mockResolvedValue(directConfirmation);
-    vi.mocked(deviceFirstApi.nativeLaunch).mockReturnValue(new Promise(() => {}));
+  it('consumes the Telegram fused-launch query once and calls only the fused native endpoint', async () => {
+    vi.mocked(deviceFirstApi.nativeLaunchDirect).mockReturnValue(new Promise(() => {}));
 
     renderConfigurator({
-      initialCheckoutId: 'checkout-owned',
-      initialPath: '/subscription/purchase?checkout=checkout-owned&method=sbp&autostart=1',
+      initialPath: '/subscription/purchase?period=30&devices=2&method=sbp&autostart=1',
     });
 
     await waitFor(() =>
-      expect(deviceFirstApi.nativeLaunch).toHaveBeenCalledWith('checkout-owned', 'sbp'),
+      expect(deviceFirstApi.nativeLaunchDirect).toHaveBeenCalledWith(plategaPayPayload),
     );
-    expect(deviceFirstApi.nativeLaunch).toHaveBeenCalledTimes(1);
-    expect(deviceFirstApi.commit).not.toHaveBeenCalled();
+    expect(deviceFirstApi.nativeLaunchDirect).toHaveBeenCalledTimes(1);
+    expect(deviceFirstApi.nativeLaunch).not.toHaveBeenCalled();
+    expect(deviceFirstApi.payDirect).not.toHaveBeenCalled();
     await waitFor(() =>
-      expect(screen.getByTestId('location').textContent).toBe(
-        '/subscription/purchase?checkout=checkout-owned',
-      ),
+      expect(screen.getByTestId('location').textContent).toBe('/subscription/purchase'),
     );
   });
 
   it('never launches an unavailable query method and removes its one-shot parameters', async () => {
-    const directConfirmation = {
-      ...checkout('confirmation'),
-      settlement_mode: 'direct_purchase_v2' as const,
-      balance_kopeks: 0,
-      external_payable_kopeks: 45000,
-    };
-    vi.mocked(deviceFirstApi.get).mockResolvedValue(directConfirmation);
-
     renderConfigurator({
-      initialCheckoutId: 'checkout-owned',
-      initialPath: '/subscription/purchase?checkout=checkout-owned&method=cards_ru&autostart=1',
+      initialPath: '/subscription/purchase?period=30&devices=2&method=cards_ru&autostart=1',
     });
 
     expect(
@@ -290,27 +307,17 @@ describe('DeviceFirstConfigurator interaction safety', () => {
         alert.textContent?.includes('deviceFirst.errorPaymentMethod'),
       ),
     ).toBe(true);
-    expect(deviceFirstApi.nativeLaunch).not.toHaveBeenCalled();
+    expect(deviceFirstApi.nativeLaunchDirect).not.toHaveBeenCalled();
     await waitFor(() =>
-      expect(screen.getByTestId('location').textContent).toBe(
-        '/subscription/purchase?checkout=checkout-owned',
-      ),
+      expect(screen.getByTestId('location').textContent).toBe('/subscription/purchase'),
     );
   });
 
   it('does not launch payment when live payment methods cannot be loaded', async () => {
-    const directConfirmation = {
-      ...checkout('confirmation'),
-      settlement_mode: 'direct_purchase_v2' as const,
-      balance_kopeks: 0,
-      external_payable_kopeks: 45000,
-    };
-    vi.mocked(deviceFirstApi.get).mockResolvedValue(directConfirmation);
     vi.mocked(deviceFirstApi.paymentMethods).mockRejectedValue(new Error('offline'));
 
     renderConfigurator({
-      initialCheckoutId: 'checkout-owned',
-      initialPath: '/subscription/purchase?checkout=checkout-owned&method=sbp&autostart=1',
+      initialPath: '/subscription/purchase?period=30&devices=2&method=sbp&autostart=1',
     });
 
     expect(
@@ -318,67 +325,76 @@ describe('DeviceFirstConfigurator interaction safety', () => {
         alert.textContent?.includes('deviceFirst.errorPaymentMethodsLoad'),
       ),
     ).toBe(true);
-    expect(deviceFirstApi.nativeLaunch).not.toHaveBeenCalled();
+    expect(deviceFirstApi.nativeLaunchDirect).not.toHaveBeenCalled();
     await waitFor(() =>
-      expect(screen.getByTestId('location').textContent).toBe(
-        '/subscription/purchase?checkout=checkout-owned',
-      ),
+      expect(screen.getByTestId('location').textContent).toBe('/subscription/purchase'),
     );
   });
 
-  it('does not briefly expose a duplicate manual confirmation while auto-confirm is pending', async () => {
-    let resolveConfirm!: (value: DeviceFirstCheckout) => void;
-    const directConfiguration = {
-      ...checkout('configuration'),
-      settlement_mode: 'direct_purchase_v2' as const,
-      balance_kopeks: 0,
-      external_payable_kopeks: 45000,
-    };
-    vi.mocked(deviceFirstApi.create).mockResolvedValue(directConfiguration);
-    vi.mocked(deviceFirstApi.confirm).mockReturnValue(
-      new Promise((resolve) => {
-        resolveConfirm = resolve;
-      }),
+  it('never launches an unknown URL selection and keeps the showcase honest', async () => {
+    renderConfigurator({
+      initialPath: '/subscription/purchase?period=14&devices=2&method=sbp&autostart=1',
+    });
+
+    expect(
+      (await screen.findAllByRole('alert')).some((alert) =>
+        alert.textContent?.includes('deviceFirst.errorSelectionChanged'),
+      ),
+    ).toBe(true);
+    expect(deviceFirstApi.nativeLaunchDirect).not.toHaveBeenCalled();
+    await waitFor(() =>
+      expect(screen.getByTestId('location').textContent).toBe('/subscription/purchase'),
     );
+    expect(screen.getByRole('button', { name: 'deviceFirst.review' })).toBeTruthy();
+  });
+
+  it('does not expose payment CTAs while the pay mutation is in flight', async () => {
+    vi.mocked(deviceFirstApi.payDirect).mockReturnValue(new Promise(() => {}));
     renderConfigurator();
 
     fireEvent.click(screen.getByRole('button', { name: 'deviceFirst.review' }));
-
-    await waitFor(() => expect(deviceFirstApi.confirm).toHaveBeenCalledTimes(1));
-    expect(screen.queryByRole('button', { name: 'deviceFirst.confirm' })).toBeNull();
-    expect(screen.getByText('deviceFirst.preparingCheckout')).toBeTruthy();
-
-    resolveConfirm({ ...directConfiguration, ui_state: 'confirmation' });
-    expect(
+    fireEvent.click(
       await screen.findByRole('button', { name: 'deviceFirst.paymentMethodAmount:450 ₽' }),
-    ).toBeTruthy();
-    expect(deviceFirstApi.confirm).toHaveBeenCalledTimes(1);
+    );
+
+    await waitFor(() => expect(screen.getByText('deviceFirst.openingPayment')).toBeTruthy());
+    expect(
+      screen.queryByRole('button', { name: 'deviceFirst.paymentMethodAmount:450 ₽' }),
+    ).toBeNull();
+    expect(screen.queryByRole('button', { name: 'deviceFirst.changeOptions' })).toBeNull();
+    expect(deviceFirstApi.payDirect).toHaveBeenCalledTimes(1);
   });
 
   it('restores a returned checkout without needing purchase options and resumes it by id', async () => {
     vi.mocked(deviceFirstApi.get).mockResolvedValue(checkout('provisioning'));
-    renderConfigurator({ initialCheckoutId: 'checkout-owned' });
+    renderConfigurator({ initialPath: '/subscription/purchase?checkout=checkout-owned' });
 
     await waitFor(() => expect(deviceFirstApi.get).toHaveBeenCalledWith('checkout-owned'));
     expect(await screen.findByText('deviceFirst.processingText')).toBeTruthy();
   });
 
   it('resumes the only server-owned open order instead of hiding its conflict behind a generic error', async () => {
-    vi.mocked(deviceFirstApi.create).mockRejectedValue({
+    vi.mocked(deviceFirstApi.payDirect).mockRejectedValue({
       response: { data: { detail: { code: 'open_checkout_exists' } } },
     });
-    vi.mocked(deviceFirstApi.getOpen).mockResolvedValue(checkout('configuration'));
+    vi.mocked(deviceFirstApi.getOpen).mockResolvedValue(directInvoice());
     renderConfigurator();
 
     fireEvent.click(screen.getByRole('button', { name: 'deviceFirst.review' }));
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'deviceFirst.paymentMethodAmount:450 ₽' }),
+    );
 
     await waitFor(() => expect(deviceFirstApi.getOpen).toHaveBeenCalledTimes(1));
-    expect(await screen.findByRole('button', { name: 'deviceFirst.confirm' })).toBeTruthy();
-    expect(screen.queryByText('deviceFirst.errorResumeOrder')).toBeNull();
+    // The canonical invoice screen explains itself instead of a dead generic
+    // failure.
+    expect(await screen.findByRole('button', { name: 'deviceFirst.changeOptions' })).toBeTruthy();
+    expect(await screen.findByText('deviceFirst.errorResumeOrder')).toBeTruthy();
+    expect(screen.queryByText('deviceFirst.error')).toBeNull();
   });
 
   it('clears only stale create intents when a conflicting order disappears before recovery', async () => {
-    vi.mocked(deviceFirstApi.create).mockRejectedValue({
+    vi.mocked(deviceFirstApi.payDirect).mockRejectedValue({
       response: { data: { detail: { code: 'open_checkout_exists' } } },
     });
     vi.mocked(deviceFirstApi.getOpen).mockRejectedValue({
@@ -387,21 +403,44 @@ describe('DeviceFirstConfigurator interaction safety', () => {
     renderConfigurator();
 
     fireEvent.click(screen.getByRole('button', { name: 'deviceFirst.review' }));
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'deviceFirst.paymentMethodAmount:450 ₽' }),
+    );
 
     await waitFor(() => expect(deviceFirstApi.clearCreateIntents).toHaveBeenCalledTimes(1));
     expect(await screen.findByText('deviceFirst.errorResumeUnavailable')).toBeTruthy();
   });
 
   it('explains a historical pending trial hold and offers support instead of a generic error', async () => {
-    vi.mocked(deviceFirstApi.create).mockRejectedValue({
+    vi.mocked(deviceFirstApi.payDirect).mockRejectedValue({
       response: { data: { detail: { code: 'legacy_trial_reconciliation_required' } } },
     });
     renderConfigurator();
 
     fireEvent.click(screen.getByRole('button', { name: 'deviceFirst.review' }));
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'deviceFirst.paymentMethodAmount:450 ₽' }),
+    );
 
     expect(await screen.findByText('deviceFirst.errorLegacyTrialReconciliation')).toBeTruthy();
     expect(screen.getByRole('button', { name: 'deviceFirst.contactSupport' })).toBeTruthy();
+  });
+
+  it('lands on the canonical invoice screen when the funding mode is already locked', async () => {
+    vi.mocked(deviceFirstApi.payDirect).mockRejectedValue({
+      response: { data: { detail: { code: 'funding_mode_locked' } } },
+    });
+    vi.mocked(deviceFirstApi.getOpen).mockResolvedValue(directInvoice());
+    renderConfigurator({ options: { ...options, balance_kopeks: 100000 } });
+
+    fireEvent.click(screen.getByRole('button', { name: 'deviceFirst.review' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'deviceFirst.payAndOrder:450 ₽' }));
+
+    await waitFor(() => expect(deviceFirstApi.getOpen).toHaveBeenCalledTimes(1));
+    expect(await screen.findByText('deviceFirst.errorFundingLocked')).toBeTruthy();
+    // The canonical screen keeps the deliberate abandon path, never a silent
+    // funding switch.
+    expect(await screen.findByRole('button', { name: 'deviceFirst.cancel' })).toBeTruthy();
   });
 
   it('shows one concise device label, the server total, and a monthly per-device comparison', () => {
@@ -479,17 +518,6 @@ describe('DeviceFirstConfigurator interaction safety', () => {
   });
 
   it('explains a payment-method loading failure and offers retry and support instead of a dead CTA', async () => {
-    const directConfiguration = {
-      ...checkout('configuration'),
-      settlement_mode: 'direct_purchase_v2' as const,
-      balance_kopeks: 0,
-      external_payable_kopeks: 45000,
-    };
-    vi.mocked(deviceFirstApi.create).mockResolvedValue(directConfiguration);
-    vi.mocked(deviceFirstApi.confirm).mockResolvedValue({
-      ...directConfiguration,
-      ui_state: 'confirmation',
-    });
     vi.mocked(deviceFirstApi.paymentMethods).mockRejectedValue(new Error('offline'));
     renderConfigurator();
 
@@ -506,23 +534,19 @@ describe('DeviceFirstConfigurator interaction safety', () => {
     expect(screen.getByRole('button', { name: 'deviceFirst.contactSupport' })).toBeTruthy();
   });
 
-  it('returns to the preserved configuration after a server-confirmed pre-payment cancellation', async () => {
-    const directConfirmation = {
-      ...checkout('confirmation'),
-      settlement_mode: 'direct_purchase_v2' as const,
-      balance_kopeks: 0,
-      external_payable_kopeks: 45000,
-    };
-    vi.mocked(deviceFirstApi.cancel).mockResolvedValue({
-      ...directConfirmation,
-      ui_state: 'cancelled',
-    });
-    renderConfigurator({ fixtureCheckout: directConfirmation });
+  it('returns from the local confirmation to the preserved configuration without any server call', async () => {
+    renderConfigurator();
 
-    fireEvent.click(screen.getByRole('button', { name: 'deviceFirst.cancel' }));
+    fireEvent.click(screen.getByRole('button', { name: 'deviceFirst.review' }));
+    expect(
+      await screen.findByRole('button', { name: 'deviceFirst.paymentMethodAmount:450 ₽' }),
+    ).toBeTruthy();
 
-    await waitFor(() => expect(deviceFirstApi.cancel).toHaveBeenCalledWith('checkout-owned'));
+    fireEvent.click(screen.getByRole('button', { name: 'deviceFirst.changeOptions' }));
+
     expect(await screen.findByRole('button', { name: 'deviceFirst.review' })).toBeTruthy();
+    expect(deviceFirstApi.cancel).not.toHaveBeenCalled();
+    expect(deviceFirstApi.payDirect).not.toHaveBeenCalled();
     expect(screen.queryByText('deviceFirst.refreshTitle')).toBeNull();
   });
 
@@ -533,4 +557,276 @@ describe('DeviceFirstConfigurator interaction safety', () => {
       expect(screen.queryByRole('button', { name: 'deviceFirst.cancel' })).toBeNull();
     },
   );
+
+  it('pays from the wallet with the exact raw expected price when the balance covers it', async () => {
+    vi.mocked(deviceFirstApi.payDirect).mockResolvedValue({
+      checkout: checkout('processing', 0),
+    });
+    vi.mocked(deviceFirstApi.get).mockResolvedValue(checkout('processing', 0));
+    renderConfigurator({ options: { ...options, balance_kopeks: 100000 } });
+
+    fireEvent.click(screen.getByRole('button', { name: 'deviceFirst.review' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'deviceFirst.payAndOrder:450 ₽' }));
+
+    await waitFor(() =>
+      expect(deviceFirstApi.payDirect).toHaveBeenCalledWith({
+        period_days: 30,
+        selected_device_limit: 2,
+        funding_mode: 'wallet',
+        method_key: null,
+        expected_tariff_total_kopeks: 45000,
+      }),
+    );
+    expect(deviceFirstApi.payDirect).toHaveBeenCalledTimes(1);
+    expect(await screen.findByText('deviceFirst.processingText')).toBeTruthy();
+  });
+
+  it('redraws the confirmation with a reprice notice instead of a generic error', async () => {
+    vi.mocked(deviceFirstApi.payDirect).mockRejectedValue({
+      response: { status: 409, data: { detail: { code: 'reprice_required' } } },
+    });
+    renderConfigurator();
+
+    fireEvent.click(screen.getByRole('button', { name: 'deviceFirst.review' }));
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'deviceFirst.paymentMethodAmount:450 ₽' }),
+    );
+
+    // The price moved: the confirmation stays, explains itself and never
+    // shows a dead generic error. No automatic retry is fired.
+    expect(await screen.findByText('deviceFirst.refreshTitle')).toBeTruthy();
+    expect(screen.getByText('deviceFirst.refreshText')).toBeTruthy();
+    expect(screen.queryByText('deviceFirst.error')).toBeNull();
+    expect(deviceFirstApi.payDirect).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(screen.getByRole('button', { name: 'deviceFirst.paymentMethodAmount:450 ₽' }));
+    await waitFor(() => expect(deviceFirstApi.payDirect).toHaveBeenCalledTimes(2));
+    expect(deviceFirstApi.payDirect).toHaveBeenLastCalledWith(plategaPayPayload);
+  });
+
+  it('keeps the person on the confirmation with a top-up path when the wallet is short', async () => {
+    vi.mocked(deviceFirstApi.payDirect).mockRejectedValue({
+      response: { status: 422, data: { detail: { code: 'wallet_insufficient' } } },
+    });
+    renderConfigurator({ options: { ...options, balance_kopeks: 100000 } });
+
+    fireEvent.click(screen.getByRole('button', { name: 'deviceFirst.review' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'deviceFirst.payAndOrder:450 ₽' }));
+
+    expect(await screen.findByText('deviceFirst.errorWalletInsufficient')).toBeTruthy();
+    // No row was created: the person stays on the confirmation and gets an
+    // explicit top-up path instead of a generic failure.
+    expect(screen.getByRole('button', { name: 'deviceFirst.needTopup' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'deviceFirst.payAndOrder:450 ₽' })).toBeTruthy();
+    expect(deviceFirstApi.getOpen).not.toHaveBeenCalled();
+  });
+
+  it.each(['configuration', 'confirmation'] as const)(
+    'drains a legacy %s draft reached by deep link instead of resuming it',
+    async (uiState) => {
+      // The fixture uses the legacy deposit settlement: a confirmed row
+      // without direct settlement is a legacy draft and drains like one.
+      vi.mocked(deviceFirstApi.get).mockResolvedValue(checkout(uiState));
+      vi.mocked(deviceFirstApi.cancel).mockResolvedValue({
+        ...checkout(uiState),
+        ui_state: 'cancelled',
+        lifecycle_state: 'cancelled',
+      });
+
+      renderConfigurator({
+        initialPath: '/subscription/purchase?checkout=checkout-owned',
+      });
+
+      // The stale showcase quote is never resumed: an honest drain screen with
+      // one explicit cancellation action.
+      expect(await screen.findByText('deviceFirst.refreshText')).toBeTruthy();
+      expect(deviceFirstApi.payDirect).not.toHaveBeenCalled();
+      expect(deviceFirstApi.nativeLaunchDirect).not.toHaveBeenCalled();
+
+      fireEvent.click(screen.getByRole('button', { name: 'deviceFirst.startNew' }));
+
+      await waitFor(() => expect(deviceFirstApi.cancel).toHaveBeenCalledWith('checkout-owned'));
+      expect(await screen.findByRole('button', { name: 'deviceFirst.review' })).toBeTruthy();
+      // The selection from the cancelled quote is rebuilt locally and the
+      // durable id leaves the URL.
+      const twoDevices = screen.getByRole('radio', { name: /deviceFirst.deviceCount:2/ });
+      expect(twoDevices.getAttribute('aria-checked')).toBe('true');
+      await waitFor(() =>
+        expect(screen.getByTestId('location').textContent).toBe('/subscription/purchase'),
+      );
+    },
+  );
+
+  it('resumes a fused-born confirmed order reached by deep link instead of draining it', async () => {
+    const confirmedDirect = {
+      ...checkout('confirmation'),
+      settlement_mode: 'direct_purchase_v2' as const,
+      balance_kopeks: 0,
+      external_payable_kopeks: 45000,
+    };
+    vi.mocked(deviceFirstApi.get).mockResolvedValueOnce(confirmedDirect);
+    vi.mocked(deviceFirstApi.get).mockResolvedValue(directInvoice());
+    vi.mocked(deviceFirstApi.payDirect).mockResolvedValue({ checkout: directInvoice() });
+
+    renderConfigurator({ initialPath: '/subscription/purchase?checkout=checkout-owned' });
+
+    // The row is live (born at pay time, its attempt never finished): resume
+    // it through the row-wired confirmation. The drain/cancel screen and any
+    // cancellation are never offered for it.
+    expect(
+      await screen.findByRole('button', { name: 'deviceFirst.paymentMethodAmount:450 ₽' }),
+    ).toBeTruthy();
+    expect(screen.queryByText('deviceFirst.refreshTitle')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'deviceFirst.startNew' })).toBeNull();
+    expect(deviceFirstApi.cancel).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'deviceFirst.paymentMethodAmount:450 ₽' }));
+
+    // The retry goes through the fused route with the row's own selection and
+    // the row's immutable total as the optimistic price token.
+    await waitFor(() => expect(deviceFirstApi.payDirect).toHaveBeenCalledWith(plategaPayPayload));
+    expect(await screen.findByRole('button', { name: 'deviceFirst.changeOptions' })).toBeTruthy();
+  });
+
+  it('resumes the live confirmed order instead of draining it after losing a pay race', async () => {
+    const confirmedDirect = {
+      ...checkout('confirmation'),
+      settlement_mode: 'direct_purchase_v2' as const,
+      balance_kopeks: 0,
+      external_payable_kopeks: 45000,
+    };
+    vi.mocked(deviceFirstApi.payDirect)
+      .mockRejectedValueOnce({ response: { data: { detail: { code: 'open_checkout_exists' } } } })
+      .mockResolvedValue({ checkout: directInvoice() });
+    vi.mocked(deviceFirstApi.getOpen).mockResolvedValue(confirmedDirect);
+    vi.mocked(deviceFirstApi.get).mockResolvedValue(directInvoice());
+    renderConfigurator();
+
+    fireEvent.click(screen.getByRole('button', { name: 'deviceFirst.review' }));
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'deviceFirst.paymentMethodAmount:450 ₽' }),
+    );
+
+    await waitFor(() => expect(deviceFirstApi.getOpen).toHaveBeenCalledTimes(1));
+    // The concurrent winner's row sits in the birth window (confirmed, no
+    // attempt yet): it resumes through the row-wired confirmation. A drain
+    // screen here would let the loser cancel the winner's live order.
+    expect(screen.queryByText('deviceFirst.refreshTitle')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'deviceFirst.startNew' })).toBeNull();
+    expect(deviceFirstApi.cancel).not.toHaveBeenCalled();
+    expect(await screen.findByText('deviceFirst.errorResumeOrder')).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: 'deviceFirst.paymentMethodAmount:450 ₽' }));
+
+    await waitFor(() => expect(deviceFirstApi.payDirect).toHaveBeenCalledTimes(2));
+    expect(deviceFirstApi.payDirect).toHaveBeenLastCalledWith(plategaPayPayload);
+    expect(await screen.findByRole('button', { name: 'deviceFirst.changeOptions' })).toBeTruthy();
+  });
+
+  it('breaks the reprice loop on a resumed confirmation by re-pricing from the fresh matrix', async () => {
+    // The row was born when the price was 460 ₽; the matrix now says 450 ₽.
+    const confirmedDirect = {
+      ...checkout('confirmation'),
+      settlement_mode: 'direct_purchase_v2' as const,
+      tariff_total_kopeks: 46000,
+      balance_kopeks: 0,
+      external_payable_kopeks: 46000,
+    };
+    vi.mocked(deviceFirstApi.get).mockResolvedValueOnce(confirmedDirect);
+    vi.mocked(deviceFirstApi.payDirect).mockRejectedValue({
+      response: { status: 409, data: { detail: { code: 'reprice_required' } } },
+    });
+    renderConfigurator({ initialPath: '/subscription/purchase?checkout=checkout-owned' });
+
+    // The resumed row honestly shows its own immutable total first.
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'deviceFirst.paymentMethodAmount:460 ₽' }),
+    );
+    await waitFor(() =>
+      expect(deviceFirstApi.payDirect).toHaveBeenNthCalledWith(1, {
+        ...plategaPayPayload,
+        expected_tariff_total_kopeks: 46000,
+      }),
+    );
+
+    // The reprice terminally kills the row server-side: it leaves the screen,
+    // the same selection stays, and the CTA now offers the FRESH matrix price
+    // instead of looping the stale total.
+    expect(await screen.findByText('deviceFirst.refreshTitle')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'deviceFirst.startNew' })).toBeNull();
+    expect(deviceFirstApi.cancel).not.toHaveBeenCalled();
+    await waitFor(() =>
+      expect(screen.getByTestId('location').textContent).toBe('/subscription/purchase'),
+    );
+    const freshCta = await screen.findByRole('button', {
+      name: 'deviceFirst.paymentMethodAmount:450 ₽',
+    });
+
+    fireEvent.click(freshCta);
+    await waitFor(() =>
+      expect(deviceFirstApi.payDirect).toHaveBeenNthCalledWith(2, plategaPayPayload),
+    );
+  });
+
+  it('lands on the surviving order when a cross-config race answers invalid_state', async () => {
+    vi.mocked(deviceFirstApi.payDirect).mockRejectedValue({
+      response: { status: 409, data: { detail: { code: 'invalid_state' } } },
+    });
+    vi.mocked(deviceFirstApi.getOpen).mockResolvedValue(directInvoice());
+    vi.mocked(deviceFirstApi.get).mockResolvedValue(directInvoice());
+    renderConfigurator();
+
+    fireEvent.click(screen.getByRole('button', { name: 'deviceFirst.review' }));
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'deviceFirst.paymentMethodAmount:450 ₽' }),
+    );
+
+    await waitFor(() => expect(deviceFirstApi.getOpen).toHaveBeenCalledTimes(1));
+    expect(await screen.findByRole('button', { name: 'deviceFirst.changeOptions' })).toBeTruthy();
+    expect(await screen.findByText('deviceFirst.errorOrderUpdated')).toBeTruthy();
+    expect(screen.queryByText('deviceFirst.error')).toBeNull();
+  });
+
+  it('quietly keeps the local confirmation when an invalid_state race leaves no open order', async () => {
+    vi.mocked(deviceFirstApi.payDirect).mockRejectedValue({
+      response: { status: 409, data: { detail: { code: 'invalid_state' } } },
+    });
+    vi.mocked(deviceFirstApi.getOpen).mockRejectedValue({
+      response: { status: 404, data: { detail: { code: 'no_open_checkout' } } },
+    });
+    renderConfigurator();
+
+    fireEvent.click(screen.getByRole('button', { name: 'deviceFirst.review' }));
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'deviceFirst.paymentMethodAmount:450 ₽' }),
+    );
+
+    await waitFor(() => expect(deviceFirstApi.getOpen).toHaveBeenCalledTimes(1));
+    // Nothing survived the race: the selection is still on screen and no
+    // dead-end error is shown — nothing was charged.
+    expect(
+      await screen.findByRole('button', { name: 'deviceFirst.paymentMethodAmount:450 ₽' }),
+    ).toBeTruthy();
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(deviceFirstApi.cancel).not.toHaveBeenCalled();
+  });
+
+  it('surfaces a fused-launch reprice on the confirmation screen with the fresh price CTA', async () => {
+    vi.mocked(deviceFirstApi.nativeLaunchDirect).mockRejectedValue({
+      response: { status: 409, data: { detail: { code: 'reprice_required' } } },
+    });
+
+    renderConfigurator({
+      initialPath: '/subscription/purchase?period=30&devices=2&method=sbp&autostart=1',
+    });
+
+    await waitFor(() => expect(deviceFirstApi.nativeLaunchDirect).toHaveBeenCalledTimes(1));
+    expect(await screen.findByText('deviceFirst.refreshTitle')).toBeTruthy();
+    // The person lands on an honest confirmation screen, not on a generic
+    // error: the same selection is mirrored locally and can be paid again.
+    expect(
+      await screen.findByRole('button', { name: 'deviceFirst.paymentMethodAmount:450 ₽' }),
+    ).toBeTruthy();
+    expect(screen.queryByText('deviceFirst.error')).toBeNull();
+  });
 });

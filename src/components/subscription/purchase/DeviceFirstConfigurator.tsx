@@ -43,24 +43,105 @@ export function DeviceFirstConfigurator({
     options.default_period_days ?? options.period_options?.[0] ?? 30,
   );
   const [devices, setDevices] = useState(options.device_options?.[0] ?? 1);
-  const [checkout, setCheckout] = useState<DeviceFirstCheckout | null>(fixtureCheckout ?? null);
+  // Legacy showcase drafts (and pre-payment legacy-deposit confirmations) can
+  // only arrive from a deprecated bundle: they drain into a fresh local
+  // configuration after an explicit cancellation. A fused-born direct
+  // confirmation is a live order and stays the working checkout.
+  const [checkout, setCheckout] = useState<DeviceFirstCheckout | null>(
+    fixtureCheckout && !isShowcaseDraft(fixtureCheckout) ? fixtureCheckout : null,
+  );
+  const [legacyDraft, setLegacyDraft] = useState<DeviceFirstCheckout | null>(
+    fixtureCheckout && isShowcaseDraft(fixtureCheckout) ? fixtureCheckout : null,
+  );
+  // The confirmation step is local UI state: no durable order exists until a
+  // payment button is pressed.
+  const [confirmation, setConfirmation] = useState(false);
+  const [repriced, setRepriced] = useState(false);
   const [actionError, setActionError] = useState<unknown>(null);
-  const [autoConfirming, setAutoConfirming] = useState(false);
   const [confirmAbandon, setConfirmAbandon] = useState(false);
   const [existingPaymentAttempt, setExistingPaymentAttempt] =
     useState<DeviceFirstPaymentAttempt | null>(null);
   const checkoutUiState = checkout?.ui_state;
-  const modalOpen =
-    fixtureCheckout === undefined &&
-    !!checkoutUiState &&
-    ['configuration', 'confirmation', 'awaiting_payment'].includes(checkoutUiState);
+  const modalOpen = fixtureCheckout === undefined && checkoutUiState === 'awaiting_payment';
   const [methodKey, setMethodKey] = useState('sbp');
+  const autostartPeriodParam = searchParams.get('period');
+  const autostartDevicesParam = searchParams.get('devices');
   const nativeLaunchMethod = searchParams.get('method');
   const nativeAutostart = searchParams.get('autostart') === '1';
+  // New bot pay buttons deep-link a checkout-free launch: the full selection
+  // arrives as URL parameters instead of a pre-created checkout id.
+  const fusedAutostart =
+    fixtureCheckout === undefined &&
+    !initialCheckoutId &&
+    nativeAutostart &&
+    !!nativeLaunchMethod &&
+    !!autostartPeriodParam &&
+    !!autostartDevicesParam;
   const nativeLaunchRef = useRef<string | null>(null);
+  const restoredHandledRef = useRef<string | null>(null);
   const pollStartedAt = useRef(Date.now());
   const dialogRef = useRef<HTMLDivElement>(null);
   const previousFocusRef = useRef<HTMLElement | null>(null);
+
+  const consumeNativeLaunchParams = useCallback(() => {
+    if (fixtureCheckout !== undefined) return;
+    const nextParams = new URLSearchParams(searchParams);
+    nextParams.delete('period');
+    nextParams.delete('devices');
+    nextParams.delete('method');
+    nextParams.delete('autostart');
+    setSearchParams(nextParams, { replace: true });
+  }, [fixtureCheckout, searchParams, setSearchParams]);
+  const acceptCheckout = useCallback(
+    (next: DeviceFirstCheckout) => {
+      if (isShowcaseDraft(next)) {
+        // A showcase draft born by an old bundle (restored by id or resumed via
+        // the open-checkout recovery): route it to the drain screen instead of
+        // making it the working checkout.
+        setLegacyDraft(next);
+        consumeNativeLaunchParams();
+        return;
+      }
+      setConfirmation(false);
+      setRepriced(false);
+      setCheckout(next);
+      if (next.ui_state !== 'awaiting_payment') setConfirmAbandon(false);
+      if (fixtureCheckout === undefined) {
+        const nextParams = new URLSearchParams(searchParams);
+        nextParams.set('checkout', next.id);
+        // The Telegram launch query is deliberately single-use.  The durable
+        // checkout id remains for recovery, while browser Back/reload cannot
+        // automatically submit another payment command.
+        nextParams.delete('period');
+        nextParams.delete('devices');
+        nextParams.delete('method');
+        nextParams.delete('autostart');
+        // The initial C1 → C2 transition is a real user navigation, so Back
+        // returns to the configuration. State refreshes for that same checkout
+        // replace instead of growing the history on every poll.
+        setSearchParams(nextParams, { replace: searchParams.has('checkout') });
+      }
+    },
+    [consumeNativeLaunchParams, fixtureCheckout, searchParams, setSearchParams],
+  );
+  const returnToConfiguration = useCallback(() => {
+    // Keep the person's selection, but leave the currently displayed order.
+    // This is navigation only: a live provider invoice remains resumable
+    // until an explicit abandonment or a completed different configuration.
+    deviceFirstApi.clearCreateIntents();
+    setActionError(null);
+    setExistingPaymentAttempt(null);
+    setConfirmAbandon(false);
+    setRepriced(false);
+    setConfirmation(false);
+    setCheckout(null);
+    setLegacyDraft(null);
+    if (fixtureCheckout === undefined) {
+      const nextParams = new URLSearchParams(searchParams);
+      nextParams.delete('checkout');
+      setSearchParams(nextParams, { replace: true });
+    }
+  }, [fixtureCheckout, searchParams, setSearchParams]);
 
   const restoredCheckout = useQuery({
     queryKey: ['device-first-checkout', initialCheckoutId],
@@ -69,25 +150,51 @@ export function DeviceFirstConfigurator({
     retry: false,
   });
   useEffect(() => {
-    if (restoredCheckout.data) setCheckout(restoredCheckout.data);
-  }, [restoredCheckout.data]);
+    const restored = restoredCheckout.data;
+    if (!restored || restoredHandledRef.current === restored.id) return;
+    restoredHandledRef.current = restored.id;
+    // acceptCheckout itself routes a restored legacy showcase draft to the
+    // drain screen; a fused-born direct confirmation resumes through the
+    // local confirmation wired to the row's data.
+    acceptCheckout(restored);
+  }, [acceptCheckout, restoredCheckout.data]);
   useEffect(() => {
     // Browser Back from C2 removes the checkout query parameter. Preserve the
     // selected term/device state, but return the person to C1 rather than
     // leaving an invisible checkout dialog open in component state.
     if (fixtureCheckout === undefined && !initialCheckoutId) {
       setCheckout(null);
+      setLegacyDraft(null);
       setActionError(null);
       setExistingPaymentAttempt(null);
       setConfirmAbandon(false);
     }
   }, [fixtureCheckout, initialCheckoutId]);
 
-  const priceFor = (days: number, deviceLimit: number) =>
-    options.price_matrix
-      ?.find((row) => row.period_days === days)
-      ?.prices.find((item) => item.device_limit === deviceLimit);
+  const priceFor = useCallback(
+    (days: number, deviceLimit: number) =>
+      options.price_matrix
+        ?.find((row) => row.period_days === days)
+        ?.prices.find((item) => item.device_limit === deviceLimit),
+    [options.price_matrix],
+  );
   const price = priceFor(period, devices);
+
+  // A fused-born direct order interrupted between its pay-time birth and the
+  // payment attempt resumes through the local confirmation, but wired to the
+  // row's own data: the person confirms exactly the amount the server will
+  // charge on the same-config resume (the server ignores the optimistic price
+  // token for a resume and always invoices the row's immutable total).
+  const resumedConfirmation = checkout?.ui_state === 'confirmation' ? checkout : null;
+  const confirmPeriodDays = resumedConfirmation?.period_days ?? period;
+  const confirmDeviceLimit = resumedConfirmation?.selected_device_limit ?? devices;
+  const confirmTotalKopeks =
+    resumedConfirmation?.tariff_total_kopeks ?? price?.price_kopeks ?? null;
+  const confirmBalanceKopeks =
+    options.balance_kopeks ?? resumedConfirmation?.balance_kopeks ?? null;
+  // The server rejects an unknown selection with invalid_selection before any
+  // resume, so the payment CTA exists only while the selection is priced.
+  const confirmSelectionAvailable = Boolean(priceFor(confirmPeriodDays, confirmDeviceLimit));
 
   const statusQuery = useQuery({
     queryKey: ['device-first-checkout', checkout?.id],
@@ -127,10 +234,10 @@ export function DeviceFirstConfigurator({
     initialData: fixtureMethods ? { methods: fixtureMethods } : undefined,
     enabled:
       fixtureMethods === undefined &&
-      !!checkout &&
-      (checkout.ui_state === 'awaiting_payment' ||
-        (checkout.ui_state === 'confirmation' &&
-          checkout.settlement_mode === 'direct_purchase_v2')),
+      (confirmation ||
+        !!resumedConfirmation ||
+        fusedAutostart ||
+        (!!checkout && checkout.ui_state === 'awaiting_payment')),
   });
   useEffect(() => {
     const availableKeys = methods.data?.methods.map((method) => method.key) ?? [];
@@ -140,98 +247,7 @@ export function DeviceFirstConfigurator({
       setMethodKey(availableKeys[0]);
     }
   }, [methodKey, methods.data]);
-  const acceptCheckout = (next: DeviceFirstCheckout) => {
-    setCheckout(next);
-    if (next.ui_state !== 'awaiting_payment') setConfirmAbandon(false);
-    if (fixtureCheckout === undefined) {
-      const nextParams = new URLSearchParams(searchParams);
-      nextParams.set('checkout', next.id);
-      // The Telegram launch query is deliberately single-use.  The durable
-      // checkout id remains for recovery, while browser Back/reload cannot
-      // automatically submit another payment command.
-      nextParams.delete('method');
-      nextParams.delete('autostart');
-      // The initial C1 → C2 transition is a real user navigation, so Back
-      // returns to the configuration. State refreshes for that same checkout
-      // replace instead of growing the history on every poll.
-      setSearchParams(nextParams, { replace: searchParams.has('checkout') });
-    }
-  };
-  const returnToConfiguration = useCallback(() => {
-    // Keep the person's selection, but leave the currently displayed order.
-    // This is navigation only: a live provider invoice remains resumable
-    // until an explicit abandonment or a completed different configuration.
-    deviceFirstApi.clearCreateIntents();
-    setActionError(null);
-    setExistingPaymentAttempt(null);
-    setConfirmAbandon(false);
-    setCheckout(null);
-    if (fixtureCheckout === undefined) {
-      const nextParams = new URLSearchParams(searchParams);
-      nextParams.delete('checkout');
-      setSearchParams(nextParams, { replace: true });
-    }
-  }, [fixtureCheckout, searchParams, setSearchParams]);
-  const consumeNativeLaunchParams = useCallback(() => {
-    if (fixtureCheckout !== undefined) return;
-    const nextParams = new URLSearchParams(searchParams);
-    nextParams.delete('method');
-    nextParams.delete('autostart');
-    setSearchParams(nextParams, { replace: true });
-  }, [fixtureCheckout, searchParams, setSearchParams]);
 
-  const createMutation = useMutation({
-    mutationFn: () => deviceFirstApi.create(period, devices),
-    onMutate: () => setActionError(null),
-    onSuccess: async (created) => {
-      // A repeated configuration can return the server-owned invoice.  It is
-      // already beyond the quote step, so never send a redundant confirm
-      // command or create another payment transition from the browser.
-      if (created.ui_state !== 'configuration') {
-        acceptCheckout(created);
-        return;
-      }
-      setAutoConfirming(true);
-      acceptCheckout(created);
-      try {
-        // This is a non-financial state transition. It removes the duplicate
-        // "Confirm" screen while retaining its own durable idempotency key.
-        acceptCheckout(await deviceFirstApi.confirm(created.id));
-      } catch (error) {
-        // Keep the owned draft + confirmation key. A retry resumes the same
-        // order and can never create a second quote or provider invoice.
-        setActionError(error);
-      } finally {
-        setAutoConfirming(false);
-      }
-    },
-    onError: async (error) => {
-      if (deviceFirstErrorCode(error) === 'open_checkout_exists') {
-        try {
-          acceptCheckout(await deviceFirstApi.getOpen());
-          return;
-        } catch (recoveryError) {
-          // Only a canonical 404 from the server proves that the old order is
-          // gone. A network failure must retain the original key so a retry
-          // remains idempotent and can resume the same order later.
-          if (deviceFirstErrorCode(recoveryError) === 'no_open_checkout') {
-            deviceFirstApi.clearCreateIntents();
-          }
-          setActionError({
-            response: { data: { detail: { code: 'open_checkout_recovery_failed' } } },
-          });
-          return;
-        }
-      }
-      setActionError(error);
-    },
-  });
-  const confirmMutation = useMutation({
-    mutationFn: () => deviceFirstApi.confirm(checkout!.id),
-    onMutate: () => setActionError(null),
-    onSuccess: acceptCheckout,
-    onError: setActionError,
-  });
   const armMutation = useMutation({
     mutationFn: () => deviceFirstApi.arm(checkout!.id),
     onMutate: () => setActionError(null),
@@ -247,17 +263,109 @@ export function DeviceFirstConfigurator({
       returnToConfiguration();
       return;
     }
-    if (deviceFirstErrorCode(error) !== 'reconciliation_required' || !checkout) return;
+    if (deviceFirstErrorCode(error) !== 'reconciliation_required') return;
     try {
       // Invoice creation may have committed before a timeout. The owned server
       // state is authoritative and exposes recovery controls without creating
-      // another invoice.
-      acceptCheckout(await deviceFirstApi.get(checkout.id));
+      // another invoice. At pay time no local checkout exists yet, so the one
+      // open order is the recovery target.
+      acceptCheckout(
+        checkout ? await deviceFirstApi.get(checkout.id) : await deviceFirstApi.getOpen(),
+      );
     } catch {
       // Keep the original reconciliation error; support remains available.
     }
   };
-  const commitMutation = useMutation({
+  // Shared pay-time error mapping for the fused commit and the fused native
+  // launch: every code lands on a deliberate screen, never a dead-end generic
+  // failure.
+  const dropResumedRowToLocalConfirmation = (row: DeviceFirstCheckout) => {
+    // The resumed row is terminally gone server-side (killed by a reprice or
+    // by a race sweep). Keep the person on the local confirmation of the SAME
+    // selection, priced from the fresh matrix — never loop the row's stale
+    // total, never strand them on an empty screen while ?checkout= still
+    // points at the dead row.
+    setPeriod(row.period_days);
+    setDevices(row.selected_device_limit);
+    setConfirmation(true);
+    setCheckout(null);
+    if (fixtureCheckout === undefined) {
+      const nextParams = new URLSearchParams(searchParams);
+      nextParams.delete('checkout');
+      setSearchParams(nextParams, { replace: true });
+    }
+  };
+  const handlePayError = async (error: unknown) => {
+    const code = deviceFirstErrorCode(error);
+    if (code === 'reprice_required') {
+      // No new row and no invoice cancellation: re-read the server prices and
+      // redraw the confirmation. The next click sends the NEW price under a
+      // NEW idempotency key (the price is part of the pay intent). A resumed
+      // row is terminally killed by the reprice, so it must leave the screen
+      // first — otherwise the CTA keeps offering its stale total forever.
+      setRepriced(true);
+      if (resumedConfirmation) {
+        dropResumedRowToLocalConfirmation(resumedConfirmation);
+      }
+      await queryClient.invalidateQueries({ queryKey: ['device-first-options'] });
+      return;
+    }
+    if (code === 'wallet_insufficient') {
+      // No row was created: the person stays on the confirmation and gets a
+      // top-up path; the refreshed options also refresh the shown balance.
+      void queryClient.invalidateQueries({ queryKey: ['device-first-options'] });
+      setActionError(error);
+      return;
+    }
+    if (code === 'invalid_state') {
+      // Cross-configuration race: this request's fresh row was already
+      // cancelled by the concurrent winner's sweep. Land on the canonical
+      // screen of the surviving order; if none survives, quietly keep the
+      // local confirmation — the selection is intact and nothing was charged.
+      try {
+        setActionError(error);
+        acceptCheckout(await deviceFirstApi.getOpen());
+        return;
+      } catch (recoveryError) {
+        if (deviceFirstErrorCode(recoveryError) === 'no_open_checkout') {
+          if (resumedConfirmation) {
+            dropResumedRowToLocalConfirmation(resumedConfirmation);
+          }
+          setActionError(null);
+          return;
+        }
+        setActionError(error);
+        return;
+      }
+    }
+    if (
+      code === 'funding_mode_locked' ||
+      code === 'open_checkout_exists' ||
+      code === 'operator_review_required'
+    ) {
+      // A live server-owned order already fixes this purchase (possibly under
+      // another funding mode). Land on its canonical screen — it exposes the
+      // explicit abandon path — instead of a generic error.
+      try {
+        setActionError(error);
+        acceptCheckout(await deviceFirstApi.getOpen());
+        return;
+      } catch (recoveryError) {
+        // Only a canonical 404 from the server proves that the old order is
+        // gone. A network failure must retain the original key so a retry
+        // remains idempotent and can resume the same order later.
+        if (deviceFirstErrorCode(recoveryError) === 'no_open_checkout') {
+          deviceFirstApi.clearCreateIntents();
+        }
+        setActionError({
+          response: { data: { detail: { code: 'open_checkout_recovery_failed' } } },
+        });
+        return;
+      }
+    }
+    await recoverAmbiguousCheckout(error);
+  };
+  const payMutation = useMutation({
     mutationFn: ({
       fundingMode,
       selectedMethodKey,
@@ -265,27 +373,48 @@ export function DeviceFirstConfigurator({
       fundingMode: 'wallet' | 'platega';
       selectedMethodKey?: string;
     }) =>
-      deviceFirstApi.commit(
-        checkout!.id,
-        fundingMode,
-        fundingMode === 'platega' ? selectedMethodKey : undefined,
-      ),
-    onMutate: () => setActionError(null),
+      deviceFirstApi.payDirect({
+        period_days: confirmPeriodDays,
+        selected_device_limit: confirmDeviceLimit,
+        funding_mode: fundingMode,
+        method_key: fundingMode === 'platega' ? (selectedMethodKey ?? null) : null,
+        // The exact amount the person confirmed, never rounded: the raw matrix
+        // price for a fresh selection, the row's immutable total for a resume.
+        expected_tariff_total_kopeks: confirmTotalKopeks!,
+      }),
+    onMutate: () => {
+      setActionError(null);
+      setRepriced(false);
+    },
     onSuccess: (result) => {
       acceptCheckout(result.checkout);
       if (result.redirect_url) window.location.assign(result.redirect_url);
     },
-    onError: recoverAmbiguousCheckout,
+    onError: handlePayError,
   });
   const nativeLaunchMutation = useMutation({
-    mutationFn: ({ checkoutId, method }: { checkoutId: string; method: string }) =>
-      deviceFirstApi.nativeLaunch(checkoutId, method),
-    onMutate: () => setActionError(null),
+    mutationFn: (launch: {
+      periodDays: number;
+      deviceLimit: number;
+      method: string;
+      expectedKopeks: number;
+    }) =>
+      deviceFirstApi.nativeLaunchDirect({
+        period_days: launch.periodDays,
+        selected_device_limit: launch.deviceLimit,
+        funding_mode: 'platega',
+        method_key: launch.method,
+        expected_tariff_total_kopeks: launch.expectedKopeks,
+      }),
+    onMutate: () => {
+      setActionError(null);
+      setRepriced(false);
+    },
     onSuccess: (result) => {
       acceptCheckout(result.checkout);
       if (result.redirect_url) window.location.replace(result.redirect_url);
     },
-    onError: recoverAmbiguousCheckout,
+    onError: handlePayError,
   });
   const paymentMutation = useMutation({
     mutationFn: () => deviceFirstApi.createPaymentAttempt(checkout!.id, methodKey),
@@ -335,6 +464,21 @@ export function DeviceFirstConfigurator({
     },
     onError: recoverAmbiguousCheckout,
   });
+  const legacyDraftCancelMutation = useMutation({
+    mutationFn: (draft: DeviceFirstCheckout) => deviceFirstApi.cancel(draft.id),
+    onMutate: () => setActionError(null),
+    onSuccess: (_next, draft) => {
+      // The stale showcase quote is cancelled; rebuild the same selection
+      // locally. No payment attempt ever existed for it, so nothing else must
+      // be reconciled.
+      if (priceFor(draft.period_days, draft.selected_device_limit)) {
+        setPeriod(draft.period_days);
+        setDevices(draft.selected_device_limit);
+      }
+      returnToConfiguration();
+    },
+    onError: setActionError,
+  });
   useEffect(() => {
     if (
       checkout?.ui_state === 'cancelled' &&
@@ -354,23 +498,24 @@ export function DeviceFirstConfigurator({
   });
 
   useEffect(() => {
-    if (
-      fixtureCheckout !== undefined ||
-      !nativeAutostart ||
-      !nativeLaunchMethod ||
-      !checkout ||
-      checkout.settlement_mode !== 'direct_purchase_v2' ||
-      checkout.ui_state !== 'confirmation' ||
-      methods.isLoading
-    ) {
-      return;
-    }
-
-    const launchKey = `${checkout.id}:${nativeLaunchMethod}`;
+    if (!fusedAutostart || checkout || legacyDraft || methods.isLoading) return;
+    const periodDays = Number(autostartPeriodParam);
+    const deviceLimit = Number(autostartDevicesParam);
+    const launchKey = `${autostartPeriodParam}:${autostartDevicesParam}:${nativeLaunchMethod}`;
     if (nativeLaunchRef.current === launchKey) return;
     nativeLaunchRef.current = launchKey;
 
-    const availableMethods = methods.data?.methods.map((method) => method.key) ?? [];
+    const selection =
+      Number.isInteger(periodDays) &&
+      periodDays > 0 &&
+      Number.isInteger(deviceLimit) &&
+      deviceLimit > 0
+        ? priceFor(periodDays, deviceLimit)
+        : undefined;
+    const method = nativeLaunchMethod;
+    const availableMethods = methods.data?.methods.map((item) => item.key) ?? [];
+    // The Telegram launch query is deliberately single-use: browser Back or a
+    // reload can never submit another payment command automatically.
     consumeNativeLaunchParams();
     if (methods.isError) {
       setActionError({
@@ -378,27 +523,44 @@ export function DeviceFirstConfigurator({
       });
       return;
     }
-    if (!availableMethods.includes(nativeLaunchMethod)) {
+    if (!selection) {
+      setActionError({ response: { data: { detail: { code: 'invalid_selection' } } } });
+      return;
+    }
+    if (!method || !availableMethods.includes(method)) {
       setActionError({
         response: { data: { detail: { code: 'payment_method_unavailable' } } },
       });
       return;
     }
 
-    // This is the only automatic financial call.  The native endpoint requires
-    // signed current Telegram initData, owner-scopes the checkout and reuses
-    // the same durable idempotency/one-invoice protections as a manual commit.
-    nativeLaunchMutation.mutate({ checkoutId: checkout.id, method: nativeLaunchMethod });
+    // Validated: mirror the selection locally so a failure lands on an honest
+    // confirmation screen, then fire the only automatic financial call. The
+    // fused endpoint verifies the signed Telegram identity before any order
+    // exists and reuses the same durable idempotency/one-invoice protections
+    // as a manual pay click.
+    setPeriod(periodDays);
+    setDevices(deviceLimit);
+    setConfirmation(true);
+    nativeLaunchMutation.mutate({
+      periodDays,
+      deviceLimit,
+      method,
+      expectedKopeks: selection.price_kopeks,
+    });
   }, [
+    autostartDevicesParam,
+    autostartPeriodParam,
     checkout,
     consumeNativeLaunchParams,
-    fixtureCheckout,
+    fusedAutostart,
+    legacyDraft,
     methods.data?.methods,
     methods.isError,
     methods.isLoading,
-    nativeAutostart,
     nativeLaunchMethod,
     nativeLaunchMutation,
+    priceFor,
   ]);
 
   useEffect(() => {
@@ -408,6 +570,7 @@ export function DeviceFirstConfigurator({
       queryClient.invalidateQueries({ queryKey: ['devices'] });
       queryClient.invalidateQueries({ queryKey: ['balance'] });
       queryClient.invalidateQueries({ queryKey: ['user'] });
+      queryClient.invalidateQueries({ queryKey: ['device-first-options'] });
     }
   }, [checkout?.ui_state, queryClient]);
   useEffect(() => {
@@ -498,15 +661,13 @@ export function DeviceFirstConfigurator({
     </button>
   ) : null;
   const isPending =
-    createMutation.isPending ||
-    autoConfirming ||
-    confirmMutation.isPending ||
-    armMutation.isPending ||
-    commitMutation.isPending ||
+    payMutation.isPending ||
     nativeLaunchMutation.isPending ||
+    armMutation.isPending ||
     paymentMutation.isPending ||
     resumeInvoiceMutation.isPending ||
-    cancelMutation.isPending;
+    cancelMutation.isPending ||
+    legacyDraftCancelMutation.isPending;
   const changeChoiceWithArrows = <Value extends string | number>(
     event: KeyboardEvent<HTMLButtonElement>,
     values: Value[],
@@ -595,7 +756,26 @@ export function DeviceFirstConfigurator({
           </button>
         </div>
       )}
-      {!checkout && !initialCheckoutId && (
+      {legacyDraft && !checkout && (
+        <div className="space-y-4">
+          <StateMessage title={t('deviceFirst.refreshTitle')} text={t('deviceFirst.refreshText')} />
+          <button
+            type="button"
+            disabled={legacyDraftCancelMutation.isPending}
+            onClick={() => legacyDraftCancelMutation.mutate(legacyDraft)}
+            className={`w-full rounded-2xl bg-accent-500 px-5 py-3.5 font-semibold text-white disabled:opacity-50 ${choiceClass}`}
+          >
+            {t('deviceFirst.startNew')}
+          </button>
+          {errorMessage && (
+            <div role="alert" className="space-y-2 text-sm text-error-400">
+              <p>{errorMessage}</p>
+              {legacyTrialSupportAction}
+            </div>
+          )}
+        </div>
+      )}
+      {!checkout && !legacyDraft && !confirmation && !initialCheckoutId && (
         <div className="space-y-6">
           <fieldset>
             <legend className="mb-3 text-sm font-medium text-dark-200">
@@ -723,8 +903,14 @@ export function DeviceFirstConfigurator({
           </div>
           <button
             type="button"
-            disabled={!price || createMutation.isPending}
-            onClick={() => createMutation.mutate()}
+            disabled={!price || isPending}
+            onClick={() => {
+              // The confirmation step is local: no durable order is created
+              // before a payment button is pressed.
+              setActionError(null);
+              setRepriced(false);
+              setConfirmation(true);
+            }}
             className={`mt-2 w-full rounded-2xl bg-accent-500 px-5 py-3.5 font-semibold text-white disabled:opacity-50 ${choiceClass}`}
           >
             {t('deviceFirst.review')}
@@ -733,179 +919,158 @@ export function DeviceFirstConfigurator({
         </div>
       )}
 
-      {checkout?.ui_state === 'configuration' && (
-        <CheckoutSurface
-          label={t('deviceFirst.review')}
-          portal={fixtureCheckout === undefined}
-          dialogRef={dialogRef}
-          onKeyDown={trapDialogFocus}
-        >
-          {autoConfirming ? (
+      {(confirmation || resumedConfirmation) && !legacyDraft && (
+        <div className="space-y-4">
+          {payMutation.isPending || nativeLaunchMutation.isPending ? (
             <StateMessage
-              title={t('deviceFirst.preparingCheckout')}
-              text={t('deviceFirst.preparingCheckoutText')}
+              title={t('deviceFirst.openingPayment')}
+              text={t('deviceFirst.openingPaymentText')}
             />
           ) : (
             <>
-              <Summary checkout={checkout} formatPrice={formatPrice} />
+              {repriced && (
+                <div
+                  role="status"
+                  className="space-y-1 rounded-xl border border-warning-500/40 bg-warning-500/10 p-4"
+                >
+                  <p className="text-sm font-semibold text-dark-100">
+                    {t('deviceFirst.refreshTitle')}
+                  </p>
+                  <p className="text-sm text-dark-300">{t('deviceFirst.refreshText')}</p>
+                </div>
+              )}
+              <SelectionSummary
+                periodDays={confirmPeriodDays}
+                deviceLimit={confirmDeviceLimit}
+                priceKopeks={confirmTotalKopeks}
+                balanceKopeks={confirmBalanceKopeks}
+                currentDeviceLimit={
+                  resumedConfirmation
+                    ? resumedConfirmation.current_subscription_is_trial === false
+                      ? resumedConfirmation.current_device_limit
+                      : null
+                    : options.current_subscription && !options.current_subscription.is_trial
+                      ? options.current_subscription.device_limit
+                      : null
+                }
+                formatPrice={formatPrice}
+              />
+              <p className="text-xs text-dark-400">{t('deviceFirst.chargeNotice')}</p>
+              {!confirmSelectionAvailable || confirmTotalKopeks === null ? (
+                <p role="status" className="text-sm text-warning-400">
+                  {t('deviceFirst.unavailable')}
+                </p>
+              ) : (confirmBalanceKopeks ?? 0) >= confirmTotalKopeks ? (
+                <button
+                  type="button"
+                  disabled={payMutation.isPending}
+                  onClick={() => payMutation.mutate({ fundingMode: 'wallet' })}
+                  className={`w-full rounded-2xl bg-accent-500 px-5 py-3.5 font-semibold text-white disabled:opacity-50 ${choiceClass}`}
+                >
+                  {t('deviceFirst.payAndOrder', { amount: formatPrice(confirmTotalKopeks) })}
+                </button>
+              ) : methods.isLoading ? (
+                <p role="status" className="text-sm text-dark-400">
+                  {t('deviceFirst.paymentMethodsLoading')}
+                </p>
+              ) : methods.isError ? (
+                <div className="space-y-2">
+                  <p role="alert" className="text-sm text-error-400">
+                    {t('deviceFirst.errorPaymentMethodsLoad')}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => void methods.refetch()}
+                    className={`w-full rounded-xl border border-dark-600 px-4 py-3 text-sm font-semibold text-dark-100 ${choiceClass}`}
+                  >
+                    {t('deviceFirst.retry')}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => navigate('/support')}
+                    className={`min-h-11 w-full rounded-xl px-4 py-2 text-sm text-dark-400 hover:text-dark-200 ${choiceClass}`}
+                  >
+                    {t('deviceFirst.contactSupport')}
+                  </button>
+                </div>
+              ) : methods.data?.methods.length ? (
+                <>
+                  <p className="text-sm text-dark-300">
+                    {t('deviceFirst.paymentMethodsAvailable')}
+                  </p>
+                  <div className="grid gap-2">
+                    {methods.data.methods.map((method) => (
+                      <button
+                        key={method.key}
+                        type="button"
+                        disabled={payMutation.isPending}
+                        onClick={() =>
+                          payMutation.mutate({
+                            fundingMode: 'platega',
+                            selectedMethodKey: method.key,
+                          })
+                        }
+                        className={`min-h-12 rounded-xl border border-dark-700 px-4 py-3 text-left text-sm font-semibold text-dark-100 transition hover:border-accent-400 hover:bg-accent-500/10 disabled:opacity-50 ${choiceClass}`}
+                      >
+                        {paymentMethodAmountLabel(method.key, formatPrice(confirmTotalKopeks))}
+                      </button>
+                    ))}
+                  </div>
+                </>
+              ) : (
+                <div className="space-y-2">
+                  <p role="status" className="text-sm text-warning-400">
+                    {t('deviceFirst.noMethods')}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => navigate('/support')}
+                    className={`min-h-11 w-full rounded-xl px-4 py-2 text-sm text-dark-400 hover:text-dark-200 ${choiceClass}`}
+                  >
+                    {t('deviceFirst.contactSupport')}
+                  </button>
+                </div>
+              )}
               <button
                 type="button"
-                disabled={confirmMutation.isPending}
-                onClick={() => confirmMutation.mutate()}
-                className={`w-full rounded-2xl bg-accent-500 px-5 py-3.5 font-semibold text-white disabled:opacity-50 ${choiceClass}`}
+                onClick={() => {
+                  if (resumedConfirmation) {
+                    // A resumed live order stays resumable; only its display
+                    // is left behind, exactly like leaving an invoice screen.
+                    returnToConfiguration();
+                    return;
+                  }
+                  // No order exists yet: going back is pure local navigation.
+                  setConfirmation(false);
+                  setRepriced(false);
+                  setActionError(null);
+                }}
+                className={`min-h-11 w-full rounded-xl px-4 py-2 text-sm text-dark-500 hover:text-dark-300 ${choiceClass}`}
               >
-                {t('deviceFirst.confirm')}
-              </button>
-              <button
-                type="button"
-                disabled={cancelMutation.isPending}
-                onClick={() => cancelMutation.mutate()}
-                className={`min-h-11 w-full rounded-xl px-4 py-2 text-sm text-dark-500 hover:text-dark-300 disabled:opacity-50 ${choiceClass}`}
-              >
-                {t('deviceFirst.cancel')}
+                {t('deviceFirst.changeOptions')}
               </button>
             </>
           )}
           {errorMessage && (
             <div role="alert" className="space-y-2 text-sm text-error-400">
               <p>{errorMessage}</p>
+              {actionErrorCode === 'wallet_insufficient' && (
+                <button
+                  type="button"
+                  onClick={() => navigate('/balance')}
+                  className={`w-full rounded-xl border border-accent-400/50 px-4 py-3 text-sm font-semibold text-accent-200 ${choiceClass}`}
+                >
+                  {confirmTotalKopeks !== null && (confirmBalanceKopeks ?? 0) < confirmTotalKopeks
+                    ? t('deviceFirst.topUpAmount', {
+                        amount: formatPrice(confirmTotalKopeks - (confirmBalanceKopeks ?? 0)),
+                      })
+                    : t('deviceFirst.needTopup')}
+                </button>
+              )}
               {legacyTrialSupportAction}
             </div>
           )}
-        </CheckoutSurface>
-      )}
-
-      {checkout?.ui_state === 'confirmation' && (
-        <CheckoutSurface
-          label={t('deviceFirst.confirm')}
-          portal={fixtureCheckout === undefined}
-          dialogRef={dialogRef}
-          onKeyDown={trapDialogFocus}
-        >
-          <Summary checkout={checkout} formatPrice={formatPrice} />
-          <p className="text-xs text-dark-400">{t('deviceFirst.chargeNotice')}</p>
-          {checkout.settlement_mode === 'direct_purchase_v2' ? (
-            nativeLaunchMutation.isPending ? (
-              <StateMessage
-                title={t('deviceFirst.openingPayment')}
-                text={t('deviceFirst.openingPaymentText')}
-              />
-            ) : (
-              <>
-                {(checkout.balance_kopeks ?? 0) < checkout.tariff_total_kopeks && (
-                  <>
-                    <p className="text-sm text-dark-300">
-                      {t('deviceFirst.paymentMethodsAvailable')}
-                    </p>
-                    {methods.isLoading ? (
-                      <p role="status" className="text-sm text-dark-400">
-                        {t('deviceFirst.paymentMethodsLoading')}
-                      </p>
-                    ) : methods.isError ? (
-                      <div className="space-y-2">
-                        <p role="alert" className="text-sm text-error-400">
-                          {t('deviceFirst.errorPaymentMethodsLoad')}
-                        </p>
-                        <button
-                          type="button"
-                          onClick={() => void methods.refetch()}
-                          className={`w-full rounded-xl border border-dark-600 px-4 py-3 text-sm font-semibold text-dark-100 ${choiceClass}`}
-                        >
-                          {t('deviceFirst.retry')}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => navigate('/support')}
-                          className={`min-h-11 w-full rounded-xl px-4 py-2 text-sm text-dark-400 hover:text-dark-200 ${choiceClass}`}
-                        >
-                          {t('deviceFirst.contactSupport')}
-                        </button>
-                      </div>
-                    ) : methods.data?.methods.length ? (
-                      <div className="grid gap-2">
-                        {methods.data.methods.map((method) => (
-                          <button
-                            key={method.key}
-                            type="button"
-                            disabled={commitMutation.isPending}
-                            onClick={() =>
-                              commitMutation.mutate({
-                                fundingMode: 'platega',
-                                selectedMethodKey: method.key,
-                              })
-                            }
-                            className={`min-h-12 rounded-xl border border-dark-700 px-4 py-3 text-left text-sm font-semibold text-dark-100 transition hover:border-accent-400 hover:bg-accent-500/10 disabled:opacity-50 ${choiceClass}`}
-                          >
-                            {paymentMethodAmountLabel(
-                              method.key,
-                              formatPrice(checkout.tariff_total_kopeks),
-                            )}
-                          </button>
-                        ))}
-                      </div>
-                    ) : (
-                      <div className="space-y-2">
-                        <p role="status" className="text-sm text-warning-400">
-                          {t('deviceFirst.noMethods')}
-                        </p>
-                        <button
-                          type="button"
-                          onClick={() => navigate('/support')}
-                          className={`min-h-11 w-full rounded-xl px-4 py-2 text-sm text-dark-400 hover:text-dark-200 ${choiceClass}`}
-                        >
-                          {t('deviceFirst.contactSupport')}
-                        </button>
-                      </div>
-                    )}
-                  </>
-                )}
-                {(checkout.balance_kopeks ?? 0) >= checkout.tariff_total_kopeks && (
-                  <button
-                    type="button"
-                    disabled={commitMutation.isPending}
-                    onClick={() => commitMutation.mutate({ fundingMode: 'wallet' })}
-                    className={`w-full rounded-2xl bg-accent-500 px-5 py-3.5 font-semibold text-white disabled:opacity-50 ${choiceClass}`}
-                  >
-                    {t('deviceFirst.payAndOrder', {
-                      amount: formatPrice(checkout.tariff_total_kopeks),
-                    })}
-                  </button>
-                )}
-              </>
-            )
-          ) : (
-            <button
-              type="button"
-              disabled={armMutation.isPending}
-              onClick={() => armMutation.mutate()}
-              className={`w-full rounded-2xl bg-accent-500 px-5 py-3.5 font-semibold text-white disabled:opacity-50 ${choiceClass}`}
-            >
-              {(checkout.shortage_kopeks ?? 0) > 0
-                ? t('deviceFirst.topUpAndOrder', {
-                    amount: formatPrice(checkout.shortage_kopeks ?? 0),
-                  })
-                : t('deviceFirst.payAndOrder', {
-                    amount: formatPrice(checkout.quoted_price_kopeks),
-                  })}
-            </button>
-          )}
-          {!nativeLaunchMutation.isPending && (
-            <button
-              type="button"
-              disabled={cancelMutation.isPending}
-              onClick={() => cancelMutation.mutate()}
-              className={`min-h-11 w-full rounded-xl px-4 py-2 text-sm text-dark-500 hover:text-dark-300 disabled:opacity-50 ${choiceClass}`}
-            >
-              {t('deviceFirst.cancel')}
-            </button>
-          )}
-          {errorMessage && (
-            <div role="alert" className="space-y-2 text-sm text-error-400">
-              <p>{errorMessage}</p>
-              {legacyTrialSupportAction}
-            </div>
-          )}
-        </CheckoutSurface>
+        </div>
       )}
 
       {checkout?.ui_state === 'awaiting_payment' && (
@@ -1253,7 +1418,7 @@ export function DeviceFirstConfigurator({
           </div>
         )}
 
-      {errorMessage && !modalOpen && (
+      {errorMessage && !modalOpen && !confirmation && !resumedConfirmation && !legacyDraft && (
         <div role="alert" className="mt-4 space-y-2 text-sm text-error-400">
           <p>{errorMessage}</p>
           {legacyTrialSupportAction}
@@ -1298,6 +1463,20 @@ function CheckoutSurface({
   );
 }
 
+// A `configuration` row (draft) is only ever born by a deprecated showcase
+// bundle: the pay-time model never creates drafts. A `confirmation` row is a
+// legacy draft ONLY without direct settlement — a fused-born direct
+// confirmation is a live order interrupted between its pay-time birth and the
+// payment attempt (a lost response, a concurrent pay click losing its race).
+// It must be resumed by the row's own data, never cancelled from a drain
+// screen: cancelling it could kill a concurrent winner's live order.
+function isShowcaseDraft(checkout: DeviceFirstCheckout): boolean {
+  return (
+    checkout.ui_state === 'configuration' ||
+    (checkout.ui_state === 'confirmation' && checkout.settlement_mode !== 'direct_purchase_v2')
+  );
+}
+
 function deviceFirstErrorCode(error: unknown): string | null {
   if (!error || typeof error !== 'object') return null;
   const response = (error as { response?: { data?: { detail?: unknown } } }).response;
@@ -1316,18 +1495,29 @@ function deviceFirstErrorMessage(
     open_checkout_recovery_failed: 'deviceFirst.errorResumeUnavailable',
     device_limit_decrease_not_allowed: 'deviceFirst.errorDeviceLimitDecrease',
     subscription_restricted: 'deviceFirst.errorRestricted',
+    account_closing: 'deviceFirst.errorRestricted',
     invalid_selection: 'deviceFirst.errorSelectionChanged',
+    invalid_funding_request: 'deviceFirst.error',
+    invalid_state: 'deviceFirst.errorOrderUpdated',
+    quote_expired: 'deviceFirst.errorOrderUpdated',
     rate_limited: 'deviceFirst.errorRateLimited',
+    concurrent_idempotency_key: 'deviceFirst.errorRateLimited',
     idempotency_conflict: 'deviceFirst.errorRetryQuote',
+    idempotency_key_required: 'deviceFirst.error',
     reconciliation_required: 'deviceFirst.errorPaymentChecking',
     legacy_trial_reconciliation_required: 'deviceFirst.errorLegacyTrialReconciliation',
     external_invoice_active: 'deviceFirst.errorPaymentChecking',
+    operator_review_required: 'deviceFirst.errorPaymentChecking',
+    payment_method_required: 'deviceFirst.errorPaymentMethod',
     payment_method_unavailable: 'deviceFirst.errorPaymentMethod',
     payment_methods_load_failed: 'deviceFirst.errorPaymentMethodsLoad',
     provider_amount_out_of_range: 'deviceFirst.errorProviderAmount',
+    funding_mode_locked: 'deviceFirst.errorFundingLocked',
+    wallet_insufficient: 'deviceFirst.errorWalletInsufficient',
+    funding_not_required: 'deviceFirst.errorOrderUpdated',
     feature_disabled: 'deviceFirst.errorUnavailable',
     legacy_only: 'deviceFirst.errorUnavailable',
-    invalid_state: 'deviceFirst.errorOrderUpdated',
+    cabinet_return_unavailable: 'deviceFirst.errorUnavailable',
   };
   return t(messages[deviceFirstErrorCode(error) ?? ''] ?? 'deviceFirst.error');
 }
@@ -1397,6 +1587,66 @@ function StateMessage({ title, text }: { title: string; text: string }) {
       <div className="mx-auto mb-4 h-12 w-12 rounded-full bg-accent-500/15 ring-1 ring-accent-400/30" />
       <h3 className="text-lg font-bold text-dark-50">{title}</h3>
       <p className="mx-auto mt-2 max-w-sm text-sm text-dark-400">{text}</p>
+    </div>
+  );
+}
+
+/**
+ * The local confirmation summary. No durable checkout exists at this step, so
+ * every figure comes from the server-owned purchase options rather than from
+ * a quote row. The end date is deliberately absent: only the server knows the
+ * exact base date an extension would prolong.
+ */
+function SelectionSummary({
+  periodDays,
+  deviceLimit,
+  priceKopeks,
+  balanceKopeks,
+  currentDeviceLimit,
+  formatPrice,
+}: {
+  periodDays: number;
+  deviceLimit: number;
+  priceKopeks: number | null;
+  balanceKopeks: number | null;
+  currentDeviceLimit: number | null;
+  formatPrice: (value: number) => string;
+}) {
+  const { t } = useTranslation();
+  const periodText =
+    periodDays === 365
+      ? t('deviceFirst.periodYearExact')
+      : periodDays % 30 === 0
+        ? t('deviceFirst.periodMonths', { count: periodDays / 30 })
+        : t('deviceFirst.periodDays', { count: periodDays });
+  return (
+    <div className="space-y-3 rounded-2xl border border-dark-700 bg-dark-900/35 p-4">
+      <div className="flex justify-between text-sm text-dark-300">
+        <span>{t('deviceFirst.devices')}</span>
+        <strong>
+          {currentDeviceLimit !== null ? `${currentDeviceLimit} → ${deviceLimit}` : deviceLimit}
+        </strong>
+      </div>
+      <div className="flex justify-between text-sm text-dark-300">
+        <span>{t('deviceFirst.period')}</span>
+        <strong>{periodText}</strong>
+      </div>
+      {balanceKopeks !== null && (
+        <div className="flex justify-between text-sm text-dark-300">
+          <span>{t('deviceFirst.balance')}</span>
+          <strong>{formatPrice(balanceKopeks)}</strong>
+        </div>
+      )}
+      {balanceKopeks !== null && priceKopeks !== null && balanceKopeks < priceKopeks && (
+        <div className="flex justify-between text-sm text-warning-300">
+          <span>{t('deviceFirst.shortage')}</span>
+          <strong>{formatPrice(priceKopeks - balanceKopeks)}</strong>
+        </div>
+      )}
+      <div className="flex justify-between border-t border-dark-700 pt-3 text-dark-50">
+        <span>{t('deviceFirst.total')}</span>
+        <strong>{priceKopeks !== null ? formatPrice(priceKopeks) : '—'}</strong>
+      </div>
     </div>
   );
 }

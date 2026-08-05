@@ -23,8 +23,29 @@ describe('DeviceFirstConfigurator responsive and modal contract', () => {
     expect(source).toContain('appRoot.inert = true');
     expect(source).toContain('aria-modal={portal || undefined}');
     expect(source).toContain('fixed inset-0 z-[100]');
-    expect(source).toContain("['configuration', 'confirmation', 'awaiting_payment']");
-    expect(source.match(/onClick=\{\(\) => cancelMutation\.mutate\(\)\}/g)?.length).toBe(3);
+    // Only a live awaiting-payment order still owns a modal surface.
+    expect(source).toContain("checkoutUiState === 'awaiting_payment'");
+    expect(source.match(/onClick=\{\(\) => cancelMutation\.mutate\(\)\}/g)?.length).toBe(1);
+    expect(source.match(/legacyDraftCancelMutation\.mutate\(legacyDraft\)/g)?.length).toBe(1);
+  });
+
+  it('births the order only at pay time through the fused routes', () => {
+    expect(source).toContain('deviceFirstApi.payDirect({');
+    expect(source).toContain('deviceFirstApi.nativeLaunchDirect({');
+    expect(source).toContain('expected_tariff_total_kopeks: confirmTotalKopeks!');
+    // The deprecated showcase mutations stay in the api layer for old bundles,
+    // but the new UI never calls them.
+    expect(source).not.toContain('deviceFirstApi.create(');
+    expect(source).not.toContain('deviceFirstApi.confirm(');
+    expect(source).not.toContain('deviceFirstApi.commit(');
+    expect(source).not.toContain('deviceFirstApi.nativeLaunch(');
+    // Only true legacy drafts drain through an explicit cancellation. A
+    // fused-born direct confirmation is a live order interrupted before its
+    // payment attempt and resumes by the row's own data instead.
+    expect(source).toContain('isShowcaseDraft');
+    expect(source).toContain("checkout.settlement_mode !== 'direct_purchase_v2'");
+    expect(source).toContain('resumedConfirmation');
+    expect(source).toContain('legacyDraftCancelMutation');
   });
 
   it('keeps selected state semantic without a layout-shifting visible badge', () => {

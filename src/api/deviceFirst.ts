@@ -3,6 +3,7 @@ import {
   clearCreateIntentKeys,
   getOrCreateIntentKey,
   intentStorageKey,
+  payIntentName,
 } from './deviceFirstIdempotency';
 
 export type DeviceFirstUiState =
@@ -98,6 +99,22 @@ export interface DeviceFirstCommitResponse {
   redirect_url?: string;
 }
 
+/**
+ * The fused pay-time request: the full order (selection, funding and the
+ * optimistic price token) travels in one mutation because no durable checkout
+ * exists before the customer explicitly chooses to pay.
+ * `expected_tariff_total_kopeks` must be the verbatim raw `price_kopeks` from
+ * purchase-options — never rounded — or the server answers `reprice_required`.
+ */
+export interface DeviceFirstDirectCommitRequest {
+  period_days: number;
+  selected_device_limit: number;
+  funding_mode: 'wallet' | 'platega';
+  /** Strictly null for wallet; an available provider method for platega. */
+  method_key: string | null;
+  expected_tariff_total_kopeks: number;
+}
+
 function intentKey(intent: string): string {
   return getOrCreateIntentKey(sessionStorage, intent, () => crypto.randomUUID());
 }
@@ -108,6 +125,27 @@ async function postIntent<T>(intent: string, url: string, body: unknown): Promis
   });
   sessionStorage.removeItem(intentStorageKey(intent));
   return response.data as T;
+}
+
+/**
+ * Pay-time variant of the intent POST. The server stores business errors
+ * (4xx) under the idempotency key and replays them verbatim, so a definitive
+ * 4xx answer must rotate the local key — otherwise e.g. `wallet_insufficient`
+ * would be replayed forever even after a top-up. A retry with a fresh key is
+ * still safe: the per-user fence plus same-config resume resolve it to the
+ * same checkout. Ambiguous failures (network loss, 5xx) keep the key so the
+ * retry remains a true idempotent replay/re-entry.
+ */
+async function postPayIntent<T>(intent: string, url: string, body: unknown): Promise<T> {
+  try {
+    return await postIntent<T>(intent, url, body);
+  } catch (error) {
+    const status = (error as { response?: { status?: number } })?.response?.status;
+    if (status !== undefined && status < 500) {
+      sessionStorage.removeItem(intentStorageKey(intent));
+    }
+    throw error;
+  }
 }
 
 export const deviceFirstApi = {
@@ -151,6 +189,20 @@ export const deviceFirstApi = {
       `/cabinet/device-first/checkout/${checkoutId}/native-launch`,
       { method_key: methodKey },
     ),
+
+  /**
+   * Fused pay-time mutations: the order is born only now, at «Pay». The
+   * checkout-scoped commit/native-launch above stay for legacy bundles and
+   * for checkouts restored from old links; the new UI always pays through
+   * these top-level routes with the full selection plus the optimistic price.
+   */
+  payDirect: async (request: DeviceFirstDirectCommitRequest): Promise<DeviceFirstCommitResponse> =>
+    postPayIntent(payIntentName(request), '/cabinet/device-first/commit', request),
+
+  nativeLaunchDirect: async (
+    request: DeviceFirstDirectCommitRequest,
+  ): Promise<DeviceFirstCommitResponse> =>
+    postPayIntent(payIntentName(request), '/cabinet/device-first/native-launch', request),
 
   getPendingPayment: async (
     checkoutId: string,

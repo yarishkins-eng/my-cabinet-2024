@@ -5323,6 +5323,8 @@
     "errorPaymentMethodsLoad": "Payment methods could not be loaded. Try again or contact support.",
     "errorUnavailable": "Purchase is temporarily unavailable. Refresh the page or contact support.",
     "errorOrderUpdated": "The order state changed. Refresh it before the next action.",
+    "errorWalletInsufficient": "Your balance does not cover this purchase. Top up or choose another payment method.",
+    "errorFundingLocked": "This order is already awaiting payment via another method. Pay the current invoice or cancel it first.",
     "noMethods": "No payment methods are currently available.",
     "paymentMethodQuestion": "Payment method",
     "paymentMethodsAvailable": "Payment methods available for this purchase",
