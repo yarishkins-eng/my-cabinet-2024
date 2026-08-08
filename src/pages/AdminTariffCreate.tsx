@@ -145,7 +145,9 @@ export default function AdminTariffCreate() {
     queryFn: () => tariffsApi.getTariffLocationPolicy(Number(id)),
     enabled: isEdit,
     select: useCallback((data: { locations: PublicLocationInfo[] }) => {
-      setSelectedLocationIds(data.locations.filter((location) => location.selected).map((location) => location.id));
+      setSelectedLocationIds(
+        data.locations.filter((location) => location.selected).map((location) => location.id),
+      );
       return data;
     }, []),
   });
@@ -154,7 +156,11 @@ export default function AdminTariffCreate() {
   const createMutation = useMutation({
     mutationFn: tariffsApi.createTariff,
     onSuccess: async (tariff) => {
-      await tariffsApi.replaceTariffLocationPolicy(tariff.id, selectedLocationIds, locationPolicyReason);
+      await tariffsApi.replaceTariffLocationPolicy(
+        tariff.id,
+        selectedLocationIds,
+        locationPolicyReason,
+      );
       queryClient.invalidateQueries({ queryKey: ['admin-tariffs'] });
       navigate('/admin/tariffs');
     },
@@ -165,20 +171,30 @@ export default function AdminTariffCreate() {
     mutationFn: ({ id, data }: { id: number; data: TariffUpdateRequest }) =>
       tariffsApi.updateTariff(id, data),
     onSuccess: async (tariff) => {
-      await tariffsApi.replaceTariffLocationPolicy(tariff.id, selectedLocationIds, locationPolicyReason);
+      await tariffsApi.replaceTariffLocationPolicy(
+        tariff.id,
+        selectedLocationIds,
+        locationPolicyReason,
+      );
       queryClient.invalidateQueries({ queryKey: ['admin-tariffs'] });
       navigate('/admin/tariffs');
     },
   });
 
   const preparePlanMutation = useMutation({
-    mutationFn: () => tariffsApi.prepareTariffLocationPlan(Number(id), selectedLocationIds, locationPolicyReason),
+    mutationFn: () =>
+      tariffsApi.prepareTariffLocationPlan(Number(id), selectedLocationIds, locationPolicyReason),
   });
   const confirmPlanMutation = useMutation({
     mutationFn: () => {
       const plan = preparePlanMutation.data;
       if (!plan) throw new Error('No entitlement plan is available to confirm');
-      return tariffsApi.confirmTariffLocationPlan(Number(id), plan.plan_id, plan.plan_hash, locationPolicyReason);
+      return tariffsApi.confirmTariffLocationPlan(
+        Number(id),
+        plan.plan_id,
+        plan.plan_hash,
+        locationPolicyReason,
+      );
     },
   });
 
@@ -696,13 +712,15 @@ export default function AdminTariffCreate() {
         <div className="space-y-4">
           <div className="card space-y-4">
             <div>
-              <h4 className="text-sm font-medium text-dark-200">{t('admin.tariffs.publicLocations.title')}</h4>
-              <p className="text-sm text-dark-400">
-                {t('admin.tariffs.publicLocations.hint')}
-              </p>
+              <h4 className="text-sm font-medium text-dark-200">
+                {t('admin.tariffs.publicLocations.title')}
+              </h4>
+              <p className="text-sm text-dark-400">{t('admin.tariffs.publicLocations.hint')}</p>
             </div>
             {isLoadingPublicLocations ? (
-              <p className="py-4 text-center text-dark-400" role="status">{t('admin.tariffs.publicLocations.loading')}</p>
+              <p className="py-4 text-center text-dark-400" role="status">
+                {t('admin.tariffs.publicLocations.loading')}
+              </p>
             ) : isPublicLocationsError ? (
               <p className="py-4 text-center text-error-400" role="alert">
                 {t('admin.tariffs.publicLocations.loadError')}
@@ -712,18 +730,25 @@ export default function AdminTariffCreate() {
                 {t('admin.tariffs.publicLocations.empty')}
               </p>
             ) : (
-              <div className="space-y-2" role="group" aria-label={t('admin.tariffs.publicLocations.ariaLabel')}>
+              <div
+                className="space-y-2"
+                role="group"
+                aria-label={t('admin.tariffs.publicLocations.ariaLabel')}
+              >
                 {publicLocations.map((location) => {
                   const isSelected = selectedLocationIds.includes(location.id);
-                  const disabled = !location.tariff_assignable
-                    || location.lifecycle !== 'ready' && location.lifecycle !== 'published'
-                    || location.visibility !== 'visible'
-                    || location.health !== 'healthy';
+                  const disabled =
+                    !location.tariff_assignable ||
+                    (location.lifecycle !== 'ready' && location.lifecycle !== 'published') ||
+                    location.visibility !== 'visible' ||
+                    location.health !== 'healthy';
                   return (
                     <label
                       key={location.id}
                       className={`flex w-full items-center gap-3 rounded-lg p-3 transition-colors ${
-                        disabled ? 'cursor-not-allowed bg-dark-800/50 text-dark-500' : 'cursor-pointer bg-dark-800 text-dark-300 hover:bg-dark-700 focus-within:ring-2 focus-within:ring-accent-500'
+                        disabled
+                          ? 'cursor-not-allowed bg-dark-800/50 text-dark-500'
+                          : 'cursor-pointer bg-dark-800 text-dark-300 focus-within:ring-2 focus-within:ring-accent-500 hover:bg-dark-700'
                       }`}
                     >
                       <input
@@ -759,12 +784,19 @@ export default function AdminTariffCreate() {
               {t('admin.tariffs.publicLocations.note')}
             </p>
             <div className="flex items-center justify-between gap-3 text-sm text-dark-300">
-              <span>{t('admin.tariffs.publicLocations.selected', { count: selectedLocationIds.length })}</span>
+              <span>
+                {t('admin.tariffs.publicLocations.selected', { count: selectedLocationIds.length })}
+              </span>
               {isEdit && (
                 <button
                   type="button"
                   className="btn-secondary"
-                  disabled={!isLocationCatalogReady || preparePlanMutation.isPending || selectedLocationIds.length === 0 || locationPolicyReason.trim().length < 3}
+                  disabled={
+                    !isLocationCatalogReady ||
+                    preparePlanMutation.isPending ||
+                    selectedLocationIds.length === 0 ||
+                    locationPolicyReason.trim().length < 3
+                  }
                   onClick={() => preparePlanMutation.mutate()}
                 >
                   {preparePlanMutation.isPending
@@ -775,10 +807,12 @@ export default function AdminTariffCreate() {
             </div>
             {preparePlanMutation.isSuccess && (
               <div className="space-y-2 text-xs text-success-400" role="status">
-                <p>{t('admin.tariffs.publicLocations.prepared', {
-                  planId: preparePlanMutation.data.plan_id,
-                  count: preparePlanMutation.data.affected_subscription_count,
-                })}</p>
+                <p>
+                  {t('admin.tariffs.publicLocations.prepared', {
+                    planId: preparePlanMutation.data.plan_id,
+                    count: preparePlanMutation.data.affected_subscription_count,
+                  })}
+                </p>
                 <button
                   type="button"
                   className="btn-secondary"
@@ -792,13 +826,19 @@ export default function AdminTariffCreate() {
               </div>
             )}
             {preparePlanMutation.isError && (
-              <p className="text-xs text-error-400" role="alert">{t('admin.tariffs.publicLocations.prepareError')}</p>
+              <p className="text-xs text-error-400" role="alert">
+                {t('admin.tariffs.publicLocations.prepareError')}
+              </p>
             )}
             {confirmPlanMutation.isSuccess && (
-              <p className="text-xs text-success-400" role="status">{t('admin.tariffs.publicLocations.confirmed')}</p>
+              <p className="text-xs text-success-400" role="status">
+                {t('admin.tariffs.publicLocations.confirmed')}
+              </p>
             )}
             {confirmPlanMutation.isError && (
-              <p className="text-xs text-error-400" role="alert">{t('admin.tariffs.publicLocations.confirmError')}</p>
+              <p className="text-xs text-error-400" role="alert">
+                {t('admin.tariffs.publicLocations.confirmError')}
+              </p>
             )}
           </div>
           {/* External Squad */}

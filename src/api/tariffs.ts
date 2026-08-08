@@ -323,10 +323,13 @@ export const tariffsApi = {
     locationIds: string[],
     reason: string,
   ): Promise<EntitlementPlanPreview> => {
-    const response = await apiClient.post(`/cabinet/admin/tariffs/${tariffId}/locations/prepare-plan`, {
-      location_ids: locationIds,
-      reason,
-    });
+    const response = await apiClient.post(
+      `/cabinet/admin/tariffs/${tariffId}/locations/prepare-plan`,
+      {
+        location_ids: locationIds,
+        reason,
+      },
+    );
     return response.data;
   },
 

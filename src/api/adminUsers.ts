@@ -583,11 +583,23 @@ export const adminUsersApi = {
   resolveFinancialAccountErasure: async (
     userId: number,
     data: {
-      resolution_code: 'provider_terminal_verified' | 'refund_completed' | 'chargeback_resolved' | 'balance_writeoff_approved';
+      resolution_code:
+        | 'provider_terminal_verified'
+        | 'refund_completed'
+        | 'chargeback_resolved'
+        | 'balance_writeoff_approved';
       resolution_note: string;
     },
-  ): Promise<{ success: boolean; message: string; deletion_state: string | null; account_closed: boolean }> => {
-    const response = await apiClient.post(`/cabinet/admin/users/${userId}/account-erasure/resolve`, data);
+  ): Promise<{
+    success: boolean;
+    message: string;
+    deletion_state: string | null;
+    account_closed: boolean;
+  }> => {
+    const response = await apiClient.post(
+      `/cabinet/admin/users/${userId}/account-erasure/resolve`,
+      data,
+    );
     return response.data;
   },
 
