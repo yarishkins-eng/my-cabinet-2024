@@ -139,6 +139,35 @@ export interface ExternalSquadInfo {
   members_count: number;
 }
 
+export interface PublicLocationInfo {
+  id: string;
+  iso_code: string;
+  label_ru: string;
+  label_en: string;
+  flag: string | null;
+  lifecycle: 'draft' | 'ready' | 'published' | 'deprecated' | 'retired';
+  visibility: 'hidden' | 'visible';
+  health: 'unknown' | 'healthy' | 'unhealthy';
+  tariff_assignable: boolean;
+  selected?: boolean;
+}
+
+export interface EntitlementPlanPreview {
+  plan_id: string;
+  state: 'previewed' | 'confirmed_execution_disabled';
+  plan_hash: string;
+  manifest_hash: string;
+  affected_subscription_count: number;
+  execution_enabled: false;
+}
+
+export interface EntitlementPlanConfirmation {
+  plan_id: string;
+  state: 'confirmed_execution_disabled';
+  plan_hash: string;
+  execution_enabled: false;
+}
+
 export interface TariffUpdateRequest {
   name?: string;
   description?: string;
@@ -261,6 +290,56 @@ export const tariffsApi = {
   // Get available servers for selection
   getAvailableServers: async (): Promise<ServerInfo[]> => {
     const response = await apiClient.get('/cabinet/admin/tariffs/available-servers');
+    return response.data;
+  },
+
+  // Product-facing catalog: intentionally contains no RemnaWave UUIDs.
+  getPublicLocationCatalog: async (): Promise<PublicLocationInfo[]> => {
+    const response = await apiClient.get('/cabinet/admin/public-locations/catalog');
+    return response.data.locations;
+  },
+
+  getTariffLocationPolicy: async (
+    tariffId: number,
+  ): Promise<{ mode: string; policy_revision: number; locations: PublicLocationInfo[] }> => {
+    const response = await apiClient.get(`/cabinet/admin/tariffs/${tariffId}/locations`);
+    return response.data;
+  },
+
+  replaceTariffLocationPolicy: async (
+    tariffId: number,
+    locationIds: string[],
+    reason: string,
+  ): Promise<{ tariff_id: number; mode: string; policy_revision: number }> => {
+    const response = await apiClient.put(`/cabinet/admin/tariffs/${tariffId}/locations`, {
+      location_ids: locationIds,
+      reason,
+    });
+    return response.data;
+  },
+
+  prepareTariffLocationPlan: async (
+    tariffId: number,
+    locationIds: string[],
+    reason: string,
+  ): Promise<EntitlementPlanPreview> => {
+    const response = await apiClient.post(`/cabinet/admin/tariffs/${tariffId}/locations/prepare-plan`, {
+      location_ids: locationIds,
+      reason,
+    });
+    return response.data;
+  },
+
+  confirmTariffLocationPlan: async (
+    tariffId: number,
+    planId: string,
+    planHash: string,
+    reason: string,
+  ): Promise<EntitlementPlanConfirmation> => {
+    const response = await apiClient.post(
+      `/cabinet/admin/tariffs/${tariffId}/locations/plans/${planId}/confirm`,
+      { plan_hash: planHash, reason },
+    );
     return response.data;
   },
 

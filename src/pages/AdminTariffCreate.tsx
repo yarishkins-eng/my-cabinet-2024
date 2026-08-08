@@ -8,6 +8,7 @@ import {
   TariffCreateRequest,
   TariffUpdateRequest,
   PeriodPrice,
+  PublicLocationInfo,
   ServerInfo,
   ExternalSquadInfo,
 } from '../api/tariffs';
@@ -27,7 +28,7 @@ import {
 type TariffType = 'period' | 'daily' | null;
 
 export default function AdminTariffCreate() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const navigate = useNavigate();
   const { id } = useParams<{ id: string }>();
   const queryClient = useQueryClient();
@@ -48,8 +49,8 @@ export default function AdminTariffCreate() {
   const [devicePurchaseOptionsText, setDevicePurchaseOptionsText] = useState('');
   const [tierLevel, setTierLevel] = useState<number | ''>(1);
   const [periodPrices, setPeriodPrices] = useState<PeriodPrice[]>([]);
-  const [selectedSquads, setSelectedSquads] = useState<string[]>([]);
-  const [selectedExternalSquad, setSelectedExternalSquad] = useState<string | null>(null);
+  const [selectedLocationIds, setSelectedLocationIds] = useState<string[]>([]);
+  const [locationPolicyReason, setLocationPolicyReason] = useState('Cabinet tariff policy update');
   const [selectedPromoGroups, setSelectedPromoGroups] = useState<number[]>([]);
   const [dailyPriceKopeks, setDailyPriceKopeks] = useState<number | ''>(0);
 
@@ -80,17 +81,23 @@ export default function AdminTariffCreate() {
 
   const [activeTab, setActiveTab] = useState<'basic' | 'periods' | 'servers' | 'extra'>('basic');
 
-  // Fetch servers
-  const { data: servers = [] } = useQuery({
-    queryKey: ['admin-tariffs-servers'],
-    queryFn: () => tariffsApi.getAvailableServers(),
+  const {
+    data: publicLocations = [],
+    isLoading: isLoadingPublicLocations,
+    isError: isPublicLocationsError,
+  } = useQuery({
+    queryKey: ['admin-public-location-catalog'],
+    queryFn: () => tariffsApi.getPublicLocationCatalog(),
   });
-
-  // Fetch external squads
-  const { data: externalSquads = [] } = useQuery({
-    queryKey: ['admin-tariffs-external-squads'],
-    queryFn: () => tariffsApi.getAvailableExternalSquads(),
-  });
+  // Technical selectors are intentionally empty during the public-location
+  // migration.  They remain typed below only to keep the old view shell
+  // compatible while a separate privileged migration removes it entirely.
+  const servers: ServerInfo[] = [];
+  const externalSquads: ExternalSquadInfo[] = [];
+  const selectedSquads: string[] = [];
+  const selectedExternalSquad: string | null = null;
+  const setSelectedExternalSquad = (_value: string | null) => undefined;
+  const toggleServer = (_uuid: string) => undefined;
 
   // Fetch promo groups
   const { data: promoGroups = [] } = useQuery({
@@ -120,8 +127,6 @@ export default function AdminTariffCreate() {
       setDevicePurchaseOptionsText((data.device_purchase_options || []).join(', '));
       setTierLevel(data.tier_level || 1);
       setPeriodPrices(data.period_prices?.length ? data.period_prices : []);
-      setSelectedSquads(data.allowed_squads || []);
-      setSelectedExternalSquad(data.external_squad_uuid || null);
       setSelectedPromoGroups(
         data.promo_groups?.filter((pg) => pg.is_selected).map((pg) => pg.id) || [],
       );
@@ -135,10 +140,21 @@ export default function AdminTariffCreate() {
     }, []),
   });
 
+  useQuery({
+    queryKey: ['admin-tariff-location-policy', id],
+    queryFn: () => tariffsApi.getTariffLocationPolicy(Number(id)),
+    enabled: isEdit,
+    select: useCallback((data: { locations: PublicLocationInfo[] }) => {
+      setSelectedLocationIds(data.locations.filter((location) => location.selected).map((location) => location.id));
+      return data;
+    }, []),
+  });
+
   // Create mutation
   const createMutation = useMutation({
     mutationFn: tariffsApi.createTariff,
-    onSuccess: () => {
+    onSuccess: async (tariff) => {
+      await tariffsApi.replaceTariffLocationPolicy(tariff.id, selectedLocationIds, locationPolicyReason);
       queryClient.invalidateQueries({ queryKey: ['admin-tariffs'] });
       navigate('/admin/tariffs');
     },
@@ -148,9 +164,21 @@ export default function AdminTariffCreate() {
   const updateMutation = useMutation({
     mutationFn: ({ id, data }: { id: number; data: TariffUpdateRequest }) =>
       tariffsApi.updateTariff(id, data),
-    onSuccess: () => {
+    onSuccess: async (tariff) => {
+      await tariffsApi.replaceTariffLocationPolicy(tariff.id, selectedLocationIds, locationPolicyReason);
       queryClient.invalidateQueries({ queryKey: ['admin-tariffs'] });
       navigate('/admin/tariffs');
+    },
+  });
+
+  const preparePlanMutation = useMutation({
+    mutationFn: () => tariffsApi.prepareTariffLocationPlan(Number(id), selectedLocationIds, locationPolicyReason),
+  });
+  const confirmPlanMutation = useMutation({
+    mutationFn: () => {
+      const plan = preparePlanMutation.data;
+      if (!plan) throw new Error('No entitlement plan is available to confirm');
+      return tariffsApi.confirmTariffLocationPlan(Number(id), plan.plan_id, plan.plan_hash, locationPolicyReason);
     },
   });
 
@@ -160,7 +188,10 @@ export default function AdminTariffCreate() {
     const data: TariffCreateRequest | TariffUpdateRequest = {
       name,
       description: description || undefined,
-      is_active: isActive,
+      // Policy is persisted by a second audited endpoint.  A fresh tariff is
+      // therefore created inactive so a dropped follow-up cannot widen a
+      // legacy empty-squad tariff to every server.
+      is_active: isEdit ? isActive : false,
       show_in_gift: showInGift,
       traffic_limit_gb: toNumber(trafficLimitGb, 100),
       device_limit: toNumber(deviceLimit, 1),
@@ -170,8 +201,6 @@ export default function AdminTariffCreate() {
       device_purchase_options: isDaily ? null : devicePurchaseOptions,
       tier_level: toNumber(tierLevel, 1),
       period_prices: isDaily ? [] : periodPrices.filter((p) => p.price_kopeks >= 0),
-      allowed_squads: selectedSquads,
-      external_squad_uuid: selectedExternalSquad || null,
       promo_group_ids: selectedPromoGroups.length > 0 ? selectedPromoGroups : undefined,
       traffic_topup_enabled: trafficTopupEnabled,
       traffic_topup_packages: trafficTopupPackages,
@@ -188,9 +217,9 @@ export default function AdminTariffCreate() {
     }
   };
 
-  const toggleServer = (uuid: string) => {
-    setSelectedSquads((prev) =>
-      prev.includes(uuid) ? prev.filter((s) => s !== uuid) : [...prev, uuid],
+  const toggleLocation = (locationId: string) => {
+    setSelectedLocationIds((prev) =>
+      prev.includes(locationId) ? prev.filter((id) => id !== locationId) : [...prev, locationId],
     );
   };
 
@@ -226,6 +255,8 @@ export default function AdminTariffCreate() {
   };
 
   const isLoading = createMutation.isPending || updateMutation.isPending;
+  const isLocationCatalogReady = !isLoadingPublicLocations && !isPublicLocationsError;
+  const isRussian = (i18n.resolvedLanguage || i18n.language || 'ru').startsWith('ru');
 
   // Validation like bot: name 2-50 chars, device_limit >= 1, tier_level 1-10
   const isNameValid = name.length >= 2 && name.length <= 50;
@@ -663,6 +694,113 @@ export default function AdminTariffCreate() {
 
       {activeTab === 'servers' && (
         <div className="space-y-4">
+          <div className="card space-y-4">
+            <div>
+              <h4 className="text-sm font-medium text-dark-200">{t('admin.tariffs.publicLocations.title')}</h4>
+              <p className="text-sm text-dark-400">
+                {t('admin.tariffs.publicLocations.hint')}
+              </p>
+            </div>
+            {isLoadingPublicLocations ? (
+              <p className="py-4 text-center text-dark-400" role="status">{t('admin.tariffs.publicLocations.loading')}</p>
+            ) : isPublicLocationsError ? (
+              <p className="py-4 text-center text-error-400" role="alert">
+                {t('admin.tariffs.publicLocations.loadError')}
+              </p>
+            ) : publicLocations.length === 0 ? (
+              <p className="py-4 text-center text-dark-500" role="status">
+                {t('admin.tariffs.publicLocations.empty')}
+              </p>
+            ) : (
+              <div className="space-y-2" role="group" aria-label={t('admin.tariffs.publicLocations.ariaLabel')}>
+                {publicLocations.map((location) => {
+                  const isSelected = selectedLocationIds.includes(location.id);
+                  const disabled = !location.tariff_assignable
+                    || location.lifecycle !== 'ready' && location.lifecycle !== 'published'
+                    || location.visibility !== 'visible'
+                    || location.health !== 'healthy';
+                  return (
+                    <label
+                      key={location.id}
+                      className={`flex w-full items-center gap-3 rounded-lg p-3 transition-colors ${
+                        disabled ? 'cursor-not-allowed bg-dark-800/50 text-dark-500' : 'cursor-pointer bg-dark-800 text-dark-300 hover:bg-dark-700 focus-within:ring-2 focus-within:ring-accent-500'
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={isSelected}
+                        disabled={disabled}
+                        onChange={() => toggleLocation(location.id)}
+                        className="h-4 w-4 accent-accent-500"
+                      />
+                      <span className="flex-1 text-sm font-medium">
+                        {location.flag ? `${location.flag} ` : ''}
+                        {isRussian
+                          ? location.label_ru || location.label_en
+                          : location.label_en || location.label_ru}
+                      </span>
+                      <span className="text-xs text-dark-500">{location.lifecycle}</span>
+                    </label>
+                  );
+                })}
+              </div>
+            )}
+            <label className="block text-sm text-dark-300">
+              {t('admin.tariffs.publicLocations.reason')}
+              <input
+                value={locationPolicyReason}
+                onChange={(event) => setLocationPolicyReason(event.target.value)}
+                minLength={3}
+                className="input mt-1 w-full"
+                aria-describedby="location-policy-note"
+              />
+            </label>
+            <p id="location-policy-note" className="text-xs text-dark-500">
+              {t('admin.tariffs.publicLocations.note')}
+            </p>
+            <div className="flex items-center justify-between gap-3 text-sm text-dark-300">
+              <span>{t('admin.tariffs.publicLocations.selected', { count: selectedLocationIds.length })}</span>
+              {isEdit && (
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  disabled={!isLocationCatalogReady || preparePlanMutation.isPending || selectedLocationIds.length === 0 || locationPolicyReason.trim().length < 3}
+                  onClick={() => preparePlanMutation.mutate()}
+                >
+                  {preparePlanMutation.isPending
+                    ? t('admin.tariffs.publicLocations.preparing')
+                    : t('admin.tariffs.publicLocations.prepare')}
+                </button>
+              )}
+            </div>
+            {preparePlanMutation.isSuccess && (
+              <div className="space-y-2 text-xs text-success-400" role="status">
+                <p>{t('admin.tariffs.publicLocations.prepared', {
+                  planId: preparePlanMutation.data.plan_id,
+                  count: preparePlanMutation.data.affected_subscription_count,
+                })}</p>
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  disabled={confirmPlanMutation.isPending || locationPolicyReason.trim().length < 3}
+                  onClick={() => confirmPlanMutation.mutate()}
+                >
+                  {confirmPlanMutation.isPending
+                    ? t('admin.tariffs.publicLocations.confirming')
+                    : t('admin.tariffs.publicLocations.confirm')}
+                </button>
+              </div>
+            )}
+            {preparePlanMutation.isError && (
+              <p className="text-xs text-error-400" role="alert">{t('admin.tariffs.publicLocations.prepareError')}</p>
+            )}
+            {confirmPlanMutation.isSuccess && (
+              <p className="text-xs text-success-400" role="status">{t('admin.tariffs.publicLocations.confirmed')}</p>
+            )}
+            {confirmPlanMutation.isError && (
+              <p className="text-xs text-error-400" role="alert">{t('admin.tariffs.publicLocations.confirmError')}</p>
+            )}
+          </div>
           {/* External Squad */}
           {externalSquads.length > 0 && (
             <div className="card space-y-4">
@@ -1221,6 +1359,13 @@ export default function AdminTariffCreate() {
 
       {/* Footer */}
       <div className="card space-y-3">
+        {!isLocationCatalogReady && (
+          <p className="text-sm text-error-400" role={isPublicLocationsError ? 'alert' : 'status'}>
+            {isLoadingPublicLocations
+              ? t('admin.tariffs.publicLocations.catalogLoadingSaveBlocked')
+              : t('admin.tariffs.publicLocations.catalogErrorSaveBlocked')}
+          </p>
+        )}
         {validationErrors.length > 0 && (
           <div className="rounded-lg border border-error-500/30 bg-error-500/10 p-3">
             <p className="mb-1 text-sm font-medium text-error-400">
@@ -1236,7 +1381,7 @@ export default function AdminTariffCreate() {
         <div className="flex justify-end">
           <button
             onClick={handleSubmit}
-            disabled={!isValid || isLoading}
+            disabled={!isValid || isLoading || !isLocationCatalogReady}
             className="btn-primary flex items-center gap-2"
           >
             {isLoading && <RefreshIcon spinning />}
