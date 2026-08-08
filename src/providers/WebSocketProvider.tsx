@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { useAuthStore } from '../store/auth';
 import { WebSocketContext, type MessageHandler, type WSMessage } from './WebSocketContext';
 import { WS } from '../config/constants';
+import { invalidateLiveStateQueries } from './liveStateRefresh';
 
 // Re-export for backward compatibility
 export type { WSMessage } from './WebSocketContext';
@@ -36,11 +38,13 @@ function buildWebSocketUrl(accessToken: string): string {
 export function WebSocketProvider({ children }: { children: React.ReactNode }) {
   const accessToken = useAuthStore((state) => state.accessToken);
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
+  const queryClient = useQueryClient();
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pingIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [isConnected, setIsConnected] = useState(false);
   const reconnectAttemptsRef = useRef(0);
+  const hasConnectedRef = useRef(false);
   const maxReconnectAttempts = WS.MAX_RECONNECT_ATTEMPTS;
 
   // Store message handlers
@@ -61,13 +65,20 @@ export function WebSocketProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
+  const refreshLiveState = useCallback(() => {
+    invalidateLiveStateQueries(queryClient);
+  }, [queryClient]);
+
   const connect = useCallback(() => {
     if (!accessToken || !isAuthenticated) {
       return;
     }
 
     // Don't reconnect if already connected
-    if (wsRef.current?.readyState === WebSocket.OPEN) {
+    if (
+      wsRef.current?.readyState === WebSocket.OPEN ||
+      wsRef.current?.readyState === WebSocket.CONNECTING
+    ) {
       return;
     }
 
@@ -80,9 +91,18 @@ export function WebSocketProvider({ children }: { children: React.ReactNode }) {
       wsRef.current = ws;
 
       ws.onopen = () => {
+        const isReconnect = hasConnectedRef.current;
+        hasConnectedRef.current = true;
         if (isDev) console.log('[WS] Connected');
         setIsConnected(true);
         reconnectAttemptsRef.current = 0;
+
+        // A grace/payment event may have been emitted while the socket was
+        // disconnected. The first connection has fresh query loads anyway;
+        // subsequent ones reconcile the visible state with the server.
+        if (isReconnect) {
+          refreshLiveState();
+        }
 
         // Setup ping interval (every 25 seconds)
         pingIntervalRef.current = setInterval(() => {
@@ -158,7 +178,7 @@ export function WebSocketProvider({ children }: { children: React.ReactNode }) {
     } catch (e) {
       if (isDev) console.error('[WS] Failed to connect:', e);
     }
-  }, [accessToken, isAuthenticated, cleanup, maxReconnectAttempts]);
+  }, [accessToken, isAuthenticated, cleanup, maxReconnectAttempts, refreshLiveState]);
 
   // Connect when authenticated
   useEffect(() => {
@@ -171,6 +191,19 @@ export function WebSocketProvider({ children }: { children: React.ReactNode }) {
 
     return cleanup;
   }, [isAuthenticated, accessToken, connect, cleanup]);
+
+  useEffect(() => {
+    const refreshWhenVisible = () => {
+      if (document.visibilityState !== 'visible' || !isAuthenticated || !accessToken) {
+        return;
+      }
+      refreshLiveState();
+      connect();
+    };
+
+    document.addEventListener('visibilitychange', refreshWhenVisible);
+    return () => document.removeEventListener('visibilitychange', refreshWhenVisible);
+  }, [accessToken, isAuthenticated, connect, refreshLiveState]);
 
   // Subscribe function for components
   const subscribe = useCallback((handler: MessageHandler) => {
