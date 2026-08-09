@@ -8,13 +8,11 @@ import {
   TariffCreateRequest,
   TariffUpdateRequest,
   PeriodPrice,
-  PublicLocationInfo,
-  ServerInfo,
-  ExternalSquadInfo,
+  AccessPointInfo,
+  AccessPointPlanPreview,
 } from '../api/tariffs';
 import { AdminBackButton } from '../components/admin';
 import { createNumberInputHandler, toNumber } from '../utils/inputHelpers';
-import Twemoji from 'react-twemoji';
 import {
   CalendarIcon,
   CheckIcon,
@@ -28,7 +26,7 @@ import {
 type TariffType = 'period' | 'daily' | null;
 
 export default function AdminTariffCreate() {
-  const { t, i18n } = useTranslation();
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const { id } = useParams<{ id: string }>();
   const queryClient = useQueryClient();
@@ -36,6 +34,7 @@ export default function AdminTariffCreate() {
 
   // Step: null = type selection, 'period' or 'daily' = form
   const [tariffType, setTariffType] = useState<TariffType>(null);
+  const isDaily = tariffType === 'daily';
 
   // Form state - matches bot fields
   const [name, setName] = useState('');
@@ -49,8 +48,20 @@ export default function AdminTariffCreate() {
   const [devicePurchaseOptionsText, setDevicePurchaseOptionsText] = useState('');
   const [tierLevel, setTierLevel] = useState<number | ''>(1);
   const [periodPrices, setPeriodPrices] = useState<PeriodPrice[]>([]);
-  const [selectedLocationIds, setSelectedLocationIds] = useState<string[]>([]);
-  const [locationPolicyReason, setLocationPolicyReason] = useState('Cabinet tariff policy update');
+  const [selectedAccessPointIds, setSelectedAccessPointIds] = useState<string[]>([]);
+  const [initialAccessPointIds, setInitialAccessPointIds] = useState<string[]>([]);
+  const [accessPointPolicyRevision, setAccessPointPolicyRevision] = useState(0);
+  const [accessPointPolicyEditable, setAccessPointPolicyEditable] = useState(!isEdit);
+  const [accessPointPolicyReadOnlyReason, setAccessPointPolicyReadOnlyReason] = useState<
+    string | null
+  >(null);
+  const [accessPointPolicyReason, setAccessPointPolicyReason] = useState(
+    'Cabinet access-point policy update',
+  );
+  const [preservedLegacyAccessPoints, setPreservedLegacyAccessPoints] = useState<
+    { id: string; title: string; flag?: string | null }[]
+  >([]);
+  const [accessPointPlan, setAccessPointPlan] = useState<AccessPointPlanPreview | null>(null);
   const [selectedPromoGroups, setSelectedPromoGroups] = useState<number[]>([]);
   const [dailyPriceKopeks, setDailyPriceKopeks] = useState<number | ''>(0);
 
@@ -82,22 +93,13 @@ export default function AdminTariffCreate() {
   const [activeTab, setActiveTab] = useState<'basic' | 'periods' | 'servers' | 'extra'>('basic');
 
   const {
-    data: publicLocations = [],
-    isLoading: isLoadingPublicLocations,
-    isError: isPublicLocationsError,
+    data: accessPoints = [],
+    isLoading: isLoadingAccessPoints,
+    isError: isAccessPointsError,
   } = useQuery({
-    queryKey: ['admin-public-location-catalog'],
-    queryFn: () => tariffsApi.getPublicLocationCatalog(),
+    queryKey: ['admin-access-point-catalog'],
+    queryFn: () => tariffsApi.getAccessPointCatalog(),
   });
-  // Technical selectors are intentionally empty during the public-location
-  // migration.  They remain typed below only to keep the old view shell
-  // compatible while a separate privileged migration removes it entirely.
-  const servers: ServerInfo[] = [];
-  const externalSquads: ExternalSquadInfo[] = [];
-  const selectedSquads: string[] = [];
-  const selectedExternalSquad: string | null = null;
-  const setSelectedExternalSquad = (_value: string | null) => undefined;
-  const toggleServer = (_uuid: string) => undefined;
 
   // Fetch promo groups
   const { data: promoGroups = [] } = useQuery({
@@ -140,27 +142,53 @@ export default function AdminTariffCreate() {
     }, []),
   });
 
-  useQuery({
-    queryKey: ['admin-tariff-location-policy', id],
-    queryFn: () => tariffsApi.getTariffLocationPolicy(Number(id)),
+  const { refetch: refetchAccessPointPolicy } = useQuery({
+    queryKey: ['admin-tariff-access-point-policy', id],
+    queryFn: () => tariffsApi.getTariffAccessPointPolicy(Number(id)),
     enabled: isEdit,
-    select: useCallback((data: { locations: PublicLocationInfo[] }) => {
-      setSelectedLocationIds(
-        data.locations.filter((location) => location.selected).map((location) => location.id),
-      );
-      return data;
-    }, []),
+    select: useCallback(
+      (data: {
+        editable: boolean;
+        reason?: string;
+        policy_revision: number;
+        access_points: AccessPointInfo[];
+        preserved_legacy_access_points?: { id: string; title: string; flag?: string | null }[];
+      }) => {
+        const selected = data.access_points
+          .filter((point) => point.selected)
+          .map((point) => point.id);
+        setSelectedAccessPointIds(selected);
+        setInitialAccessPointIds(selected);
+        setAccessPointPolicyRevision(data.policy_revision);
+        setAccessPointPolicyEditable(data.editable);
+        setAccessPointPolicyReadOnlyReason(data.reason || null);
+        setPreservedLegacyAccessPoints(data.preserved_legacy_access_points || []);
+        return data;
+      },
+      [],
+    ),
   });
 
   // Create mutation
   const createMutation = useMutation({
-    mutationFn: tariffsApi.createTariff,
-    onSuccess: async (tariff) => {
-      await tariffsApi.replaceTariffLocationPolicy(
+    mutationFn: async (data: TariffCreateRequest) => {
+      // The backend forbids an AP policy for daily billing. Keep the second
+      // client-side fence here as well: even a stale/deep-linked daily form
+      // must fail before it creates an inactive no-locations draft.
+      if (data.is_daily) {
+        throw new Error('Access-point tariffs cannot use daily billing');
+      }
+      const tariff = await tariffsApi.createTariff(data);
+      await tariffsApi.replaceTariffAccessPointPolicy(
         tariff.id,
-        selectedLocationIds,
-        locationPolicyReason,
+        selectedAccessPointIds,
+        0,
+        accessPointPolicyReason,
       );
+      if (isActive) await tariffsApi.updateTariff(tariff.id, { is_active: true });
+      return tariff;
+    },
+    onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['admin-tariffs'] });
       navigate('/admin/tariffs');
     },
@@ -168,39 +196,49 @@ export default function AdminTariffCreate() {
 
   // Update mutation
   const updateMutation = useMutation({
-    mutationFn: ({ id, data }: { id: number; data: TariffUpdateRequest }) =>
-      tariffsApi.updateTariff(id, data),
-    onSuccess: async (tariff) => {
-      await tariffsApi.replaceTariffLocationPolicy(
-        tariff.id,
-        selectedLocationIds,
-        locationPolicyReason,
-      );
+    mutationFn: async ({ id: tariffId, data }: { id: number; data: TariffUpdateRequest }) => {
+      if (accessPointPolicyEditable && accessPointPolicyChanged) {
+        await tariffsApi.replaceTariffAccessPointPolicy(
+          tariffId,
+          selectedAccessPointIds,
+          accessPointPolicyRevision,
+          accessPointPolicyReason,
+        );
+      }
+      // A draft that is being activated first receives its audited policy;
+      // the server-side activation gate then validates that exact policy.
+      // Reversing this order would reject the safe one-screen transition.
+      return tariffsApi.updateTariff(tariffId, data);
+    },
+    onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['admin-tariffs'] });
       navigate('/admin/tariffs');
     },
   });
 
-  const preparePlanMutation = useMutation({
-    mutationFn: () =>
-      tariffsApi.prepareTariffLocationPlan(Number(id), selectedLocationIds, locationPolicyReason),
+  const prepareAccessPointPlanMutation = useMutation({
+    mutationFn: () => tariffsApi.prepareTariffAccessPointPlan(Number(id), accessPointPolicyReason),
+    onSuccess: (plan) => setAccessPointPlan(plan),
   });
-  const confirmPlanMutation = useMutation({
+
+  const confirmAccessPointPlanMutation = useMutation({
     mutationFn: () => {
-      const plan = preparePlanMutation.data;
-      if (!plan) throw new Error('No entitlement plan is available to confirm');
-      return tariffsApi.confirmTariffLocationPlan(
+      if (!accessPointPlan) throw new Error('Access-point plan is not prepared');
+      return tariffsApi.confirmTariffAccessPointPlan(
         Number(id),
-        plan.plan_id,
-        plan.plan_hash,
-        locationPolicyReason,
+        accessPointPlan.plan_id,
+        accessPointPlan.plan_hash,
+        accessPointPolicyReason,
+      );
+    },
+    onSuccess: (confirmation) => {
+      setAccessPointPlan((current) =>
+        current ? { ...current, state: confirmation.state } : current,
       );
     },
   });
 
   const handleSubmit = () => {
-    const isDaily = tariffType === 'daily';
-
     const data: TariffCreateRequest | TariffUpdateRequest = {
       name,
       description: description || undefined,
@@ -233,9 +271,11 @@ export default function AdminTariffCreate() {
     }
   };
 
-  const toggleLocation = (locationId: string) => {
-    setSelectedLocationIds((prev) =>
-      prev.includes(locationId) ? prev.filter((id) => id !== locationId) : [...prev, locationId],
+  const toggleAccessPoint = (accessPointId: string) => {
+    setSelectedAccessPointIds((prev) =>
+      prev.includes(accessPointId)
+        ? prev.filter((id) => id !== accessPointId)
+        : [...prev, accessPointId],
     );
   };
 
@@ -271,8 +311,24 @@ export default function AdminTariffCreate() {
   };
 
   const isLoading = createMutation.isPending || updateMutation.isPending;
-  const isLocationCatalogReady = !isLoadingPublicLocations && !isPublicLocationsError;
-  const isRussian = (i18n.resolvedLanguage || i18n.language || 'ru').startsWith('ru');
+  const isAccessPointCatalogReady = !isLoadingAccessPoints && !isAccessPointsError;
+  const accessPointPolicyChanged =
+    [...selectedAccessPointIds].sort().join('|') !== [...initialAccessPointIds].sort().join('|');
+  const requiresAccessPointSelection = !isDaily && (!isEdit || accessPointPolicyEditable);
+  const hasValidAccessPointSelection =
+    !requiresAccessPointSelection || selectedAccessPointIds.length > 0;
+  const hasValidAccessPointPolicyReason =
+    !accessPointPolicyChanged || accessPointPolicyReason.trim().length >= 3;
+  const saveError = createMutation.error || updateMutation.error;
+  const saveErrorStatus = (saveError as { response?: { status?: number } } | null)?.response
+    ?.status;
+  const accessPointPlanError =
+    prepareAccessPointPlanMutation.error || confirmAccessPointPlanMutation.error;
+
+  const reloadAccessPointPolicy = () => {
+    void queryClient.invalidateQueries({ queryKey: ['admin-access-point-catalog'] });
+    if (isEdit) void refetchAccessPointPolicy();
+  };
 
   // Validation like bot: name 2-50 chars, device_limit >= 1, tier_level 1-10
   const isNameValid = name.length >= 2 && name.length <= 50;
@@ -374,16 +430,21 @@ export default function AdminTariffCreate() {
             </div>
           </button>
           <button
-            onClick={() => setTariffType('daily')}
-            className="card group p-6 text-left transition-colors hover:border-warning-500/50"
+            type="button"
+            disabled
+            aria-disabled="true"
+            className="card cursor-not-allowed p-6 text-left opacity-60"
           >
             <div className="flex items-center gap-4">
-              <div className="rounded-lg bg-warning-500/20 p-3 text-warning-400 group-hover:bg-warning-500/30">
+              <div className="rounded-lg bg-warning-500/20 p-3 text-warning-400">
                 <SunIcon className="h-6 w-6" />
               </div>
               <div>
                 <h3 className="font-medium text-dark-100">{t('admin.tariffs.dailyTariff')}</h3>
                 <p className="mt-1 text-sm text-dark-400">{t('admin.tariffs.dailyTariffDesc')}</p>
+                <p className="mt-2 text-xs text-warning-300" role="status">
+                  {t('admin.tariffs.accessPoints.dailyUnsupported')}
+                </p>
               </div>
             </div>
           </button>
@@ -391,8 +452,6 @@ export default function AdminTariffCreate() {
       </div>
     );
   }
-
-  const isDaily = tariffType === 'daily';
 
   return (
     <div className="space-y-6">
@@ -428,7 +487,7 @@ export default function AdminTariffCreate() {
         style={{ WebkitOverflowScrolling: 'touch' }}
       >
         {(isDaily
-          ? (['basic', 'servers', 'extra'] as const)
+          ? (['basic', 'extra'] as const)
           : (['basic', 'periods', 'servers', 'extra'] as const)
         ).map((tab) => (
           <button
@@ -444,7 +503,7 @@ export default function AdminTariffCreate() {
           >
             {tab === 'basic' && t('admin.tariffs.tabBasic')}
             {tab === 'periods' && t('admin.tariffs.tabPeriods')}
-            {tab === 'servers' && t('admin.tariffs.tabServers')}
+            {tab === 'servers' && t('admin.tariffs.tabAccessPoints')}
             {tab === 'extra' && t('admin.tariffs.tabExtra')}
           </button>
         ))}
@@ -713,38 +772,63 @@ export default function AdminTariffCreate() {
           <div className="card space-y-4">
             <div>
               <h4 className="text-sm font-medium text-dark-200">
-                {t('admin.tariffs.publicLocations.title')}
+                {t('admin.tariffs.accessPoints.title')}
               </h4>
-              <p className="text-sm text-dark-400">{t('admin.tariffs.publicLocations.hint')}</p>
+              <p className="text-sm text-dark-400">{t('admin.tariffs.accessPoints.hint')}</p>
             </div>
-            {isLoadingPublicLocations ? (
+            {!accessPointPolicyEditable && isEdit ? (
+              <div className="space-y-2 rounded-lg border border-warning-500/30 bg-warning-500/10 p-3">
+                <p className="text-sm text-warning-300" role="status">
+                  {accessPointPolicyReadOnlyReason ===
+                  'location_managed_tariff_uses_public_locations'
+                    ? t('admin.tariffs.accessPoints.locationManagedReadOnly')
+                    : t('admin.tariffs.accessPoints.legacyReadOnly')}
+                </p>
+                {preservedLegacyAccessPoints.length > 0 && (
+                  <div>
+                    <p className="text-xs font-medium text-dark-200">
+                      {t('admin.tariffs.accessPoints.preservedLegacyTitle')}
+                    </p>
+                    <ul className="mt-1 flex flex-wrap gap-2 text-xs text-dark-300">
+                      {preservedLegacyAccessPoints.map((accessPoint) => (
+                        <li key={accessPoint.id} className="rounded bg-dark-800 px-2 py-1">
+                          {accessPoint.flag ? `${accessPoint.flag} ` : ''}
+                          {accessPoint.title}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </div>
+            ) : null}
+            {isLoadingAccessPoints ? (
               <p className="py-4 text-center text-dark-400" role="status">
-                {t('admin.tariffs.publicLocations.loading')}
+                {t('admin.tariffs.accessPoints.loading')}
               </p>
-            ) : isPublicLocationsError ? (
+            ) : isAccessPointsError ? (
               <p className="py-4 text-center text-error-400" role="alert">
-                {t('admin.tariffs.publicLocations.loadError')}
+                {t('admin.tariffs.accessPoints.loadError')}
               </p>
-            ) : publicLocations.length === 0 ? (
+            ) : accessPoints.length === 0 ? (
               <p className="py-4 text-center text-dark-500" role="status">
-                {t('admin.tariffs.publicLocations.empty')}
+                {t('admin.tariffs.accessPoints.empty')}
               </p>
             ) : (
               <div
                 className="space-y-2"
                 role="group"
-                aria-label={t('admin.tariffs.publicLocations.ariaLabel')}
+                aria-label={t('admin.tariffs.accessPoints.ariaLabel')}
               >
-                {publicLocations.map((location) => {
-                  const isSelected = selectedLocationIds.includes(location.id);
+                {accessPoints.map((accessPoint) => {
+                  const isSelected = selectedAccessPointIds.includes(accessPoint.id);
                   const disabled =
-                    !location.tariff_assignable ||
-                    (location.lifecycle !== 'ready' && location.lifecycle !== 'published') ||
-                    location.visibility !== 'visible' ||
-                    location.health !== 'healthy';
+                    isDaily ||
+                    !accessPointPolicyEditable ||
+                    !accessPoint.tariff_assignable ||
+                    accessPoint.state !== 'verified';
                   return (
                     <label
-                      key={location.id}
+                      key={accessPoint.id}
                       className={`flex w-full items-center gap-3 rounded-lg p-3 transition-colors ${
                         disabled
                           ? 'cursor-not-allowed bg-dark-800/50 text-dark-500'
@@ -755,212 +839,130 @@ export default function AdminTariffCreate() {
                         type="checkbox"
                         checked={isSelected}
                         disabled={disabled}
-                        onChange={() => toggleLocation(location.id)}
+                        onChange={() => toggleAccessPoint(accessPoint.id)}
                         className="h-4 w-4 accent-accent-500"
                       />
-                      <span className="flex-1 text-sm font-medium">
-                        {location.flag ? `${location.flag} ` : ''}
-                        {isRussian
-                          ? location.label_ru || location.label_en
-                          : location.label_en || location.label_ru}
-                      </span>
-                      <span className="text-xs text-dark-500">{location.lifecycle}</span>
+                      <span className="flex-1 text-sm font-medium">{accessPoint.title}</span>
+                      <span className="text-xs text-dark-500">{accessPoint.state}</span>
                     </label>
                   );
                 })}
               </div>
             )}
             <label className="block text-sm text-dark-300">
-              {t('admin.tariffs.publicLocations.reason')}
+              {t('admin.tariffs.accessPoints.reason')}
               <input
-                value={locationPolicyReason}
-                onChange={(event) => setLocationPolicyReason(event.target.value)}
+                value={accessPointPolicyReason}
+                onChange={(event) => setAccessPointPolicyReason(event.target.value)}
                 minLength={3}
                 className="input mt-1 w-full"
-                aria-describedby="location-policy-note"
+                aria-describedby="access-point-policy-note"
               />
             </label>
-            <p id="location-policy-note" className="text-xs text-dark-500">
-              {t('admin.tariffs.publicLocations.note')}
+            <p id="access-point-policy-note" className="text-xs text-dark-500">
+              {t('admin.tariffs.accessPoints.note')}
             </p>
             <div className="flex items-center justify-between gap-3 text-sm text-dark-300">
               <span>
-                {t('admin.tariffs.publicLocations.selected', { count: selectedLocationIds.length })}
+                {t('admin.tariffs.accessPoints.selected', { count: selectedAccessPointIds.length })}
               </span>
-              {isEdit && (
-                <button
-                  type="button"
-                  className="btn-secondary"
-                  disabled={
-                    !isLocationCatalogReady ||
-                    preparePlanMutation.isPending ||
-                    selectedLocationIds.length === 0 ||
-                    locationPolicyReason.trim().length < 3
-                  }
-                  onClick={() => preparePlanMutation.mutate()}
-                >
-                  {preparePlanMutation.isPending
-                    ? t('admin.tariffs.publicLocations.preparing')
-                    : t('admin.tariffs.publicLocations.prepare')}
-                </button>
-              )}
             </div>
-            {preparePlanMutation.isSuccess && (
-              <div className="space-y-2 text-xs text-success-400" role="status">
-                <p>
-                  {t('admin.tariffs.publicLocations.prepared', {
-                    planId: preparePlanMutation.data.plan_id,
-                    count: preparePlanMutation.data.affected_subscription_count,
-                  })}
+            {isEdit && (
+              <div className="space-y-3 border-t border-dark-700 pt-3">
+                <p className="text-xs text-dark-500" role="status">
+                  {t('admin.tariffs.accessPoints.executionUnavailable')}
                 </p>
-                <button
-                  type="button"
-                  className="btn-secondary"
-                  disabled={confirmPlanMutation.isPending || locationPolicyReason.trim().length < 3}
-                  onClick={() => confirmPlanMutation.mutate()}
-                >
-                  {confirmPlanMutation.isPending
-                    ? t('admin.tariffs.publicLocations.confirming')
-                    : t('admin.tariffs.publicLocations.confirm')}
-                </button>
-              </div>
-            )}
-            {preparePlanMutation.isError && (
-              <p className="text-xs text-error-400" role="alert">
-                {t('admin.tariffs.publicLocations.prepareError')}
-              </p>
-            )}
-            {confirmPlanMutation.isSuccess && (
-              <p className="text-xs text-success-400" role="status">
-                {t('admin.tariffs.publicLocations.confirmed')}
-              </p>
-            )}
-            {confirmPlanMutation.isError && (
-              <p className="text-xs text-error-400" role="alert">
-                {t('admin.tariffs.publicLocations.confirmError')}
-              </p>
-            )}
-          </div>
-          {/* External Squad */}
-          {externalSquads.length > 0 && (
-            <div className="card space-y-4">
-              <h4 className="text-sm font-medium text-dark-200">
-                {t('admin.tariffs.externalSquadTitle')}
-              </h4>
-              <p className="text-sm text-dark-400">{t('admin.tariffs.externalSquadHint')}</p>
-              <div className="space-y-2">
-                <button
-                  type="button"
-                  onClick={() => setSelectedExternalSquad(null)}
-                  className={`flex w-full items-center gap-3 rounded-lg p-3 text-left transition-colors ${
-                    !selectedExternalSquad
-                      ? isDaily
-                        ? 'bg-warning-500/20 text-warning-300'
-                        : 'bg-accent-500/20 text-accent-300'
-                      : 'bg-dark-800 text-dark-300 hover:bg-dark-700'
-                  }`}
-                >
-                  <div
-                    className={`flex h-5 w-5 items-center justify-center rounded-full ${
-                      !selectedExternalSquad
-                        ? isDaily
-                          ? 'bg-warning-500 text-white'
-                          : 'bg-accent-500 text-white'
-                        : 'bg-dark-600'
-                    }`}
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    className="btn-secondary"
+                    disabled={
+                      accessPointPolicyReason.trim().length < 3 ||
+                      prepareAccessPointPlanMutation.isPending
+                    }
+                    onClick={() => prepareAccessPointPlanMutation.mutate()}
                   >
-                    {!selectedExternalSquad && <CheckIcon />}
+                    {prepareAccessPointPlanMutation.isPending
+                      ? t('admin.tariffs.accessPoints.preparingPlan')
+                      : t('admin.tariffs.accessPoints.preparePlan')}
+                  </button>
+                  {accessPointPlan?.state === 'previewed' && (
+                    <button
+                      type="button"
+                      className="btn-secondary"
+                      disabled={
+                        accessPointPolicyReason.trim().length < 3 ||
+                        confirmAccessPointPlanMutation.isPending
+                      }
+                      onClick={() => confirmAccessPointPlanMutation.mutate()}
+                    >
+                      {confirmAccessPointPlanMutation.isPending
+                        ? t('admin.tariffs.accessPoints.confirmingPlan')
+                        : t('admin.tariffs.accessPoints.confirmPlan')}
+                    </button>
+                  )}
+                </div>
+                {accessPointPlanError && (
+                  <p className="text-sm text-error-300" role="alert">
+                    {t('admin.tariffs.accessPoints.planError')}
+                  </p>
+                )}
+                {accessPointPlan && (
+                  <div
+                    className="space-y-2 rounded-lg border border-dark-700 bg-dark-800/60 p-3"
+                    role="status"
+                  >
+                    <p className="text-sm font-medium text-dark-100">
+                      {accessPointPlan.state === 'confirmed_execution_disabled'
+                        ? t('admin.tariffs.accessPoints.planConfirmed')
+                        : t('admin.tariffs.accessPoints.planPrepared')}
+                    </p>
+                    <p className="text-xs text-dark-400">
+                      {t('admin.tariffs.accessPoints.planScope', {
+                        subscriptions: accessPointPlan.affected_subscription_count,
+                        identities: accessPointPlan.affected_identity_count,
+                        excluded:
+                          accessPointPlan.excluded_subscription_count +
+                          accessPointPlan.missing_active_term_subscription_count,
+                      })}
+                    </p>
+                    {accessPointPlan.preserved_legacy_access_points.length > 0 && (
+                      <p className="text-xs text-dark-300">
+                        {t('admin.tariffs.accessPoints.planPreservedLegacy')}:{' '}
+                        {accessPointPlan.preserved_legacy_access_points
+                          .map((point) => point.title)
+                          .join(', ')}
+                      </p>
+                    )}
+                    {accessPointPlan.target_access_points.length > 0 && (
+                      <p className="text-xs text-dark-300">
+                        {t('admin.tariffs.accessPoints.planTarget')}:{' '}
+                        {accessPointPlan.target_access_points
+                          .map((point) => point.title)
+                          .join(', ')}
+                      </p>
+                    )}
+                    {accessPointPlan.added_access_points.length > 0 && (
+                      <p className="text-xs text-success-300">
+                        {t('admin.tariffs.accessPoints.planAdded')}:{' '}
+                        {accessPointPlan.added_access_points.map((point) => point.title).join(', ')}
+                      </p>
+                    )}
+                    {accessPointPlan.removed_access_points.length > 0 && (
+                      <p className="text-xs text-warning-300">
+                        {t('admin.tariffs.accessPoints.planRemoved')}:{' '}
+                        {accessPointPlan.removed_access_points
+                          .map((point) => point.title)
+                          .join(', ')}
+                      </p>
+                    )}
+                    {accessPointPlan.requires_dedicated_equivalence_preparation && (
+                      <p className="text-xs text-warning-300">
+                        {t('admin.tariffs.accessPoints.planLegacyBlocked')}
+                      </p>
+                    )}
                   </div>
-                  <span className="flex-1 text-sm font-medium">
-                    {t('admin.tariffs.noExternalSquad')}
-                  </span>
-                </button>
-                {externalSquads.map((squad: ExternalSquadInfo) => {
-                  const isSelected = selectedExternalSquad === squad.uuid;
-                  return (
-                    <button
-                      key={squad.uuid}
-                      type="button"
-                      onClick={() => setSelectedExternalSquad(squad.uuid)}
-                      className={`flex w-full items-center gap-3 rounded-lg p-3 text-left transition-colors ${
-                        isSelected
-                          ? isDaily
-                            ? 'bg-warning-500/20 text-warning-300'
-                            : 'bg-accent-500/20 text-accent-300'
-                          : 'bg-dark-800 text-dark-300 hover:bg-dark-700'
-                      }`}
-                    >
-                      <div
-                        className={`flex h-5 w-5 items-center justify-center rounded-full ${
-                          isSelected
-                            ? isDaily
-                              ? 'bg-warning-500 text-white'
-                              : 'bg-accent-500 text-white'
-                            : 'bg-dark-600'
-                        }`}
-                      >
-                        {isSelected && <CheckIcon />}
-                      </div>
-                      <span className="min-w-0 flex-1 truncate text-sm font-medium">
-                        {squad.name}
-                      </span>
-                      <span className="shrink-0 text-xs text-dark-500">
-                        {squad.members_count} {t('admin.tariffs.externalSquadUsers')}
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-
-          {/* Servers */}
-          <div className="card space-y-4">
-            <h4 className="text-sm font-medium text-dark-200">{t('admin.tariffs.serversTitle')}</h4>
-            <p className="text-sm text-dark-400">{t('admin.tariffs.serversTabHint')}</p>
-            {servers.length === 0 ? (
-              <p className="py-4 text-center text-dark-500">
-                {t('admin.tariffs.noServersAvailable')}
-              </p>
-            ) : (
-              <div className="space-y-2">
-                {servers.map((server: ServerInfo) => {
-                  const isSelected = selectedSquads.includes(server.squad_uuid);
-                  return (
-                    <button
-                      key={server.id}
-                      type="button"
-                      onClick={() => toggleServer(server.squad_uuid)}
-                      className={`flex w-full items-center gap-3 rounded-lg p-3 text-left transition-colors ${
-                        isSelected
-                          ? isDaily
-                            ? 'bg-warning-500/20 text-warning-300'
-                            : 'bg-accent-500/20 text-accent-300'
-                          : 'bg-dark-800 text-dark-300 hover:bg-dark-700'
-                      }`}
-                    >
-                      <div
-                        className={`flex h-5 w-5 items-center justify-center rounded ${
-                          isSelected
-                            ? isDaily
-                              ? 'bg-warning-500 text-white'
-                              : 'bg-accent-500 text-white'
-                            : 'bg-dark-600'
-                        }`}
-                      >
-                        {isSelected && <CheckIcon />}
-                      </div>
-                      <span className="flex-1 text-sm font-medium">
-                        <Twemoji options={{ className: 'twemoji', folder: 'svg', ext: '.svg' }}>
-                          {server.display_name}
-                        </Twemoji>
-                      </span>
-                      {server.country_code && (
-                        <span className="text-xs text-dark-500">{server.country_code}</span>
-                      )}
-                    </button>
-                  );
-                })}
+                )}
               </div>
             )}
           </div>
@@ -1399,12 +1401,30 @@ export default function AdminTariffCreate() {
 
       {/* Footer */}
       <div className="card space-y-3">
-        {!isLocationCatalogReady && (
-          <p className="text-sm text-error-400" role={isPublicLocationsError ? 'alert' : 'status'}>
-            {isLoadingPublicLocations
-              ? t('admin.tariffs.publicLocations.catalogLoadingSaveBlocked')
-              : t('admin.tariffs.publicLocations.catalogErrorSaveBlocked')}
+        {!isAccessPointCatalogReady && (
+          <p className="text-sm text-error-400" role={isAccessPointsError ? 'alert' : 'status'}>
+            {isLoadingAccessPoints
+              ? t('admin.tariffs.accessPoints.catalogLoadingSaveBlocked')
+              : t('admin.tariffs.accessPoints.catalogErrorSaveBlocked')}
           </p>
+        )}
+        {saveError && (
+          <div className="rounded-lg border border-error-500/30 bg-error-500/10 p-3" role="alert">
+            <p className="text-sm text-error-300">
+              {saveErrorStatus === 409
+                ? t('admin.tariffs.accessPoints.stalePolicyError')
+                : t('admin.tariffs.accessPoints.saveError')}
+            </p>
+            {saveErrorStatus === 409 && (
+              <button
+                type="button"
+                className="btn-secondary mt-2"
+                onClick={reloadAccessPointPolicy}
+              >
+                {t('admin.tariffs.accessPoints.reloadPolicy')}
+              </button>
+            )}
+          </div>
         )}
         {validationErrors.length > 0 && (
           <div className="rounded-lg border border-error-500/30 bg-error-500/10 p-3">
@@ -1421,7 +1441,13 @@ export default function AdminTariffCreate() {
         <div className="flex justify-end">
           <button
             onClick={handleSubmit}
-            disabled={!isValid || isLoading || !isLocationCatalogReady}
+            disabled={
+              !isValid ||
+              isLoading ||
+              !isAccessPointCatalogReady ||
+              !hasValidAccessPointSelection ||
+              !hasValidAccessPointPolicyReason
+            }
             className="btn-primary flex items-center gap-2"
           >
             {isLoading && <RefreshIcon spinning />}

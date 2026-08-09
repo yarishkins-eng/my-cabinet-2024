@@ -152,6 +152,33 @@ export interface PublicLocationInfo {
   selected?: boolean;
 }
 
+export interface AccessPointInfo {
+  id: string;
+  title: string;
+  state: 'verified' | 'needs_verification' | 'needs_reconcile' | 'retired';
+  reason: string | null;
+  tariff_assignable: boolean;
+  presentation_revision: number;
+  entitlement_revision: number;
+  selected?: boolean;
+}
+
+export interface TariffAccessPointPolicy {
+  mode: string;
+  editable: boolean;
+  reason?: string;
+  policy_revision: number;
+  access_points: AccessPointInfo[];
+  preserved_legacy_access_points?: PublicAccessPointLabel[];
+  execution_enabled: false;
+}
+
+export interface PublicAccessPointLabel {
+  id: string;
+  title: string;
+  flag?: string | null;
+}
+
 export interface EntitlementPlanPreview {
   plan_id: string;
   state: 'previewed' | 'confirmed_execution_disabled';
@@ -166,6 +193,18 @@ export interface EntitlementPlanConfirmation {
   state: 'confirmed_execution_disabled';
   plan_hash: string;
   execution_enabled: false;
+}
+
+export interface AccessPointPlanPreview extends EntitlementPlanPreview {
+  affected_identity_count: number;
+  excluded_subscription_count: number;
+  missing_active_term_subscription_count: number;
+  preserved_legacy_access_points: PublicAccessPointLabel[];
+  preserved_access_points?: PublicAccessPointLabel[];
+  target_access_points: PublicAccessPointLabel[];
+  added_access_points: PublicAccessPointLabel[];
+  removed_access_points: PublicAccessPointLabel[];
+  requires_dedicated_equivalence_preparation: boolean;
 }
 
 export interface TariffUpdateRequest {
@@ -297,6 +336,58 @@ export const tariffsApi = {
   getPublicLocationCatalog: async (): Promise<PublicLocationInfo[]> => {
     const response = await apiClient.get('/cabinet/admin/public-locations/catalog');
     return response.data.locations;
+  },
+
+  // Host-title access points are opaque product IDs.  This DTO never exposes
+  // RemnaWave Host/Squad identities or implementation metadata.
+  getAccessPointCatalog: async (): Promise<AccessPointInfo[]> => {
+    const response = await apiClient.get('/cabinet/admin/access-points/catalog');
+    return response.data.access_points;
+  },
+
+  getTariffAccessPointPolicy: async (tariffId: number): Promise<TariffAccessPointPolicy> => {
+    const response = await apiClient.get(`/cabinet/admin/tariffs/${tariffId}/access-points`);
+    return response.data;
+  },
+
+  replaceTariffAccessPointPolicy: async (
+    tariffId: number,
+    accessPointIds: string[],
+    expectedRevision: number,
+    reason: string,
+  ): Promise<{ tariff_id: number; mode: string; policy_revision: number }> => {
+    const response = await apiClient.put(`/cabinet/admin/tariffs/${tariffId}/access-points`, {
+      access_point_ids: accessPointIds,
+      expected_revision: expectedRevision,
+      reason,
+    });
+    return response.data;
+  },
+
+  prepareTariffAccessPointPlan: async (
+    tariffId: number,
+    reason: string,
+  ): Promise<AccessPointPlanPreview> => {
+    const response = await apiClient.post(
+      `/cabinet/admin/tariffs/${tariffId}/access-points/prepare-plan`,
+      {
+        reason,
+      },
+    );
+    return response.data;
+  },
+
+  confirmTariffAccessPointPlan: async (
+    tariffId: number,
+    planId: string,
+    planHash: string,
+    reason: string,
+  ): Promise<EntitlementPlanConfirmation> => {
+    const response = await apiClient.post(
+      `/cabinet/admin/tariffs/${tariffId}/access-points/plans/${planId}/confirm`,
+      { plan_hash: planHash, reason },
+    );
+    return response.data;
   },
 
   getTariffLocationPolicy: async (
