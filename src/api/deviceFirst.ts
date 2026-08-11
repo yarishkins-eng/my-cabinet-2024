@@ -37,6 +37,7 @@ export interface DeviceFirstOptions {
   tariff?: {
     id: number;
     name: string;
+    description?: string | null;
     traffic_limit_gb: number;
     base_device_limit: number;
     pricing_revision: number;
