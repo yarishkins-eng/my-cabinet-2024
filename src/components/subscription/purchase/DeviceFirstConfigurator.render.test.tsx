@@ -34,6 +34,7 @@ const options: DeviceFirstOptions = {
   tariff: {
     id: 7,
     name: 'Premium',
+    description: 'Unlimited traffic\nWorks with Russian apps',
     traffic_limit_gb: 0,
     base_device_limit: 2,
     pricing_revision: 3,
@@ -130,6 +131,8 @@ describe('DeviceFirstConfigurator real state rendering', () => {
     expect(html).toContain('300,50 ₽');
     expect(html).toContain('deviceFirst.deviceCount:2');
     expect(html).toContain('deviceFirst.perDeviceMonth:150');
+    expect(html).toContain('Unlimited traffic\nWorks with Russian apps');
+    expect(html).not.toContain('deviceFirst.description');
     expect(html).not.toContain('deviceFirst.eyebrow');
     expect(html).not.toContain('role="dialog"');
   });

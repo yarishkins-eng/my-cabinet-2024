@@ -738,7 +738,13 @@ export function DeviceFirstConfigurator({
     >
       <div className="mb-6" aria-hidden={modalOpen || undefined} inert={modalOpen || undefined}>
         <h2 className="text-xl font-bold text-dark-50">{options.tariff?.name}</h2>
-        <p className="mt-2 text-sm text-dark-400">{t('deviceFirst.description')}</p>
+        {options.tariff?.description ? (
+          <p className="mt-2 whitespace-pre-line text-sm text-dark-400">
+            {options.tariff.description}
+          </p>
+        ) : (
+          <p className="mt-2 text-sm text-dark-400">{t('deviceFirst.description')}</p>
+        )}
       </div>
 
       {!checkout && initialCheckoutId && restoredCheckout.isLoading && (
