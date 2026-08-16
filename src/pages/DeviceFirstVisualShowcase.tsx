@@ -106,6 +106,15 @@ const states: DeviceFirstUiState[] = [
   'conflict',
 ];
 
+// Экран разбора заказа. Раньше он был один на все причины и всем говорил «платёж получен»;
+// с пункта 4.2б их три, и разница между ними — деньги клиента. Держим все три рядом:
+// проверять их можно только глазами, сравнивая формулировки друг с другом.
+const reviewStates: { label: string; money: DeviceFirstCheckout['money_state'] }[] = [
+  { label: 'operator_review · денег не было', money: 'no_money' },
+  { label: 'operator_review · деньги в полёте', money: 'money_in_flight' },
+  { label: 'operator_review · вердикта нет', money: undefined },
+];
+
 export default function DeviceFirstVisualShowcase() {
   return (
     <main className="min-h-screen bg-dark-950 px-4 py-8 text-dark-50">
@@ -140,6 +149,24 @@ export default function DeviceFirstVisualShowcase() {
               <DeviceFirstConfigurator
                 options={options}
                 fixtureCheckout={checkout(state)}
+                fixtureMethods={[
+                  { key: 'sbp', provider_code: 2 },
+                  { key: 'cards_ru', provider_code: 11 },
+                ]}
+              />
+            </article>
+          ))}
+          {reviewStates.map(({ label, money }) => (
+            <article key={label} data-state={`operator_review:${money ?? 'absent'}`}>
+              <div className="mb-2 font-mono text-xs text-dark-500">{label}</div>
+              <DeviceFirstConfigurator
+                options={options}
+                fixtureCheckout={{
+                  ...checkout('operator_review'),
+                  terminal_reason:
+                    money === 'no_money' ? 'provider_invoice_missing_or_elapsed_expiry' : null,
+                  money_state: money,
+                }}
                 fixtureMethods={[
                   { key: 'sbp', provider_code: 2 },
                   { key: 'cards_ru', provider_code: 11 },
