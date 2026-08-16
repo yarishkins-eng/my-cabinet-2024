@@ -18,6 +18,7 @@ import {
   type DeviceFirstPaymentAttempt,
 } from '@/api/deviceFirst';
 import { getGlassColors } from '@/utils/glassTheme';
+import { operatorReviewCopy } from '@/utils/deviceFirstMoney';
 import { useTheme } from '@/hooks/useTheme';
 
 interface Props {
@@ -1392,16 +1393,18 @@ export function DeviceFirstConfigurator({
           <div className="space-y-4">
             <StateMessage
               title={
-                checkout.ui_state === 'operator_review' ||
-                checkout.terminal_reason === 'payment_amount_mismatch'
-                  ? t('deviceFirst.paymentMismatchTitle')
-                  : t('deviceFirst.refreshTitle')
+                checkout.ui_state === 'operator_review'
+                  ? t(operatorReviewCopy(checkout.money_state).titleKey)
+                  : checkout.terminal_reason === 'payment_amount_mismatch'
+                    ? t('deviceFirst.paymentMismatchTitle')
+                    : t('deviceFirst.refreshTitle')
               }
               text={
-                checkout.ui_state === 'operator_review' ||
-                checkout.terminal_reason === 'payment_amount_mismatch'
-                  ? t('deviceFirst.paymentMismatchText')
-                  : t('deviceFirst.refreshText')
+                checkout.ui_state === 'operator_review'
+                  ? t(operatorReviewCopy(checkout.money_state).textKey)
+                  : checkout.terminal_reason === 'payment_amount_mismatch'
+                    ? t('deviceFirst.paymentMismatchText')
+                    : t('deviceFirst.refreshText')
               }
             />
             {checkout.ui_state === 'operator_review' ? (
@@ -1513,7 +1516,9 @@ function deviceFirstErrorMessage(
     reconciliation_required: 'deviceFirst.errorPaymentChecking',
     legacy_trial_reconciliation_required: 'deviceFirst.errorLegacyTrialReconciliation',
     external_invoice_active: 'deviceFirst.errorPaymentChecking',
-    operator_review_required: 'deviceFirst.errorPaymentChecking',
+    // Свой текст, а не общий «мы проверяем созданный счёт, не оплачивайте повторно»:
+    // сюда человек попадает, когда пытается заплатить, и счёта у него может не быть вовсе.
+    operator_review_required: 'deviceFirst.errorOperatorReview',
     payment_method_required: 'deviceFirst.errorPaymentMethod',
     payment_method_unavailable: 'deviceFirst.errorPaymentMethod',
     payment_methods_load_failed: 'deviceFirst.errorPaymentMethodsLoad',

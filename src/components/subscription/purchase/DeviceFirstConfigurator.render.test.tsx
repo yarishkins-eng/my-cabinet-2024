@@ -271,11 +271,39 @@ describe('DeviceFirstConfigurator real state rendering', () => {
     const html = render({
       ...checkout('operator_review'),
       terminal_reason: 'post_paid_provider_terminal',
+      money_state: 'money_in_flight',
     });
 
     expect(html).toContain('deviceFirst.paymentMismatchTitle');
     expect(html).toContain('deviceFirst.paymentMismatchText');
     expect(html).toContain('deviceFirst.contactSupport');
     expect(html).not.toContain('deviceFirst.startNew');
+  });
+
+  // Пункт 4.2б. До него этот экран говорил «не оплачивайте» человеку, который как раз
+  // хотел заплатить: заказ 34 (`chuda27`) — брошенная корзина, денег не списано.
+  it('never claims a payment from a customer who did not pay', () => {
+    const html = render({
+      ...checkout('operator_review'),
+      terminal_reason: 'provider_invoice_missing_or_elapsed_expiry',
+      money_state: 'no_money',
+    });
+
+    expect(html).toContain('deviceFirst.reviewUnpaidText');
+    expect(html).not.toContain('deviceFirst.paymentMismatchText');
+    expect(html).toContain('deviceFirst.contactSupport');
+    // Запрет купить снова живёт в operator_hold и снимается миной F, не этим экраном.
+    expect(html).not.toContain('deviceFirst.startNew');
+  });
+
+  it('claims nothing about money when the backend did not send a verdict', () => {
+    const html = render({
+      ...checkout('operator_review'),
+      terminal_reason: 'direct_payment_binding_mismatch',
+    });
+
+    expect(html).toContain('deviceFirst.reviewUnknownText');
+    expect(html).not.toContain('deviceFirst.paymentMismatchText');
+    expect(html).not.toContain('deviceFirst.reviewUnpaidText');
   });
 });
