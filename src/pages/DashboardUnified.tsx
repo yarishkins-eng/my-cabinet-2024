@@ -26,6 +26,7 @@ import type { HomeMeta, HomeActions } from '../components/home/types';
 import DeviceHintOverlay from '../components/home/DeviceHintOverlay';
 import { getDeviceHintSeen, setDeviceHintSeen } from '../utils/deviceHintTracking';
 import { isDeviceHintEligible } from '../utils/deviceHintEligibility';
+import { operatorReviewCopy } from '../utils/deviceFirstMoney';
 import { useSuccessNotification } from '../store/successNotification';
 import { deviceFirstApi } from '../api/deviceFirst';
 import {
@@ -378,14 +379,14 @@ export default function DashboardUnified() {
         >
           <div className="text-sm font-semibold text-accent-200">
             {recoveryVariant === 'operator'
-              ? t('deviceFirst.paymentMismatchTitle')
+              ? t(operatorReviewCopy(deviceFirstRecovery.money_state).titleKey)
               : recoveryVariant === 'processing'
                 ? t('deviceFirst.processing')
                 : t('deviceFirst.unfinishedOrder', 'Незавершённый заказ')}
           </div>
           <div className="mt-1 text-sm text-dark-300">
             {recoveryVariant === 'operator'
-              ? t('deviceFirst.paymentMismatchText')
+              ? t(operatorReviewCopy(deviceFirstRecovery.money_state).textKey)
               : recoveryVariant === 'processing'
                 ? t('deviceFirst.processingText')
                 : t('deviceFirst.awaitingPaymentSummary', {

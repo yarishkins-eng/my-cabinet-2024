@@ -74,6 +74,11 @@ export interface DeviceFirstCheckout {
   funding_state: string;
   provisioning_state: string;
   terminal_reason: string | null;
+  // Брали ли с клиента деньги. Считает бэкенд по фактам оплаты: ветка «по
+  // `terminal_reason`» здесь при поздней оплате сказала бы «денег не было», когда деньги
+  // есть. Приходит только на экране разбора и только от бэкенда с пунктом 4.2б —
+  // отсутствие ключа означает «не знаем», и текст обязан ничего не утверждать.
+  money_state?: 'no_money' | 'money_in_flight' | 'unknown' | null;
   ui_state: DeviceFirstUiState;
   created_subscription_id: number | null;
   current_device_limit: number | null;
