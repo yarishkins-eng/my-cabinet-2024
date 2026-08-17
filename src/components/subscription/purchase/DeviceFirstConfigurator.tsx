@@ -20,7 +20,7 @@ import {
 import { getGlassColors } from '@/utils/glassTheme';
 import { closedCartCopy, operatorReviewCopy } from '@/utils/deviceFirstMoney';
 import { useTheme } from '@/hooks/useTheme';
-import { hideBackButton } from '@telegram-apps/sdk-react';
+import { hideBackButton, showBackButton } from '@telegram-apps/sdk-react';
 
 interface Props {
   options: DeviceFirstOptions;
@@ -41,14 +41,27 @@ export function DeviceFirstConfigurator({
   const queryClient = useQueryClient();
   const { isDark } = useTheme();
   const g = getGlassColors(isDark);
+  const pendingLeaveRef = useRef<(() => void) | null>(null);
+  useEffect(
+    () => () => {
+      // Экран может размонтироваться, так и не уйдя к провайдеру: слушатель забираем с собой.
+      if (pendingLeaveRef.current) {
+        window.removeEventListener('pagehide', pendingLeaveRef.current);
+        pendingLeaveRef.current = null;
+      }
+    },
+    [],
+  );
   const leaveForProvider = useCallback((go: () => void) => {
     // 🔴 Мина W. Уходим со страницы мини-аппа на сайт провайдера целиком, и наш
     // документ вместе с подпиской на кнопку «Назад» перестаёт существовать. Сама
     // кнопка при этом остаётся нарисованной в шапке Telegram: нажатие уходит в чужой
     // документ, где нашего обработчика нет, — человек жмёт и не происходит ничего.
     // Гасим её перед уходом, чтобы в шапке остался только рабочий «Закрыть».
-    // Возвращается она сама: возврат с оплаты — это новая загрузка мини-аппа, и
-    // `mountBackButton` в `main.tsx` отрабатывает заново.
+    // Возвращается она сама на мобильных: возврат с оплаты — это новая загрузка
+    // мини-аппа, и `mountBackButton` в `main.tsx` отрабатывает заново. В Telegram Web,
+    // где мини-апп живёт в iframe, SDK на возврате не инициализируется — там кнопки не
+    // будет, и это лучше прежнего: раньше она была видимой и мёртвой.
     // Берём ту же функцию SDK, что и `AppWithNavigator` (`:3-8`), и так же оборачиваем
     // в try/catch: вне Telegram и до монтирования кнопки она бросает, а ронять из-за
     // шапки оплату нельзя.
@@ -64,8 +77,26 @@ export function DeviceFirstConfigurator({
       }
     };
     hide();
+    if (pendingLeaveRef.current) {
+      window.removeEventListener('pagehide', pendingLeaveRef.current);
+    }
+    pendingLeaveRef.current = hide;
     window.addEventListener('pagehide', hide, { once: true });
-    go();
+    try {
+      go();
+    } catch (error) {
+      // 🔴 Ушли не мы, а исключение: документ остался прежним, экран живой — значит
+      // мёртвой кнопку делать нельзя, её надо вернуть. Иначе человек остаётся на
+      // рабочем экране вообще без «Назад», и починит это только перезагрузка.
+      window.removeEventListener('pagehide', hide);
+      pendingLeaveRef.current = null;
+      try {
+        showBackButton();
+      } catch {
+        /* пусто: та же причина, что и выше */
+      }
+      throw error;
+    }
   }, []);
   const [period, setPeriod] = useState(
     options.default_period_days ?? options.period_options?.[0] ?? 30,
@@ -562,9 +593,26 @@ export function DeviceFirstConfigurator({
       checkout?.ui_state === 'cancelled' &&
       checkout.terminal_reason?.startsWith('provider_terminal:')
     ) {
+      // 🔴 Мина X, вторая половина. Провайдер закрыл счёт, и человека молча уводит на
+      // экран выбора — но выбор он делал сам: срок и число устройств лежат в строке
+      // заказа. Возвращаем их, если такой вариант ещё продаётся; тот же приём уже
+      // написан для слива витринного черновика (`legacyDraftCancelMutation`, :583-586).
+      // Без этого человек оформлял 8 устройств на полгода, а видит первый попавшийся
+      // вариант — и может не заметить, что покупает другое.
+      if (priceFor(checkout.period_days, checkout.selected_device_limit)) {
+        setPeriod(checkout.period_days);
+        setDevices(checkout.selected_device_limit);
+      }
       returnToConfiguration();
     }
-  }, [checkout?.terminal_reason, checkout?.ui_state, returnToConfiguration]);
+  }, [
+    checkout?.terminal_reason,
+    checkout?.ui_state,
+    checkout?.period_days,
+    checkout?.selected_device_limit,
+    priceFor,
+    returnToConfiguration,
+  ]);
   const pendingPayment = useQuery({
     queryKey: ['device-first-pending-payment', checkout?.id],
     queryFn: () => deviceFirstApi.getPendingPayment(checkout!.id),
@@ -1086,6 +1134,10 @@ export function DeviceFirstConfigurator({
                   <p className="text-sm text-dark-300">
                     {t('deviceFirst.paymentMethodsAvailable')}
                   </p>
+                  {/* Мина W: предупреждение стоит ДО кнопок. Под ними на телефоне 375×667
+                      оно уходило за сгиб, а с клавиатуры и в скринридере читалось после
+                      того, как человек уже нажал. */}
+                  <p className="text-xs text-dark-400">{t('deviceFirst.leavingForProvider')}</p>
                   <div className="grid gap-2">
                     {methods.data.methods.map((method) => (
                       <button
@@ -1104,10 +1156,6 @@ export function DeviceFirstConfigurator({
                       </button>
                     ))}
                   </div>
-                  {/* Мина W: страница оплаты откроется вместо кабинета, и вернуться
-                      стрелкой оттуда нельзя. Говорим об этом заранее — одной строкой,
-                      без лишнего экрана и лишнего касания. */}
-                  <p className="text-xs text-dark-400">{t('deviceFirst.leavingForProvider')}</p>
                 </>
               ) : (
                 <div className="space-y-2">
@@ -1200,6 +1248,12 @@ export function DeviceFirstConfigurator({
             )}
           {checkout.settlement_mode === 'direct_purchase_v2' ? (
             <>
+              {(pendingPayment.data?.redirect_url || pendingPayment.data?.resume_allowed) && (
+                // Мина W: сюда человек приходит по карточке «Незавершённый заказ» с Главной,
+                // то есть уже потеряв контекст один раз. Обе кнопки ниже уводят на провайдера
+                // тем же путём, что и первая оплата, — предупреждение обязано быть и здесь.
+                <p className="text-xs text-dark-400">{t('deviceFirst.leavingForProvider')}</p>
+              )}
               {pendingPayment.data?.redirect_url && (
                 <button
                   type="button"
