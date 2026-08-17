@@ -59,14 +59,19 @@ describe('вердикт о деньгах доведён до всех экра
     // Без этой ветки предупреждение про живую ссылку исчезло бы вместе с состоянием
     // `operator_review`, а покупают как раз через мини-апп.
     const source = read('../components/subscription/purchase/DeviceFirstConfigurator.tsx');
-    expect(source).toContain('abandonedCartCopy(checkout?.terminal_reason, checkout?.money_state)');
-    expect(source).toContain('t(abandonedCart.titleKey)');
-    expect(source).toContain('t(abandonedCart.textKey)');
+    expect(source).toContain('closedCartCopy(checkout?.terminal_reason, checkout?.money_state)');
+    expect(source).toContain('t(closedCart.titleKey)');
+    expect(source).toContain('t(closedCart.textKey)');
   });
 
   it('мина F: ключи закрытой корзины есть во всех четырёх языках', () => {
     for (const language of ['ru', 'en', 'zh', 'fa']) {
-      for (const key of ['abandonedCartTitle', 'abandonedCartText']) {
+      for (const key of [
+        'abandonedCartTitle',
+        'abandonedCartText',
+        'lateCreditTitle',
+        'lateCreditText',
+      ]) {
         expect(locale(language).deviceFirst[key], `${language}.${key}`).toBeTruthy();
       }
     }
@@ -80,6 +85,15 @@ describe('вердикт о деньгах доведён до всех экра
     expect(ru).toContain('баланс');
     expect(ru).toContain('не оформится');
     expect(locale('en').deviceFirst.abandonedCartText.toLowerCase()).toContain('do not use it');
+  });
+
+  it('мина F: поздней оплате не говорят «деньги не списаны»', () => {
+    // Единственный случай, когда деньги есть. До этой ветки экран показывал ему общий
+    // «цена изменилась, деньги без подтверждения не списаны» — неправда дважды.
+    const ru = locale('ru').deviceFirst.lateCreditText;
+    expect(ru).toContain('баланс');
+    expect(ru).not.toContain('не списан');
+    expect(locale('en').deviceFirst.lateCreditText.toLowerCase()).toContain('balance');
   });
 
   it('текст «денег не было» предупреждает про старую ссылку и не обещает баланс', () => {

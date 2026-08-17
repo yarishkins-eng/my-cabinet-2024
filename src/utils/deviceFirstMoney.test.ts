@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { abandonedCartCopy, operatorReviewCopy } from './deviceFirstMoney';
+import { closedCartCopy, operatorReviewCopy } from './deviceFirstMoney';
 
 describe('operatorReviewCopy', () => {
   it('tells an unpaid customer the truth instead of claiming a payment', () => {
@@ -29,9 +29,9 @@ describe('operatorReviewCopy', () => {
   );
 });
 
-describe('abandonedCartCopy — мина F', () => {
+describe('closedCartCopy — мина F', () => {
   it('закрытая брошенная корзина получает предупреждение про живую ссылку', () => {
-    expect(abandonedCartCopy('cancelled_by_user_after_invoice', 'no_money')).toEqual({
+    expect(closedCartCopy('cancelled_by_user_after_invoice', 'no_money')).toEqual({
       titleKey: 'deviceFirst.abandonedCartTitle',
       textKey: 'deviceFirst.abandonedCartText',
     });
@@ -39,18 +39,33 @@ describe('abandonedCartCopy — мина F', () => {
 
   it('без поля от бэкенда экран деградирует в обычный текст, а не врёт про деньги', () => {
     // Кабинет выкладывается ПЕРВЫМ, поэтому какое-то время поля не будет вовсе.
-    expect(abandonedCartCopy('cancelled_by_user_after_invoice', undefined)).toBeNull();
-    expect(abandonedCartCopy('cancelled_by_user_after_invoice', null)).toBeNull();
+    expect(closedCartCopy('cancelled_by_user_after_invoice', undefined)).toBeNull();
+    expect(closedCartCopy('cancelled_by_user_after_invoice', null)).toBeNull();
   });
 
   it('если деньги всё-таки пришли, «не списали» не говорится', () => {
-    expect(abandonedCartCopy('cancelled_by_user_after_invoice', 'money_in_flight')).toBeNull();
-    expect(abandonedCartCopy('cancelled_by_user_after_invoice', 'unknown')).toBeNull();
+    expect(closedCartCopy('cancelled_by_user_after_invoice', 'money_in_flight')).toBeNull();
+    expect(closedCartCopy('cancelled_by_user_after_invoice', 'unknown')).toBeNull();
   });
 
   it('отмену объявила сама Platega — ссылка мертва, предупреждать не о чем', () => {
-    expect(abandonedCartCopy('provider_terminal:canceled', 'no_money')).toBeNull();
-    expect(abandonedCartCopy('checkout_expired', 'no_money')).toBeNull();
-    expect(abandonedCartCopy(null, 'no_money')).toBeNull();
+    expect(closedCartCopy('provider_terminal:canceled', 'no_money')).toBeNull();
+    expect(closedCartCopy('checkout_expired', 'no_money')).toBeNull();
+    expect(closedCartCopy(null, 'no_money')).toBeNull();
+  });
+});
+
+describe('closedCartCopy — поздняя оплата закрытого заказа', () => {
+  it('деньги пришли после закрытия — говорим про баланс, а не «цена изменилась»', () => {
+    expect(closedCartCopy('late_paid_wallet_credit', 'money_in_flight')).toEqual({
+      titleKey: 'deviceFirst.lateCreditTitle',
+      textKey: 'deviceFirst.lateCreditText',
+    });
+  });
+
+  it('без факта денег от бэкенда про баланс не утверждаем ничего', () => {
+    expect(closedCartCopy('late_paid_wallet_credit', undefined)).toBeNull();
+    expect(closedCartCopy('late_paid_wallet_credit', 'unknown')).toBeNull();
+    expect(closedCartCopy('late_paid_wallet_credit', 'no_money')).toBeNull();
   });
 });
