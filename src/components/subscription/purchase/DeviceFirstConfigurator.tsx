@@ -20,6 +20,7 @@ import {
 import { getGlassColors } from '@/utils/glassTheme';
 import { closedCartCopy, operatorReviewCopy } from '@/utils/deviceFirstMoney';
 import { useTheme } from '@/hooks/useTheme';
+import { hideBackButton, showBackButton } from '@telegram-apps/sdk-react';
 
 interface Props {
   options: DeviceFirstOptions;
@@ -40,6 +41,63 @@ export function DeviceFirstConfigurator({
   const queryClient = useQueryClient();
   const { isDark } = useTheme();
   const g = getGlassColors(isDark);
+  const pendingLeaveRef = useRef<(() => void) | null>(null);
+  useEffect(
+    () => () => {
+      // Экран может размонтироваться, так и не уйдя к провайдеру: слушатель забираем с собой.
+      if (pendingLeaveRef.current) {
+        window.removeEventListener('pagehide', pendingLeaveRef.current);
+        pendingLeaveRef.current = null;
+      }
+    },
+    [],
+  );
+  const leaveForProvider = useCallback((go: () => void) => {
+    // 🔴 Мина W. Уходим со страницы мини-аппа на сайт провайдера целиком, и наш
+    // документ вместе с подпиской на кнопку «Назад» перестаёт существовать. Сама
+    // кнопка при этом остаётся нарисованной в шапке Telegram: нажатие уходит в чужой
+    // документ, где нашего обработчика нет, — человек жмёт и не происходит ничего.
+    // Гасим её перед уходом, чтобы в шапке остался только рабочий «Закрыть».
+    // Возвращается она сама на мобильных: возврат с оплаты — это новая загрузка
+    // мини-аппа, и `mountBackButton` в `main.tsx` отрабатывает заново. В Telegram Web,
+    // где мини-апп живёт в iframe, SDK на возврате не инициализируется — там кнопки не
+    // будет, и это лучше прежнего: раньше она была видимой и мёртвой.
+    // Берём ту же функцию SDK, что и `AppWithNavigator` (`:3-8`), и так же оборачиваем
+    // в try/catch: вне Telegram и до монтирования кнопки она бросает, а ронять из-за
+    // шапки оплату нельзя.
+    // ⚠️ Второй заход по `pagehide`: три из шести переходов сначала пишут `?checkout=`
+    // в адрес, а эффект видимости кнопки завязан на смену адреса (`AppWithNavigator.tsx:143`)
+    // и может успеть включить её обратно. `pagehide` срабатывает последним, перед
+    // самой заменой документа.
+    const hide = () => {
+      try {
+        hideBackButton();
+      } catch {
+        /* пусто: шапкой владеет Telegram, её отказ не должен ломать оплату */
+      }
+    };
+    hide();
+    if (pendingLeaveRef.current) {
+      window.removeEventListener('pagehide', pendingLeaveRef.current);
+    }
+    pendingLeaveRef.current = hide;
+    window.addEventListener('pagehide', hide, { once: true });
+    try {
+      go();
+    } catch (error) {
+      // 🔴 Ушли не мы, а исключение: документ остался прежним, экран живой — значит
+      // мёртвой кнопку делать нельзя, её надо вернуть. Иначе человек остаётся на
+      // рабочем экране вообще без «Назад», и починит это только перезагрузка.
+      window.removeEventListener('pagehide', hide);
+      pendingLeaveRef.current = null;
+      try {
+        showBackButton();
+      } catch {
+        /* пусто: та же причина, что и выше */
+      }
+      throw error;
+    }
+  }, []);
   const [period, setPeriod] = useState(
     options.default_period_days ?? options.period_options?.[0] ?? 30,
   );
@@ -172,6 +230,23 @@ export function DeviceFirstConfigurator({
     }
   }, [fixtureCheckout, initialCheckoutId]);
 
+  // 🔴 Мина X, вторая половина. Заказ закрывается — сам ли (мина F, провайдер) или
+  // человеком, — и его уводит на экран выбора. Но выбор он делал сам: срок и число
+  // устройств лежат в строке заказа. Запоминаем их здесь, а применяет эффект
+  // синхронизации ниже: он единственный дожидается настоящих опций, а при холодной
+  // загрузке по адресу возврата строка приходит РАНЬШЕ них, и проверять цену прямо
+  // тут было бы рано — вариант молча признавался бы непродающимся.
+  // Без этого человек оформлял 5 устройств на 90 дней, а видел первый попавшийся
+  // вариант — то есть свой текущий лимит на месяц — и мог не заметить подмены.
+  const preferredSelectionRef = useRef<{ period: number; devices: number } | null>(null);
+  const rememberSelection = useCallback((row: DeviceFirstCheckout | null | undefined) => {
+    if (!row) return;
+    preferredSelectionRef.current = {
+      period: row.period_days,
+      devices: row.selected_device_limit,
+    };
+  }, []);
+
   const priceFor = useCallback(
     (days: number, deviceLimit: number) =>
       options.price_matrix
@@ -187,6 +262,60 @@ export function DeviceFirstConfigurator({
   // charge on the same-config resume (the server ignores the optimistic price
   // token for a resume and always invoices the row's immutable total).
   const resumedConfirmation = checkout?.ui_state === 'confirmation' ? checkout : null;
+
+  useEffect(() => {
+    // 🔴 Мина X. Тот же приём, что и для способа оплаты (поиск по `availableKeys`): зашитое начальное
+    // значение нельзя оставлять, если сервер такого варианта не даёт.
+    // `useState` выше берёт умолчание ОДИН раз, а при холодной загрузке по адресу
+    // возврата с Platega (`?checkout=`) опции ещё не пришли, и в выбор попадает
+    // «1 устройство» из запасного `?? 1`. Такого варианта нет ни в одном тарифе
+    // (`device_first_eligibility.py:50-53` запрещает значения ниже базового лимита),
+    // поэтому цена не находится НИ ДЛЯ ОДНОГО срока: все четыре рисуются
+    // «Недоступно», «Итого» пустое, кнопка мертва, и подсказки нет. Экран при этом
+    // лечится одним касанием по карточке устройства — но об этом ничто не говорит,
+    // а с клавиатуры до карточек не добраться: без выбранной ни одна не в tab-порядке.
+    // Владелец поймал это после отмены заказа; на деле сюда приводит и автоматический
+    // возврат при отмене счёта провайдером (эффект `provider_terminal:` ниже), то есть каждая брошенная
+    // корзина, оплачивавшаяся через СБП.
+    // 🔴 Гард обязателен: пока открыто подтверждение или показан заказ, под кнопкой
+    // оплаты стоит конкретная сумма, и молча поменять там ВЫБОР — значит показать цену
+    // другой конфигурации.
+    // ⚠️ Честно про границу: гард держит выбор, а не цену. Если сервер пришлёт новые
+    // цены на ТУ ЖЕ конфигурацию (например после `wallet_insufficient`, который сам
+    // инвалидирует опции), сумма под кнопкой пересчитается и без нас. Деньги при этом
+    // защищены сервером: он сверяет `expected_tariff_total_kopeks`.
+    if (confirmation || resumedConfirmation || checkout) return;
+    const preferred = preferredSelectionRef.current;
+    if (preferred && priceFor(preferred.period, preferred.devices)) {
+      // Вариант человека ещё продаётся — возвращаем именно его, а не первый попавшийся.
+      preferredSelectionRef.current = null;
+      setPeriod(preferred.period);
+      setDevices(preferred.devices);
+      return;
+    }
+    const availableDevices = options.device_options ?? [];
+    if (availableDevices.length && !availableDevices.includes(devices)) {
+      setDevices(availableDevices[0]);
+    }
+    const availablePeriods = options.period_options ?? [];
+    if (availablePeriods.length && !availablePeriods.includes(period)) {
+      setPeriod(
+        availablePeriods.includes(options.default_period_days ?? -1)
+          ? options.default_period_days!
+          : availablePeriods[0],
+      );
+    }
+  }, [
+    checkout,
+    confirmation,
+    resumedConfirmation,
+    devices,
+    period,
+    priceFor,
+    options.device_options,
+    options.period_options,
+    options.default_period_days,
+  ]);
   const confirmPeriodDays = resumedConfirmation?.period_days ?? period;
   const confirmDeviceLimit = resumedConfirmation?.selected_device_limit ?? devices;
   const confirmTotalKopeks =
@@ -389,7 +518,10 @@ export function DeviceFirstConfigurator({
     },
     onSuccess: (result) => {
       acceptCheckout(result.checkout);
-      if (result.redirect_url) window.location.assign(result.redirect_url);
+      if (result.redirect_url) {
+        const url = result.redirect_url;
+        leaveForProvider(() => window.location.assign(url));
+      }
     },
     onError: handlePayError,
   });
@@ -413,7 +545,10 @@ export function DeviceFirstConfigurator({
     },
     onSuccess: (result) => {
       acceptCheckout(result.checkout);
-      if (result.redirect_url) window.location.replace(result.redirect_url);
+      if (result.redirect_url) {
+        const url = result.redirect_url;
+        leaveForProvider(() => window.location.replace(url));
+      }
     },
     onError: handlePayError,
   });
@@ -428,7 +563,7 @@ export function DeviceFirstConfigurator({
         setExistingPaymentAttempt(attempt);
         return;
       }
-      window.location.assign(attempt.redirect_url);
+      leaveForProvider(() => window.location.assign(attempt.redirect_url));
     },
     onError: recoverAmbiguousCheckout,
   });
@@ -437,7 +572,10 @@ export function DeviceFirstConfigurator({
     onMutate: () => setActionError(null),
     onSuccess: (result) => {
       acceptCheckout(result.checkout);
-      if (result.redirect_url) window.location.assign(result.redirect_url);
+      if (result.redirect_url) {
+        const url = result.redirect_url;
+        leaveForProvider(() => window.location.assign(url));
+      }
     },
     onError: recoverAmbiguousCheckout,
   });
@@ -446,6 +584,7 @@ export function DeviceFirstConfigurator({
     onMutate: () => setActionError(null),
     onSuccess: (next) => {
       if (next.ui_state === 'cancelled') {
+        rememberSelection(next);
         returnToConfiguration();
         return;
       }
@@ -458,6 +597,7 @@ export function DeviceFirstConfigurator({
     onMutate: () => setActionError(null),
     onSuccess: (next) => {
       if (next.ui_state === 'cancelled') {
+        rememberSelection(next);
         returnToConfiguration();
         return;
       }
@@ -485,9 +625,16 @@ export function DeviceFirstConfigurator({
       checkout?.ui_state === 'cancelled' &&
       checkout.terminal_reason?.startsWith('provider_terminal:')
     ) {
+      rememberSelection(checkout);
       returnToConfiguration();
     }
-  }, [checkout?.terminal_reason, checkout?.ui_state, returnToConfiguration]);
+  }, [
+    checkout?.terminal_reason,
+    checkout?.ui_state,
+    checkout,
+    rememberSelection,
+    returnToConfiguration,
+  ]);
   const pendingPayment = useQuery({
     queryKey: ['device-first-pending-payment', checkout?.id],
     queryFn: () => deviceFirstApi.getPendingPayment(checkout!.id),
@@ -705,6 +852,7 @@ export function DeviceFirstConfigurator({
     radios?.[nextIndex]?.focus();
   };
   const startNewQuote = () => {
+    rememberSelection(checkout);
     // A prior conflicting create can belong to a different selection than the
     // resumed checkout. This explicit "start over" action clears every local
     // create key, but never confirmation/payment idempotency keys.
@@ -1009,6 +1157,10 @@ export function DeviceFirstConfigurator({
                   <p className="text-sm text-dark-300">
                     {t('deviceFirst.paymentMethodsAvailable')}
                   </p>
+                  {/* Мина W: предупреждение стоит ДО кнопок. Под ними на телефоне 375×667
+                      оно уходило за сгиб, а с клавиатуры и в скринридере читалось после
+                      того, как человек уже нажал. */}
+                  <p className="text-xs text-dark-400">{t('deviceFirst.leavingForProvider')}</p>
                   <div className="grid gap-2">
                     {methods.data.methods.map((method) => (
                       <button
@@ -1119,12 +1271,18 @@ export function DeviceFirstConfigurator({
             )}
           {checkout.settlement_mode === 'direct_purchase_v2' ? (
             <>
+              {(pendingPayment.data?.redirect_url || pendingPayment.data?.resume_allowed) && (
+                // Мина W: сюда человек приходит по карточке «Незавершённый заказ» с Главной,
+                // то есть уже потеряв контекст один раз. Обе кнопки ниже уводят на провайдера
+                // тем же путём, что и первая оплата, — предупреждение обязано быть и здесь.
+                <p className="text-xs text-dark-400">{t('deviceFirst.leavingForProvider')}</p>
+              )}
               {pendingPayment.data?.redirect_url && (
                 <button
                   type="button"
                   onClick={() => {
                     const redirectUrl = pendingPayment.data?.redirect_url;
-                    if (redirectUrl) window.location.assign(redirectUrl);
+                    if (redirectUrl) leaveForProvider(() => window.location.assign(redirectUrl));
                   }}
                   className={`w-full rounded-2xl bg-accent-500 px-5 py-3.5 font-semibold text-white ${choiceClass}`}
                 >
@@ -1220,7 +1378,11 @@ export function DeviceFirstConfigurator({
               </p>
               <button
                 type="button"
-                onClick={() => window.location.assign(existingPaymentAttempt.redirect_url)}
+                onClick={() =>
+                  leaveForProvider(() =>
+                    window.location.assign(existingPaymentAttempt.redirect_url),
+                  )
+                }
                 className={`w-full rounded-2xl bg-accent-500 px-5 py-3.5 font-semibold text-white ${choiceClass}`}
               >
                 {t('deviceFirst.continueExistingInvoice')}

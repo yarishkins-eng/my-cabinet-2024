@@ -31,6 +31,12 @@ vi.mock('@/api/deviceFirst', () => ({
     resumeInvoice: vi.fn(),
   },
 }));
+vi.mock('@telegram-apps/sdk-react', () => ({
+  hideBackButton: vi.fn(),
+  // 🔴 Без этого экспорта обращение к `showBackButton` бросает, а собственный catch кода
+  // это глотает: вся ветка «вернуть кнопку, если переход бросил» была непроверяема.
+  showBackButton: vi.fn(),
+}));
 vi.mock('@/hooks/useTheme', () => ({
   useTheme: () => ({ isDark: true }),
 }));
@@ -199,7 +205,427 @@ describe('DeviceFirstConfigurator interaction safety', () => {
     });
   });
 
-  afterEach(() => cleanup());
+  const realLocation = window.location;
+  afterEach(() => {
+    Object.defineProperty(window, 'location', { value: realLocation, writable: true });
+    cleanup();
+  });
+
+  // --- мина X: экран не залипает на «Недоступно» ---------------------------------
+
+  it('picks a real device option once the tariff arrives instead of freezing on a phantom one', async () => {
+    // 🔴 Холодная загрузка по адресу возврата с Platega: опции ещё не пришли, и запасное
+    // «1 устройство» попадает в выбор. Такого варианта нет ни в одном тарифе, поэтому
+    // цена не находится ни для одного срока — все они уходят в «Недоступно».
+    const { rerender } = render(
+      <MemoryRouter initialEntries={['/subscription/purchase']}>
+        <QueryClientProvider
+          client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
+        >
+          <DeviceFirstConfigurator options={{ eligible: true }} />
+        </QueryClientProvider>
+      </MemoryRouter>,
+    );
+    // На пустых опциях сроков ещё нет вовсе — важно, ЧТО будет, когда они придут:
+    // без синхронизации выбор останется «1 устройство», и каждый срок уйдёт в «Недоступно».
+
+    rerender(
+      <MemoryRouter initialEntries={['/subscription/purchase']}>
+        <QueryClientProvider
+          client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
+        >
+          <DeviceFirstConfigurator options={options} />
+        </QueryClientProvider>
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => expect(screen.queryByText(/deviceFirst\.unavailable/)).toBeNull());
+    // И выбрана именно карточка устройства: без неё ни одна не попадает в tab-порядок
+    // (`tabIndex={isSelected ? 0 : -1}`), то есть с клавиатуры экран был недостижим.
+    const deviceCard = screen.getByText('deviceFirst.deviceCount:2').closest('button');
+    expect(deviceCard?.getAttribute('aria-checked')).toBe('true');
+    expect(deviceCard?.getAttribute('tabindex')).toBe('0');
+  });
+
+  it('never rewrites the selection under an open confirmation', async () => {
+    // 🔴 Сторож от молчаливой подмены цены. `confirmDeviceLimit` берётся из того же
+    // `devices` (`DeviceFirstConfigurator.tsx:261-262`), поэтому подтяжка выбора без
+    // гарда переписала бы сумму под кнопкой оплаты — ту, которую человек уже прочитал.
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    const tree = (routeOptions: DeviceFirstOptions) => (
+      <MemoryRouter initialEntries={['/subscription/purchase']}>
+        <QueryClientProvider client={queryClient}>
+          <LocationProbe />
+          <ConfiguratorFromRoute options={routeOptions} />
+        </QueryClientProvider>
+      </MemoryRouter>
+    );
+
+    const { rerender } = render(tree(options));
+    fireEvent.click(await screen.findByText('deviceFirst.review'));
+    // Цена подтверждённого выбора стоит прямо на кнопке оплаты: 45000 копеек → 450.
+    await waitFor(() => expect(screen.getByText(/paymentMethodAmount:450/)).toBeTruthy());
+
+    // Тариф под открытым подтверждением поменялся: другой набор вариантов и другая цена.
+    rerender(
+      tree({
+        ...options,
+        period_options: [90],
+        default_period_days: 90,
+        device_options: [6],
+        price_matrix: [
+          {
+            period_days: 90,
+            prices: [
+              {
+                device_limit: 6,
+                price_kopeks: 99000,
+                breakdown: options.price_matrix![0].prices[0].breakdown,
+              },
+            ],
+          },
+        ],
+      }),
+    );
+
+    // 🔴 Чужая сумма не смеет появиться под тем же открытым подтверждением. Без гарда
+    // выбор переехал бы на 6 устройств / 90 дней, и на кнопке оплаты встало бы 990
+    // вместо прочитанных человеком 450.
+    expect(screen.queryByText(/paymentMethodAmount:990/)).toBeNull();
+    // Честный исход, когда прежний вариант действительно исчез: не подмена цены, а
+    // прямое «этого варианта больше нет» с путём назад к выбору.
+    expect(screen.getByText('deviceFirst.changeOptions')).toBeTruthy();
+  });
+
+  it('hides the back button on the fused native launch too, where the jump is a replace', async () => {
+    // 🔴 Шестой переход — `replace`, а не `assign`: поиском по `assign` он не находится,
+    // и мутация «убрать его из помощника» переживала весь набор.
+    const { hideBackButton } = await import('@telegram-apps/sdk-react');
+    const replace = vi.fn();
+    Object.defineProperty(window, 'location', {
+      value: { ...window.location, assign: vi.fn(), replace },
+      writable: true,
+    });
+    vi.mocked(deviceFirstApi.nativeLaunchDirect).mockResolvedValue({
+      checkout: directInvoice(),
+      redirect_url: 'https://app.platega.io/pay/native',
+    });
+
+    renderConfigurator({
+      initialPath: '/subscription/purchase?period=30&devices=2&method=sbp&autostart=1',
+    });
+
+    await waitFor(() => expect(replace).toHaveBeenCalledWith('https://app.platega.io/pay/native'));
+    expect(vi.mocked(hideBackButton)).toHaveBeenCalled();
+  });
+
+  it('hides the back button BEFORE leaving, not after', async () => {
+    // Порядок и есть вся правка: после ухода наш код уже не исполняется.
+    const { hideBackButton } = await import('@telegram-apps/sdk-react');
+    const order: string[] = [];
+    vi.mocked(hideBackButton).mockImplementation(() => {
+      order.push('hide');
+    });
+    Object.defineProperty(window, 'location', {
+      value: {
+        ...window.location,
+        assign: vi.fn(() => order.push('leave')),
+        replace: vi.fn(),
+      },
+      writable: true,
+    });
+    vi.mocked(deviceFirstApi.payDirect).mockResolvedValue({
+      checkout: directInvoice(),
+      redirect_url: 'https://app.platega.io/pay/2',
+    });
+
+    renderConfigurator();
+    fireEvent.click(await screen.findByText('deviceFirst.review'));
+    fireEvent.click(await screen.findByText(/deviceFirst\.paymentMethodAmount/));
+
+    await waitFor(() => expect(order).toContain('leave'));
+    expect(order).toEqual(['hide', 'leave']);
+  });
+
+  it('also snaps the period when the tariff no longer sells it', async () => {
+    // Вторая ось мины X: у устройств и сроков одна болезнь, а тест был только про устройства.
+    const ninetyOnly: DeviceFirstOptions = {
+      ...options,
+      period_options: [90],
+      default_period_days: 90,
+      device_options: [2],
+      price_matrix: [
+        {
+          period_days: 90,
+          prices: [
+            {
+              device_limit: 2,
+              price_kopeks: 99000,
+              breakdown: options.price_matrix![0].prices[0].breakdown,
+            },
+          ],
+        },
+      ],
+    };
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const tree = (routeOptions: DeviceFirstOptions) => (
+      <MemoryRouter initialEntries={['/subscription/purchase']}>
+        <QueryClientProvider client={queryClient}>
+          <ConfiguratorFromRoute options={routeOptions} />
+        </QueryClientProvider>
+      </MemoryRouter>
+    );
+
+    const { rerender } = render(tree(options));
+    rerender(tree(ninetyOnly));
+
+    await waitFor(() => expect(screen.queryByText(/deviceFirst\.unavailable/)).toBeNull());
+  });
+
+  it('keeps the selection the person made when the provider cancels the invoice', async () => {
+    // 🔴 Провайдер закрыл счёт → нас молча уводит на экран выбора. Раньше выбор человека
+    // при этом терялся: он оформлял 6 устройств на 90 дней, а видел первый попавшийся
+    // вариант и мог не заметить, что покупает другое.
+    const wide: DeviceFirstOptions = {
+      ...options,
+      period_options: [30, 90],
+      device_options: [2, 6],
+      price_matrix: [
+        options.price_matrix![0],
+        {
+          period_days: 90,
+          prices: [
+            {
+              device_limit: 6,
+              price_kopeks: 99000,
+              breakdown: options.price_matrix![0].prices[0].breakdown,
+            },
+          ],
+        },
+      ],
+    };
+    const cancelledRow: DeviceFirstCheckout = {
+      ...checkout('cancelled'),
+      settlement_mode: 'direct_purchase_v2',
+      period_days: 90,
+      selected_device_limit: 6,
+      terminal_reason: 'provider_terminal:canceled',
+    };
+    vi.mocked(deviceFirstApi.get).mockResolvedValue(cancelledRow);
+
+    renderConfigurator({
+      options: wide,
+      initialPath: '/subscription/purchase?checkout=checkout-owned',
+    });
+
+    // Экран выбора вернулся — и на нём стоит ЕГО конфигурация, а не первая попавшаяся.
+    await waitFor(() =>
+      expect(
+        screen
+          .getByText('deviceFirst.deviceCount:6')
+          .closest('button')
+          ?.getAttribute('aria-checked'),
+      ).toBe('true'),
+    );
+    expect(
+      screen.getByText('deviceFirst.deviceCount:2').closest('button')?.getAttribute('aria-checked'),
+    ).toBe('false');
+  });
+
+  it('takes its pagehide listener with it when the screen unmounts', async () => {
+    // Экран может уйти, так и не уведя человека к провайдеру (ошибка перехода, уход по
+    // меню). Оставленный слушатель погасил бы кнопку «Назад» на чужом экране.
+    const removeSpy = vi.spyOn(window, 'removeEventListener');
+    Object.defineProperty(window, 'location', {
+      value: { ...window.location, assign: vi.fn(), replace: vi.fn() },
+      writable: true,
+    });
+    vi.mocked(deviceFirstApi.payDirect).mockResolvedValue({
+      checkout: directInvoice(),
+      redirect_url: 'https://app.platega.io/pay/3',
+    });
+
+    const { unmount } = renderConfigurator();
+    fireEvent.click(await screen.findByText('deviceFirst.review'));
+    fireEvent.click(await screen.findByText(/deviceFirst\.paymentMethodAmount/));
+    await waitFor(() => expect(window.location.assign).toHaveBeenCalled());
+
+    unmount();
+    expect(removeSpy).toHaveBeenCalledWith('pagehide', expect.any(Function));
+    removeSpy.mockRestore();
+  });
+
+  it('restores the back button when the jump itself fails', async () => {
+    const { hideBackButton, showBackButton } = await import('@telegram-apps/sdk-react');
+    Object.defineProperty(window, 'location', {
+      value: {
+        ...window.location,
+        assign: vi.fn(() => {
+          throw new Error('navigation blocked');
+        }),
+        replace: vi.fn(),
+      },
+      writable: true,
+    });
+    vi.mocked(deviceFirstApi.payDirect).mockResolvedValue({
+      checkout: directInvoice(),
+      redirect_url: 'https://app.platega.io/pay/4',
+    });
+
+    renderConfigurator();
+    fireEvent.click(await screen.findByText('deviceFirst.review'));
+    fireEvent.click(await screen.findByText(/deviceFirst\.paymentMethodAmount/));
+
+    // Документ остался прежним, экран живой — кнопку надо вернуть, иначе человек
+    // сидит на рабочем экране без «Назад» до перезагрузки.
+    await waitFor(() => expect(vi.mocked(showBackButton)).toHaveBeenCalled());
+    expect(vi.mocked(hideBackButton)).toHaveBeenCalled();
+  });
+
+  it('warns before leaving on both screens that lead to the provider', async () => {
+    // Первый экран: выбор способа оплаты. Строка обязана стоять ДО кнопок.
+    renderConfigurator();
+    fireEvent.click(await screen.findByText('deviceFirst.review'));
+    const warning = await screen.findByText('deviceFirst.leavingForProvider');
+    const firstMethod = screen.getByText(/deviceFirst\.paymentMethodAmount/);
+    expect(
+      warning.compareDocumentPosition(firstMethod) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    cleanup();
+
+    // Второй экран: живой счёт, куда человек приходит по карточке с Главной.
+    // Фикстурой его не поднять — запрос счёта включается только для настоящего заказа
+    // (`fixtureCheckout === undefined`), поэтому идём тем же путём, что и человек: по
+    // адресу с `?checkout=`.
+    vi.mocked(deviceFirstApi.get).mockResolvedValue(directInvoice());
+    vi.mocked(deviceFirstApi.getPendingPayment).mockResolvedValue({
+      redirect_url: 'https://app.platega.io/pay/5',
+      status: 'pending',
+      resume_allowed: false,
+    });
+    renderConfigurator({ initialPath: '/subscription/purchase?checkout=checkout-owned' });
+    expect(await screen.findByText('deviceFirst.leavingForProvider')).toBeTruthy();
+  });
+
+  it('keeps the selection when the person cancels the order themselves', async () => {
+    // 🔴 Владелец поймал мину именно на этом пути, а первая версия правки покрывала
+    // только отмену провайдером. Мина F закрывает корзину той же причиной, что и
+    // ручная отмена, — путь один и тот же.
+    const wide: DeviceFirstOptions = {
+      ...options,
+      period_options: [30, 90],
+      device_options: [2, 6],
+      price_matrix: [
+        options.price_matrix![0],
+        {
+          period_days: 90,
+          prices: [
+            {
+              device_limit: 6,
+              price_kopeks: 99000,
+              breakdown: options.price_matrix![0].prices[0].breakdown,
+            },
+          ],
+        },
+      ],
+    };
+    const live: DeviceFirstCheckout = {
+      ...directInvoice(),
+      period_days: 90,
+      selected_device_limit: 6,
+    };
+    vi.mocked(deviceFirstApi.abandon).mockResolvedValue({
+      ...live,
+      ui_state: 'cancelled',
+      lifecycle_state: 'cancelled',
+      terminal_reason: 'cancelled_by_user_after_invoice',
+    });
+
+    renderConfigurator({ options: wide, fixtureCheckout: live });
+    fireEvent.click(await screen.findByText('deviceFirst.cancel'));
+    fireEvent.click(await screen.findByText('deviceFirst.abandonConfirm'));
+
+    await waitFor(() =>
+      expect(
+        screen
+          .getByText('deviceFirst.deviceCount:6')
+          .closest('button')
+          ?.getAttribute('aria-checked'),
+      ).toBe('true'),
+    );
+  });
+
+  it('routes every remaining provider jump through the helper too', async () => {
+    // Мутационный прогон показал: из шести переходов сторожами были закрыты два.
+    // Здесь закрываем «Продолжить этот счёт» с экрана заказа — путь возвращающегося
+    // человека, того самого, кто теряет контекст чаще всех.
+    const { hideBackButton } = await import('@telegram-apps/sdk-react');
+    const assign = vi.fn();
+    Object.defineProperty(window, 'location', {
+      value: { ...window.location, assign, replace: vi.fn() },
+      writable: true,
+    });
+    vi.mocked(deviceFirstApi.get).mockResolvedValue(directInvoice());
+    vi.mocked(deviceFirstApi.getPendingPayment).mockResolvedValue({
+      redirect_url: 'https://app.platega.io/pay/6',
+      status: 'pending',
+      resume_allowed: false,
+    });
+
+    renderConfigurator({ initialPath: '/subscription/purchase?checkout=checkout-owned' });
+    fireEvent.click(await screen.findByText('deviceFirst.continueExistingInvoice'));
+
+    expect(assign).toHaveBeenCalledWith('https://app.platega.io/pay/6');
+    expect(vi.mocked(hideBackButton)).toHaveBeenCalled();
+  });
+
+  it('arms the pagehide fallback, not just the synchronous hide', async () => {
+    // 🔴 Три перехода сначала пишут `?checkout=` в адрес, а видимость кнопки завязана
+    // на смену адреса — синхронного гашения мало, кнопку успевают включить обратно.
+    const addSpy = vi.spyOn(window, 'addEventListener');
+    Object.defineProperty(window, 'location', {
+      value: { ...window.location, assign: vi.fn(), replace: vi.fn() },
+      writable: true,
+    });
+    vi.mocked(deviceFirstApi.payDirect).mockResolvedValue({
+      checkout: directInvoice(),
+      redirect_url: 'https://app.platega.io/pay/7',
+    });
+
+    renderConfigurator();
+    fireEvent.click(await screen.findByText('deviceFirst.review'));
+    fireEvent.click(await screen.findByText(/deviceFirst\.paymentMethodAmount/));
+
+    await waitFor(() => expect(window.location.assign).toHaveBeenCalled());
+    expect(addSpy).toHaveBeenCalledWith('pagehide', expect.any(Function), { once: true });
+    addSpy.mockRestore();
+  });
+
+  // --- мина W: мёртвой кнопки «Назад» на странице провайдера не остаётся ----------
+
+  it('hides the dead back button before leaving for the payment provider', async () => {
+    const { hideBackButton } = await import('@telegram-apps/sdk-react');
+    const assign = vi.fn();
+    Object.defineProperty(window, 'location', {
+      value: { ...window.location, assign, replace: vi.fn() },
+      writable: true,
+    });
+    vi.mocked(deviceFirstApi.payDirect).mockResolvedValue({
+      checkout: directInvoice(),
+      redirect_url: 'https://app.platega.io/pay/1',
+    });
+
+    renderConfigurator();
+    fireEvent.click(await screen.findByText('deviceFirst.review'));
+    fireEvent.click(await screen.findByText(/deviceFirst\.paymentMethodAmount/));
+
+    await waitFor(() => expect(assign).toHaveBeenCalledWith('https://app.platega.io/pay/1'));
+    // Кнопка гасится ДО ухода: на чужой странице наш обработчик уже не существует,
+    // и нажатие уходило бы в пустоту.
+    expect(vi.mocked(hideBackButton)).toHaveBeenCalled();
+  });
 
   it('confirms locally without a server order and births it only from the payment CTA', async () => {
     vi.mocked(deviceFirstApi.payDirect).mockResolvedValue({ checkout: directInvoice() });
