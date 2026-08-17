@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { operatorReviewCopy } from './deviceFirstMoney';
+import { abandonedCartCopy, operatorReviewCopy } from './deviceFirstMoney';
 
 describe('operatorReviewCopy', () => {
   it('tells an unpaid customer the truth instead of claiming a payment', () => {
@@ -27,4 +27,30 @@ describe('operatorReviewCopy', () => {
       });
     },
   );
+});
+
+describe('abandonedCartCopy — мина F', () => {
+  it('закрытая брошенная корзина получает предупреждение про живую ссылку', () => {
+    expect(abandonedCartCopy('cancelled_by_user_after_invoice', 'no_money')).toEqual({
+      titleKey: 'deviceFirst.abandonedCartTitle',
+      textKey: 'deviceFirst.abandonedCartText',
+    });
+  });
+
+  it('без поля от бэкенда экран деградирует в обычный текст, а не врёт про деньги', () => {
+    // Кабинет выкладывается ПЕРВЫМ, поэтому какое-то время поля не будет вовсе.
+    expect(abandonedCartCopy('cancelled_by_user_after_invoice', undefined)).toBeNull();
+    expect(abandonedCartCopy('cancelled_by_user_after_invoice', null)).toBeNull();
+  });
+
+  it('если деньги всё-таки пришли, «не списали» не говорится', () => {
+    expect(abandonedCartCopy('cancelled_by_user_after_invoice', 'money_in_flight')).toBeNull();
+    expect(abandonedCartCopy('cancelled_by_user_after_invoice', 'unknown')).toBeNull();
+  });
+
+  it('отмену объявила сама Platega — ссылка мертва, предупреждать не о чем', () => {
+    expect(abandonedCartCopy('provider_terminal:canceled', 'no_money')).toBeNull();
+    expect(abandonedCartCopy('checkout_expired', 'no_money')).toBeNull();
+    expect(abandonedCartCopy(null, 'no_money')).toBeNull();
+  });
 });

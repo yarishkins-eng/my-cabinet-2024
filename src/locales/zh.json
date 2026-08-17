@@ -4862,6 +4862,8 @@
     "readyText": "时长和设备数量已更新。",
     "connectVpn": "连接 VPN",
     "home": "返回首页",
+    "abandonedCartTitle": "订单已取消",
+    "abandonedCartText": "我们没有扣款。支付链接可能还会在一段时间内可用，请不要使用：如果之后确认付款，金额只会一次性记入余额，此订单不会成为订阅。您现在就可以创建新订单。",
     "refreshTitle": "订单需要更新",
     "refreshText": "订阅或价格已变更。请创建新的报价；未确认前不会扣款。",
     "paymentMismatchTitle": "付款需要核对",

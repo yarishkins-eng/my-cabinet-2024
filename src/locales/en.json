@@ -5312,6 +5312,8 @@
     "readyText": "The term and device limit are updated.",
     "connectVpn": "Connect VPN",
     "home": "Go home",
+    "abandonedCartTitle": "Order cancelled",
+    "abandonedCartText": "No money was charged. The payment link may still work — do not use it: if the payment is confirmed later, the amount is credited to your balance once, and this order will not become a subscription. You can place a new order right now.",
     "refreshTitle": "Order needs an update",
     "refreshText": "The subscription or price changed. Create a new quote; no unconfirmed charge was made.",
     "paymentMismatchTitle": "Payment needs a check",

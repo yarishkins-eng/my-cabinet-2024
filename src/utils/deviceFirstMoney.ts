@@ -39,3 +39,29 @@ export function operatorReviewCopy(moneyState: string | null | undefined): Opera
     textKey: 'deviceFirst.reviewUnknownText',
   };
 }
+
+/**
+ * Мина F: брошенная корзина закрывается сама, и предупреждение про живую ссылку обязано
+ * переехать вместе с ней.
+ *
+ * Раньше такой заказ висел в разборе, где про старую ссылку предупреждали оба экрана. Теперь
+ * он `cancelled`, покупка снова открыта — и человек может оформить новый заказ, пока прежняя
+ * ссылка Platega ещё принимает деньги. Оплатит её — сумма один раз ляжет на баланс, а
+ * подписки по тому заказу не будет.
+ *
+ * 🔴 Возвращаем `null`, если бэкенд не прислал `money_state` или деньги всё-таки пришли:
+ * без поля (старый бэкенд, выкладка кабинета идёт первой) экран обязан деградировать в
+ * нейтральный текст, а не утверждать «не списали» вслепую — это ровно ошибка пункта 4.2б.
+ */
+export function abandonedCartCopy(
+  terminalReason: string | null | undefined,
+  moneyState: string | null | undefined,
+): OperatorReviewCopy | null {
+  if (terminalReason !== 'cancelled_by_user_after_invoice' || moneyState !== 'no_money') {
+    return null;
+  }
+  return {
+    titleKey: 'deviceFirst.abandonedCartTitle',
+    textKey: 'deviceFirst.abandonedCartText',
+  };
+}
