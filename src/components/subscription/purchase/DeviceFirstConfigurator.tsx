@@ -230,6 +230,23 @@ export function DeviceFirstConfigurator({
     }
   }, [fixtureCheckout, initialCheckoutId]);
 
+  // 🔴 Мина X, вторая половина. Заказ закрывается — сам ли (мина F, провайдер) или
+  // человеком, — и его уводит на экран выбора. Но выбор он делал сам: срок и число
+  // устройств лежат в строке заказа. Запоминаем их здесь, а применяет эффект
+  // синхронизации ниже: он единственный дожидается настоящих опций, а при холодной
+  // загрузке по адресу возврата строка приходит РАНЬШЕ них, и проверять цену прямо
+  // тут было бы рано — вариант молча признавался бы непродающимся.
+  // Без этого человек оформлял 5 устройств на 90 дней, а видел первый попавшийся
+  // вариант — то есть свой текущий лимит на месяц — и мог не заметить подмены.
+  const preferredSelectionRef = useRef<{ period: number; devices: number } | null>(null);
+  const rememberSelection = useCallback((row: DeviceFirstCheckout | null | undefined) => {
+    if (!row) return;
+    preferredSelectionRef.current = {
+      period: row.period_days,
+      devices: row.selected_device_limit,
+    };
+  }, []);
+
   const priceFor = useCallback(
     (days: number, deviceLimit: number) =>
       options.price_matrix
@@ -247,7 +264,7 @@ export function DeviceFirstConfigurator({
   const resumedConfirmation = checkout?.ui_state === 'confirmation' ? checkout : null;
 
   useEffect(() => {
-    // 🔴 Мина X. Тот же приём, что и для способа оплаты выше: зашитое начальное
+    // 🔴 Мина X. Тот же приём, что и для способа оплаты (поиск по `availableKeys`): зашитое начальное
     // значение нельзя оставлять, если сервер такого варианта не даёт.
     // `useState` выше берёт умолчание ОДИН раз, а при холодной загрузке по адресу
     // возврата с Platega (`?checkout=`) опции ещё не пришли, и в выбор попадает
@@ -258,12 +275,24 @@ export function DeviceFirstConfigurator({
     // лечится одним касанием по карточке устройства — но об этом ничто не говорит,
     // а с клавиатуры до карточек не добраться: без выбранной ни одна не в tab-порядке.
     // Владелец поймал это после отмены заказа; на деле сюда приводит и автоматический
-    // возврат при отмене счёта провайдером (`:483-490`), то есть каждая брошенная
+    // возврат при отмене счёта провайдером (эффект `provider_terminal:` ниже), то есть каждая брошенная
     // корзина, оплачивавшаяся через СБП.
     // 🔴 Гард обязателен: пока открыто подтверждение или показан заказ, под кнопкой
-    // оплаты стоит конкретная сумма. Молча поменять выбор там — значит поменять цену,
-    // которую человек уже прочитал.
+    // оплаты стоит конкретная сумма, и молча поменять там ВЫБОР — значит показать цену
+    // другой конфигурации.
+    // ⚠️ Честно про границу: гард держит выбор, а не цену. Если сервер пришлёт новые
+    // цены на ТУ ЖЕ конфигурацию (например после `wallet_insufficient`, который сам
+    // инвалидирует опции), сумма под кнопкой пересчитается и без нас. Деньги при этом
+    // защищены сервером: он сверяет `expected_tariff_total_kopeks`.
     if (confirmation || resumedConfirmation || checkout) return;
+    const preferred = preferredSelectionRef.current;
+    if (preferred && priceFor(preferred.period, preferred.devices)) {
+      // Вариант человека ещё продаётся — возвращаем именно его, а не первый попавшийся.
+      preferredSelectionRef.current = null;
+      setPeriod(preferred.period);
+      setDevices(preferred.devices);
+      return;
+    }
     const availableDevices = options.device_options ?? [];
     if (availableDevices.length && !availableDevices.includes(devices)) {
       setDevices(availableDevices[0]);
@@ -282,6 +311,7 @@ export function DeviceFirstConfigurator({
     resumedConfirmation,
     devices,
     period,
+    priceFor,
     options.device_options,
     options.period_options,
     options.default_period_days,
@@ -554,6 +584,7 @@ export function DeviceFirstConfigurator({
     onMutate: () => setActionError(null),
     onSuccess: (next) => {
       if (next.ui_state === 'cancelled') {
+        rememberSelection(next);
         returnToConfiguration();
         return;
       }
@@ -566,6 +597,7 @@ export function DeviceFirstConfigurator({
     onMutate: () => setActionError(null),
     onSuccess: (next) => {
       if (next.ui_state === 'cancelled') {
+        rememberSelection(next);
         returnToConfiguration();
         return;
       }
@@ -593,24 +625,14 @@ export function DeviceFirstConfigurator({
       checkout?.ui_state === 'cancelled' &&
       checkout.terminal_reason?.startsWith('provider_terminal:')
     ) {
-      // 🔴 Мина X, вторая половина. Провайдер закрыл счёт, и человека молча уводит на
-      // экран выбора — но выбор он делал сам: срок и число устройств лежат в строке
-      // заказа. Возвращаем их, если такой вариант ещё продаётся; тот же приём уже
-      // написан для слива витринного черновика (`legacyDraftCancelMutation`, :583-586).
-      // Без этого человек оформлял 8 устройств на полгода, а видит первый попавшийся
-      // вариант — и может не заметить, что покупает другое.
-      if (priceFor(checkout.period_days, checkout.selected_device_limit)) {
-        setPeriod(checkout.period_days);
-        setDevices(checkout.selected_device_limit);
-      }
+      rememberSelection(checkout);
       returnToConfiguration();
     }
   }, [
     checkout?.terminal_reason,
     checkout?.ui_state,
-    checkout?.period_days,
-    checkout?.selected_device_limit,
-    priceFor,
+    checkout,
+    rememberSelection,
     returnToConfiguration,
   ]);
   const pendingPayment = useQuery({
@@ -830,6 +852,7 @@ export function DeviceFirstConfigurator({
     radios?.[nextIndex]?.focus();
   };
   const startNewQuote = () => {
+    rememberSelection(checkout);
     // A prior conflicting create can belong to a different selection than the
     // resumed checkout. This explicit "start over" action clears every local
     // create key, but never confirmation/payment idempotency keys.

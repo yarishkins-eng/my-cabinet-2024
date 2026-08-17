@@ -33,6 +33,9 @@ vi.mock('@/api/deviceFirst', () => ({
 }));
 vi.mock('@telegram-apps/sdk-react', () => ({
   hideBackButton: vi.fn(),
+  // 🔴 Без этого экспорта обращение к `showBackButton` бросает, а собственный catch кода
+  // это глотает: вся ветка «вернуть кнопку, если переход бросил» была непроверяема.
+  showBackButton: vi.fn(),
 }));
 vi.mock('@/hooks/useTheme', () => ({
   useTheme: () => ({ isDark: true }),
@@ -452,6 +455,152 @@ describe('DeviceFirstConfigurator interaction safety', () => {
     unmount();
     expect(removeSpy).toHaveBeenCalledWith('pagehide', expect.any(Function));
     removeSpy.mockRestore();
+  });
+
+  it('restores the back button when the jump itself fails', async () => {
+    const { hideBackButton, showBackButton } = await import('@telegram-apps/sdk-react');
+    Object.defineProperty(window, 'location', {
+      value: {
+        ...window.location,
+        assign: vi.fn(() => {
+          throw new Error('navigation blocked');
+        }),
+        replace: vi.fn(),
+      },
+      writable: true,
+    });
+    vi.mocked(deviceFirstApi.payDirect).mockResolvedValue({
+      checkout: directInvoice(),
+      redirect_url: 'https://app.platega.io/pay/4',
+    });
+
+    renderConfigurator();
+    fireEvent.click(await screen.findByText('deviceFirst.review'));
+    fireEvent.click(await screen.findByText(/deviceFirst\.paymentMethodAmount/));
+
+    // Документ остался прежним, экран живой — кнопку надо вернуть, иначе человек
+    // сидит на рабочем экране без «Назад» до перезагрузки.
+    await waitFor(() => expect(vi.mocked(showBackButton)).toHaveBeenCalled());
+    expect(vi.mocked(hideBackButton)).toHaveBeenCalled();
+  });
+
+  it('warns before leaving on both screens that lead to the provider', async () => {
+    // Первый экран: выбор способа оплаты. Строка обязана стоять ДО кнопок.
+    renderConfigurator();
+    fireEvent.click(await screen.findByText('deviceFirst.review'));
+    const warning = await screen.findByText('deviceFirst.leavingForProvider');
+    const firstMethod = screen.getByText(/deviceFirst\.paymentMethodAmount/);
+    expect(
+      warning.compareDocumentPosition(firstMethod) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    cleanup();
+
+    // Второй экран: живой счёт, куда человек приходит по карточке с Главной.
+    // Фикстурой его не поднять — запрос счёта включается только для настоящего заказа
+    // (`fixtureCheckout === undefined`), поэтому идём тем же путём, что и человек: по
+    // адресу с `?checkout=`.
+    vi.mocked(deviceFirstApi.get).mockResolvedValue(directInvoice());
+    vi.mocked(deviceFirstApi.getPendingPayment).mockResolvedValue({
+      redirect_url: 'https://app.platega.io/pay/5',
+      status: 'pending',
+      resume_allowed: false,
+    });
+    renderConfigurator({ initialPath: '/subscription/purchase?checkout=checkout-owned' });
+    expect(await screen.findByText('deviceFirst.leavingForProvider')).toBeTruthy();
+  });
+
+  it('keeps the selection when the person cancels the order themselves', async () => {
+    // 🔴 Владелец поймал мину именно на этом пути, а первая версия правки покрывала
+    // только отмену провайдером. Мина F закрывает корзину той же причиной, что и
+    // ручная отмена, — путь один и тот же.
+    const wide: DeviceFirstOptions = {
+      ...options,
+      period_options: [30, 90],
+      device_options: [2, 6],
+      price_matrix: [
+        options.price_matrix![0],
+        {
+          period_days: 90,
+          prices: [
+            {
+              device_limit: 6,
+              price_kopeks: 99000,
+              breakdown: options.price_matrix![0].prices[0].breakdown,
+            },
+          ],
+        },
+      ],
+    };
+    const live: DeviceFirstCheckout = {
+      ...directInvoice(),
+      period_days: 90,
+      selected_device_limit: 6,
+    };
+    vi.mocked(deviceFirstApi.abandon).mockResolvedValue({
+      ...live,
+      ui_state: 'cancelled',
+      lifecycle_state: 'cancelled',
+      terminal_reason: 'cancelled_by_user_after_invoice',
+    });
+
+    renderConfigurator({ options: wide, fixtureCheckout: live });
+    fireEvent.click(await screen.findByText('deviceFirst.cancel'));
+    fireEvent.click(await screen.findByText('deviceFirst.abandonConfirm'));
+
+    await waitFor(() =>
+      expect(
+        screen
+          .getByText('deviceFirst.deviceCount:6')
+          .closest('button')
+          ?.getAttribute('aria-checked'),
+      ).toBe('true'),
+    );
+  });
+
+  it('routes every remaining provider jump through the helper too', async () => {
+    // Мутационный прогон показал: из шести переходов сторожами были закрыты два.
+    // Здесь закрываем «Продолжить этот счёт» с экрана заказа — путь возвращающегося
+    // человека, того самого, кто теряет контекст чаще всех.
+    const { hideBackButton } = await import('@telegram-apps/sdk-react');
+    const assign = vi.fn();
+    Object.defineProperty(window, 'location', {
+      value: { ...window.location, assign, replace: vi.fn() },
+      writable: true,
+    });
+    vi.mocked(deviceFirstApi.get).mockResolvedValue(directInvoice());
+    vi.mocked(deviceFirstApi.getPendingPayment).mockResolvedValue({
+      redirect_url: 'https://app.platega.io/pay/6',
+      status: 'pending',
+      resume_allowed: false,
+    });
+
+    renderConfigurator({ initialPath: '/subscription/purchase?checkout=checkout-owned' });
+    fireEvent.click(await screen.findByText('deviceFirst.continueExistingInvoice'));
+
+    expect(assign).toHaveBeenCalledWith('https://app.platega.io/pay/6');
+    expect(vi.mocked(hideBackButton)).toHaveBeenCalled();
+  });
+
+  it('arms the pagehide fallback, not just the synchronous hide', async () => {
+    // 🔴 Три перехода сначала пишут `?checkout=` в адрес, а видимость кнопки завязана
+    // на смену адреса — синхронного гашения мало, кнопку успевают включить обратно.
+    const addSpy = vi.spyOn(window, 'addEventListener');
+    Object.defineProperty(window, 'location', {
+      value: { ...window.location, assign: vi.fn(), replace: vi.fn() },
+      writable: true,
+    });
+    vi.mocked(deviceFirstApi.payDirect).mockResolvedValue({
+      checkout: directInvoice(),
+      redirect_url: 'https://app.platega.io/pay/7',
+    });
+
+    renderConfigurator();
+    fireEvent.click(await screen.findByText('deviceFirst.review'));
+    fireEvent.click(await screen.findByText(/deviceFirst\.paymentMethodAmount/));
+
+    await waitFor(() => expect(window.location.assign).toHaveBeenCalled());
+    expect(addSpy).toHaveBeenCalledWith('pagehide', expect.any(Function), { once: true });
+    addSpy.mockRestore();
   });
 
   // --- мина W: мёртвой кнопки «Назад» на странице провайдера не остаётся ----------
