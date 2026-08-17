@@ -18,7 +18,7 @@ import {
   type DeviceFirstPaymentAttempt,
 } from '@/api/deviceFirst';
 import { getGlassColors } from '@/utils/glassTheme';
-import { operatorReviewCopy } from '@/utils/deviceFirstMoney';
+import { closedCartCopy, operatorReviewCopy } from '@/utils/deviceFirstMoney';
 import { useTheme } from '@/hooks/useTheme';
 
 interface Props {
@@ -729,6 +729,10 @@ export function DeviceFirstConfigurator({
         new Date(checkout.provider_invoice_expires_at),
       )
     : null;
+  // Мина F: заказ приходит уже закрытым. На этом экране обязано остаться предупреждение про
+  // старую ссылку Platega (она ещё принимает деньги), а если по ней всё-таки заплатили —
+  // сказать, что деньги на балансе. `null` = обычный текст экрана.
+  const closedCart = closedCartCopy(checkout?.terminal_reason, checkout?.money_state);
 
   return (
     <section
@@ -1395,16 +1399,20 @@ export function DeviceFirstConfigurator({
               title={
                 checkout.ui_state === 'operator_review'
                   ? t(operatorReviewCopy(checkout.money_state).titleKey)
-                  : checkout.terminal_reason === 'payment_amount_mismatch'
-                    ? t('deviceFirst.paymentMismatchTitle')
-                    : t('deviceFirst.refreshTitle')
+                  : closedCart
+                    ? t(closedCart.titleKey)
+                    : checkout.terminal_reason === 'payment_amount_mismatch'
+                      ? t('deviceFirst.paymentMismatchTitle')
+                      : t('deviceFirst.refreshTitle')
               }
               text={
                 checkout.ui_state === 'operator_review'
                   ? t(operatorReviewCopy(checkout.money_state).textKey)
-                  : checkout.terminal_reason === 'payment_amount_mismatch'
-                    ? t('deviceFirst.paymentMismatchText')
-                    : t('deviceFirst.refreshText')
+                  : closedCart
+                    ? t(closedCart.textKey)
+                    : checkout.terminal_reason === 'payment_amount_mismatch'
+                      ? t('deviceFirst.paymentMismatchText')
+                      : t('deviceFirst.refreshText')
               }
             />
             {checkout.ui_state === 'operator_review' ? (
