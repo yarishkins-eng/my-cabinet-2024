@@ -31,6 +31,9 @@ vi.mock('@/api/deviceFirst', () => ({
     resumeInvoice: vi.fn(),
   },
 }));
+vi.mock('@telegram-apps/sdk-react', () => ({
+  hideBackButton: vi.fn(),
+}));
 vi.mock('@/hooks/useTheme', () => ({
   useTheme: () => ({ isDark: true }),
 }));
@@ -200,6 +203,115 @@ describe('DeviceFirstConfigurator interaction safety', () => {
   });
 
   afterEach(() => cleanup());
+
+  // --- мина X: экран не залипает на «Недоступно» ---------------------------------
+
+  it('picks a real device option once the tariff arrives instead of freezing on a phantom one', async () => {
+    // 🔴 Холодная загрузка по адресу возврата с Platega: опции ещё не пришли, и запасное
+    // «1 устройство» попадает в выбор. Такого варианта нет ни в одном тарифе, поэтому
+    // цена не находится ни для одного срока — все они уходят в «Недоступно».
+    const { rerender } = render(
+      <MemoryRouter initialEntries={['/subscription/purchase']}>
+        <QueryClientProvider
+          client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
+        >
+          <DeviceFirstConfigurator options={{ eligible: true }} />
+        </QueryClientProvider>
+      </MemoryRouter>,
+    );
+    // На пустых опциях сроков ещё нет вовсе — важно, ЧТО будет, когда они придут:
+    // без синхронизации выбор останется «1 устройство», и каждый срок уйдёт в «Недоступно».
+
+    rerender(
+      <MemoryRouter initialEntries={['/subscription/purchase']}>
+        <QueryClientProvider
+          client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
+        >
+          <DeviceFirstConfigurator options={options} />
+        </QueryClientProvider>
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => expect(screen.queryByText(/deviceFirst\.unavailable/)).toBeNull());
+    // И выбор виден: без него ни одна карточка не попадает в tab-порядок.
+    expect(screen.getAllByRole('radio', { checked: true }).length).toBeGreaterThan(0);
+  });
+
+  it('never rewrites the selection under an open confirmation', async () => {
+    // 🔴 Сторож от молчаливой подмены цены. `confirmDeviceLimit` берётся из того же
+    // `devices` (`DeviceFirstConfigurator.tsx:261-262`), поэтому подтяжка выбора без
+    // гарда переписала бы сумму под кнопкой оплаты — ту, которую человек уже прочитал.
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    const tree = (routeOptions: DeviceFirstOptions) => (
+      <MemoryRouter initialEntries={['/subscription/purchase']}>
+        <QueryClientProvider client={queryClient}>
+          <LocationProbe />
+          <ConfiguratorFromRoute options={routeOptions} />
+        </QueryClientProvider>
+      </MemoryRouter>
+    );
+
+    const { rerender } = render(tree(options));
+    fireEvent.click(await screen.findByText('deviceFirst.review'));
+    // Цена подтверждённого выбора стоит прямо на кнопке оплаты: 45000 копеек → 450.
+    await waitFor(() => expect(screen.getByText(/paymentMethodAmount:450/)).toBeTruthy());
+
+    // Тариф под открытым подтверждением поменялся: другой набор вариантов и другая цена.
+    rerender(
+      tree({
+        ...options,
+        period_options: [90],
+        default_period_days: 90,
+        device_options: [6],
+        price_matrix: [
+          {
+            period_days: 90,
+            prices: [
+              {
+                device_limit: 6,
+                price_kopeks: 99000,
+                breakdown: options.price_matrix![0].prices[0].breakdown,
+              },
+            ],
+          },
+        ],
+      }),
+    );
+
+    // 🔴 Чужая сумма не смеет появиться под тем же открытым подтверждением. Без гарда
+    // выбор переехал бы на 6 устройств / 90 дней, и на кнопке оплаты встало бы 990
+    // вместо прочитанных человеком 450.
+    expect(screen.queryByText(/paymentMethodAmount:990/)).toBeNull();
+    // Честный исход, когда прежний вариант действительно исчез: не подмена цены, а
+    // прямое «этого варианта больше нет» с путём назад к выбору.
+    expect(screen.getByText('deviceFirst.changeOptions')).toBeTruthy();
+  });
+
+  // --- мина W: мёртвой кнопки «Назад» на странице провайдера не остаётся ----------
+
+  it('hides the dead back button before leaving for the payment provider', async () => {
+    const { hideBackButton } = await import('@telegram-apps/sdk-react');
+    const assign = vi.fn();
+    Object.defineProperty(window, 'location', {
+      value: { ...window.location, assign, replace: vi.fn() },
+      writable: true,
+    });
+    vi.mocked(deviceFirstApi.payDirect).mockResolvedValue({
+      checkout: directInvoice(),
+      redirect_url: 'https://app.platega.io/pay/1',
+    });
+
+    renderConfigurator();
+    fireEvent.click(await screen.findByText('deviceFirst.review'));
+    fireEvent.click(await screen.findByText(/deviceFirst\.paymentMethodAmount/));
+
+    await waitFor(() => expect(assign).toHaveBeenCalledWith('https://app.platega.io/pay/1'));
+    // Кнопка гасится ДО ухода: на чужой странице наш обработчик уже не существует,
+    // и нажатие уходило бы в пустоту.
+    expect(vi.mocked(hideBackButton)).toHaveBeenCalled();
+  });
 
   it('confirms locally without a server order and births it only from the payment CTA', async () => {
     vi.mocked(deviceFirstApi.payDirect).mockResolvedValue({ checkout: directInvoice() });
