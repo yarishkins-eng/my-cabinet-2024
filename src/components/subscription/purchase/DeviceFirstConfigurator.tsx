@@ -122,14 +122,6 @@ export function DeviceFirstConfigurator({
   const [confirmAbandon, setConfirmAbandon] = useState(false);
   const [existingPaymentAttempt, setExistingPaymentAttempt] =
     useState<DeviceFirstPaymentAttempt | null>(null);
-  // 🔴 Пункт 4.11а. Кнопка оплаты на экране счёта рисовалась ТОЛЬКО из отдельного запроса
-  // `getPendingPayment`, а он живёт с `retry: false` и штатно отвечает `redirect_url: null`
-  // (`app/cabinet/routes/device_first.py:873` и `:876` — счёт «не живой» либо попытки ещё нет).
-  // Пока мы уходили редиректом, это было незаметно: URL держали в руках. Перестав уходить,
-  // мы бы оставили человека на экране БЕЗ ЕДИНОГО способа заплатить. Поэтому адрес из ответа
-  // самой мутации — источник кнопки, а второй запрос лишь уточняет его.
-  // Держим вместе с id заказа: чужой адрес на чужом заказе — это оплата не того счёта.
-  const [invoiceRedirect, setInvoiceRedirect] = useState<{ id: string; url: string } | null>(null);
   const checkoutUiState = checkout?.ui_state;
   const modalOpen = fixtureCheckout === undefined && checkoutUiState === 'awaiting_payment';
   const [methodKey, setMethodKey] = useState('sbp');
@@ -200,9 +192,6 @@ export function DeviceFirstConfigurator({
     deviceFirstApi.clearCreateIntents();
     setActionError(null);
     setExistingPaymentAttempt(null);
-    // Заказ уходит с экрана — его платёжный адрес уходит вместе с ним. Иначе следующий
-    // заказ унаследовал бы кнопку «Перейти к оплате», ведущую на ЧУЖОЙ счёт.
-    setInvoiceRedirect(null);
     setConfirmAbandon(false);
     setRepriced(false);
     setConfirmation(false);
@@ -512,13 +501,30 @@ export function DeviceFirstConfigurator({
     }
     await recoverAmbiguousCheckout(error);
   };
-  // Пункт 4.11а: адрес счёта, только что созданного этой мутацией, — самая свежая правда
-  // на экране. Запоминаем его ДО того, как заказ станет текущим, чтобы кнопка оплаты
-  // существовала с первого же кадра экрана счёта, а не после ответа второго запроса.
+  // 🔴 Пункт 4.11а. Кнопка оплаты на экране счёта рисуется из запроса `getPendingPayment`,
+  // а он живёт с `retry: false`: одна сетевая осечка — и человек остаётся на экране БЕЗ
+  // ЕДИНОГО способа заплатить. Пока мы уходили редиректом, это было незаметно, адрес держали
+  // в руках. Поэтому ответ мутации кладём в ТОТ ЖЕ кэш, откуда экран берёт кнопку: это такой
+  // же ответ сервера, только свежее — адрес пришёл вместе с самим счётом.
+  // 🔴 Кэш именно ЗАПИСЫВАЕМ, а не инвалидируем: `resume` не меняет id заказа, и в кэше
+  // оставалось протухшее `resume_allowed: true`. Человек возвращался на кнопку «создать счёт»
+  // и жал её повторно — петля. Запись убирает её без похода в сеть, поэтому петля не вернётся
+  // даже если перезапрос упадёт.
+  // ⚠️ Осознанно НЕ перекрываем этим адресом более поздний ответ сервера. Его `null` — не
+  // «не успели», а вердикт `_is_live_direct_provider_invoice`: счёт оплачен, отменён или
+  // протух. Перекрыв вердикт, мы бы вернули человека ровно в ту ловушку, которую чиним, —
+  // увели бы на мёртвую страницу провайдера, откуда возврата нет.
   const rememberInvoiceRedirect = (result: DeviceFirstCommitResponse) => {
-    if (result.redirect_url) {
-      setInvoiceRedirect({ id: result.checkout.id, url: result.redirect_url });
-    }
+    if (!result.redirect_url) return;
+    queryClient.setQueryData(['device-first-pending-payment', result.checkout.id], {
+      redirect_url: result.redirect_url,
+      status: 'pending',
+      resume_allowed: false,
+    });
+    // Новый счёт — новый отсчёт опроса. `pollStartedAt` сбрасывается только когда меняется
+    // СТРОКА состояния заказа, а `resume` оставляет ту же `awaiting_payment` под тем же id:
+    // без этой строки у возобновлённого счёта опрос не включался бы вовсе.
+    pollStartedAt.current = Date.now();
   };
   const payMutation = useMutation({
     mutationFn: ({
@@ -597,16 +603,10 @@ export function DeviceFirstConfigurator({
     mutationFn: () => deviceFirstApi.resumeInvoice(checkout!.id, methodKey),
     onMutate: () => setActionError(null),
     onSuccess: (result) => {
-      // 🔴 Пункт 4.11а, третий автоматический уход — и здесь же вторая ловушка. Resume не
-      // меняет id заказа, а кэш `pending-payment` не инвалидировала ни одна мутация: в нём
-      // так и лежало старое `{redirect_url: null, resume_allowed: true}`. Без сброса человек
-      // снова видел кнопку «создать счёт» и жал её ещё раз — петля. Сбрасываем кэш и тем же
-      // движением помним свежий адрес, чтобы кнопка оплаты жила даже если перезапрос упал.
+      // 🔴 Пункт 4.11а, третий автоматический уход. Здесь же вторая ловушка — протухшее
+      // `resume_allowed: true` в кэше; её закрывает запись свежего ответа, см. helper выше.
       rememberInvoiceRedirect(result);
       acceptCheckout(result.checkout);
-      void queryClient.invalidateQueries({
-        queryKey: ['device-first-pending-payment', result.checkout.id],
-      });
     },
     onError: recoverAmbiguousCheckout,
   });
@@ -675,15 +675,9 @@ export function DeviceFirstConfigurator({
       checkout.ui_state === 'awaiting_payment',
     retry: false,
   });
-  // 🔴 Пункт 4.11а. Порядок именно такой: ответ сервера главнее, но его `null` — ещё не
-  // приговор. Сервер отвечает `null` и когда запрос просто не успел (`retry: false`, одна
-  // попытка), и в гонке сразу после создания счёта. А адрес, который мы помним, пришёл
-  // вместе с самим счётом секунду назад. Честная граница: пока заказ висит в
-  // `awaiting_payment`, наш адрес — лучшее, что у экрана есть; протухший счёт уводит заказ
-  // в другое состояние, и экран меняется целиком.
-  const invoiceRedirectUrl =
-    pendingPayment.data?.redirect_url ??
-    (checkout && invoiceRedirect?.id === checkout.id ? invoiceRedirect.url : null);
+  // Пункт 4.11а: единственный источник кнопки оплаты — ответ сервера. Свежий адрес попадает
+  // сюда записью в кэш из `rememberInvoiceRedirect`, а не отдельной веткой в обход сервера.
+  const invoiceRedirectUrl = pendingPayment.data?.redirect_url ?? null;
 
   useEffect(() => {
     if (!fusedAutostart || checkout || legacyDraft || methods.isLoading) return;
@@ -1200,8 +1194,10 @@ export function DeviceFirstConfigurator({
                   {/* 🔴 Пункт 4.11а: здесь стояло предупреждение «страница оплаты откроется
                       вместо кабинета» (мина W). Оно было правдой, пока тап по способу оплаты
                       уводил к провайдеру. Теперь тап создаёт счёт и показывает НАШ экран
-                      счёта — предупреждать не о чем, а старый текст стал бы ложью. На самом
-                      экране счёта, где уход по-прежнему настоящий, оно осталось. */}
+                      счёта — старый текст стал бы ложью. На самом экране счёта, где уход
+                      по-прежнему настоящий, оно осталось. Вместо него — честное ожидание:
+                      покупка стала двухтаповой, и кнопка с суммой читается как «заплатить». */}
+                  <p className="text-xs text-dark-400">{t('deviceFirst.twoStepPayHint')}</p>
                   <div className="grid gap-2">
                     {methods.data.methods.map((method) => (
                       <button
@@ -1304,10 +1300,16 @@ export function DeviceFirstConfigurator({
                 текст был про восстановление («счёт мог быть создан, ответ проверяется»).
                 Теперь это первый экран КАЖДОГО покупателя, которому счёт только что создан,
                 — и тот текст стал бы ложью. Ключи разведены: `paymentChecking*` остались
-                ветке настоящей сверки ниже, где они по-прежнему правда. */}
-            {checkout.settlement_mode === 'direct_purchase_v2'
-              ? t('deviceFirst.invoiceReadyText')
-              : t('deviceFirst.armedNotice')}
+                ветке настоящей сверки ниже, где они по-прежнему правда.
+                🔴 Вторая развилка — по тому, ЕСТЬ ли чем платить. В эту ветку падает и
+                состояние, где сервер счёт не отдал (попытка ещё создаётся или уже не живая):
+                кнопки оплаты там нет вовсе, и звать «оплатите счёт» — обещать несуществующее.
+                Экран, который показывают свалкой состояний, нельзя описывать одним из них. */}
+            {checkout.settlement_mode !== 'direct_purchase_v2'
+              ? t('deviceFirst.armedNotice')
+              : invoiceRedirectUrl
+                ? t('deviceFirst.invoiceReadyText')
+                : t('deviceFirst.invoicePreparingText')}
           </p>
           {checkout.settlement_mode === 'direct_purchase_v2' &&
             invoiceRedirectUrl &&
@@ -1326,10 +1328,14 @@ export function DeviceFirstConfigurator({
             )}
           {checkout.settlement_mode === 'direct_purchase_v2' ? (
             <>
-              {(invoiceRedirectUrl || pendingPayment.data?.resume_allowed) && (
+              {invoiceRedirectUrl && (
                 // Мина W: сюда человек приходит по карточке «Незавершённый заказ» с Главной,
-                // то есть уже потеряв контекст один раз. Обе кнопки ниже уводят на провайдера
-                // тем же путём, что и первая оплата, — предупреждение обязано быть и здесь.
+                // то есть уже потеряв контекст один раз. Кнопка ниже уводит на провайдера тем
+                // же путём, что и первая оплата, — предупреждение обязано быть и здесь.
+                // 🔴 Пункт 4.11а: условие сузилось до кнопки оплаты. Раньше оно захватывало и
+                // «Продолжить создание счёта», а та после этой же правки никуда не уводит —
+                // предупреждение над ней стало бы такой же ложью, какую мы сняли с экрана
+                // подтверждения.
                 <p className="text-xs text-dark-400">{t('deviceFirst.leavingForProvider')}</p>
               )}
               {invoiceRedirectUrl && (
@@ -1407,7 +1413,9 @@ export function DeviceFirstConfigurator({
                       иконкой, без заливки: заливка поставила бы отмену в зону большого пальца
                       наравне с оплатой и провоцировала случайные отмены. Акцентной остаётся
                       оплата. Отступ и волосяной разделитель отделяют её от кнопок действия. */}
-                  <div className="mt-2 border-t border-dark-700 pt-3">
+                  {/* `mt-*` здесь не работает: обёртка — прямой ребёнок `space-y-4`, а его
+                      правило специфичнее одиночного класса. Отступ даём паддингом. */}
+                  <div className="border-t border-dark-700 pt-4">
                     <button
                       type="button"
                       onClick={() => setConfirmAbandon(true)}

@@ -198,8 +198,15 @@ describe('DeviceFirstConfigurator interaction safety', () => {
     vi.mocked(deviceFirstApi.paymentMethods).mockResolvedValue({
       methods: [{ key: 'sbp', provider_code: 2 }],
     });
+    // 🔴 Пункт 4.11а. Дефолт изменён на ЖИВОЙ счёт, и это не удобство, а правда боевого
+    // сервера: сразу после создания счёта `_is_live_direct_provider_invoice` пропускает
+    // адрес (`bot-code/app/cabinet/routes/device_first.py:876`). Прежний дефолт `null`
+    // означал «счёт мёртв» — и на нём же проверялось, что кнопка оплаты работает. То есть
+    // набор охранял вредный случай: увести человека на мёртвую страницу провайдера.
+    // Отдельными тестами ниже проверяются оба честных края: сервер сказал `null` → кнопки
+    // нет; запрос упал совсем → кнопка есть из ответа мутации.
     vi.mocked(deviceFirstApi.getPendingPayment).mockResolvedValue({
-      redirect_url: null,
+      redirect_url: 'https://app.platega.io/pay/live',
       status: 'pending',
       resume_allowed: false,
     });
@@ -214,13 +221,18 @@ describe('DeviceFirstConfigurator interaction safety', () => {
   // 🔴 Пункт 4.11а. Путь до провайдера стал двухшаговым: сначала НАШ экран счёта, и только
   // явный тап по кнопке оплаты уводит. Сторожа мины W ходят теперь этой дорогой — раньше
   // они ловили уход, который случался сам.
-  // Дефолтный мок `getPendingPayment` при этом отдаёт `redirect_url: null` — то есть кнопка
-  // здесь существует ИСКЛЮЧИТЕЛЬНО за счёт адреса, запомненного из ответа мутации. Уберут
-  // это запоминание — покраснеет каждый сторож, который сюда ходит.
+  // Адрес мутации ОТЛИЧАЕТСЯ от дефолтного адреса сервера нарочно: так видно, чей именно
+  // адрес попал под кнопку. Пока запрос счёта не ответил, это адрес мутации.
   async function payAndTapInvoiceCta(redirectUrl: string) {
     vi.mocked(deviceFirstApi.payDirect).mockResolvedValue({
       checkout: directInvoice(),
       redirect_url: redirectUrl,
+    });
+    // Сервер подтверждает тот же самый счёт — как на боевом сразу после его создания.
+    vi.mocked(deviceFirstApi.getPendingPayment).mockResolvedValue({
+      redirect_url: redirectUrl,
+      status: 'pending',
+      resume_allowed: false,
     });
     renderConfigurator();
     fireEvent.click(await screen.findByText('deviceFirst.review'));
@@ -333,6 +345,12 @@ describe('DeviceFirstConfigurator interaction safety', () => {
     vi.mocked(deviceFirstApi.nativeLaunchDirect).mockResolvedValue({
       checkout: directInvoice(),
       redirect_url: 'https://app.platega.io/pay/native',
+    });
+    vi.mocked(deviceFirstApi.get).mockResolvedValue(directInvoice());
+    vi.mocked(deviceFirstApi.getPendingPayment).mockResolvedValue({
+      redirect_url: 'https://app.platega.io/pay/native',
+      status: 'pending',
+      resume_allowed: false,
     });
 
     renderConfigurator({
@@ -501,12 +519,25 @@ describe('DeviceFirstConfigurator interaction safety', () => {
       writable: true,
     });
 
-    await payAndTapInvoiceCta('https://app.platega.io/pay/4');
+    // 🔴 Пункт 4.11а. Уход переехал из колбэка мутации в обработчик клика, а `leaveForProvider`
+    // бросок ПЕРЕбрасывает (это его сознательное поведение, оно и проверяется ниже). Раньше
+    // исключение глотала react-query; теперь оно доходит до `window`, и vitest засчитывает его
+    // как unhandled error — набор остаётся зелёным по тестам, но `npm test` выходит с кодом 1
+    // и роняет `verify.yml`. Гасим ровно на время этого клика и только здесь.
+    const swallowExpectedThrow = (event: ErrorEvent) => {
+      if (event.error?.message === 'navigation blocked') event.preventDefault();
+    };
+    window.addEventListener('error', swallowExpectedThrow);
+    try {
+      await payAndTapInvoiceCta('https://app.platega.io/pay/4');
 
-    // Документ остался прежним, экран живой — кнопку надо вернуть, иначе человек
-    // сидит на рабочем экране без «Назад» до перезагрузки.
-    await waitFor(() => expect(vi.mocked(showBackButton)).toHaveBeenCalled());
-    expect(vi.mocked(hideBackButton)).toHaveBeenCalled();
+      // Документ остался прежним, экран живой — кнопку надо вернуть, иначе человек
+      // сидит на рабочем экране без «Назад» до перезагрузки.
+      await waitFor(() => expect(vi.mocked(showBackButton)).toHaveBeenCalled());
+      expect(vi.mocked(hideBackButton)).toHaveBeenCalled();
+    } finally {
+      window.removeEventListener('error', swallowExpectedThrow);
+    }
   });
 
   it('warns before leaving only on the screen that still leads to the provider', async () => {
@@ -515,8 +546,13 @@ describe('DeviceFirstConfigurator interaction safety', () => {
     // кабинета» стало бы там ложью — и это первый экран каждого покупателя.
     renderConfigurator();
     fireEvent.click(await screen.findByText('deviceFirst.review'));
-    expect(await screen.findByText(/deviceFirst\.paymentMethodAmount/)).toBeTruthy();
+    const method = await screen.findByText(/deviceFirst\.paymentMethodAmount/);
     expect(screen.queryByText('deviceFirst.leavingForProvider')).toBeNull();
+    // 🔴 Но и молчать нельзя: покупка стала двухтаповой, а кнопка с суммой читается как
+    // «заплатить». Ожидание выставляется ДО тапа и стоит выше кнопок — под ними на телефоне
+    // 375×667 строка уходит за сгиб, а скринридер читает её после нажатия.
+    const hint = screen.getByText('deviceFirst.twoStepPayHint');
+    expect(hint.compareDocumentPosition(method) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     cleanup();
 
     // А на экране счёта уход настоящий — там предупреждение обязано остаться, и стоять
@@ -704,18 +740,29 @@ describe('DeviceFirstConfigurator interaction safety', () => {
       writable: true,
     });
     vi.mocked(deviceFirstApi.get).mockResolvedValue(directInvoice());
-    vi.mocked(deviceFirstApi.getPendingPayment).mockResolvedValue({
-      redirect_url: null,
-      status: 'missing',
-      resume_allowed: true,
-    });
+    // Первый ответ — «счёта нет, можно создать». Дальше сервер отвечает как на боевом:
+    // попытка появилась, значит `resume_allowed` больше НИКОГДА не будет истинным
+    // (`bot-code/app/cabinet/routes/device_first.py:863-873` требует, чтобы попыток не было).
+    vi.mocked(deviceFirstApi.getPendingPayment)
+      .mockResolvedValueOnce({ redirect_url: null, status: 'missing', resume_allowed: true })
+      .mockResolvedValue({
+        redirect_url: 'https://app.platega.io/pay/resumed',
+        status: 'pending',
+        resume_allowed: false,
+      });
     vi.mocked(deviceFirstApi.resumeInvoice).mockResolvedValue({
       checkout: directInvoice(),
       redirect_url: 'https://app.platega.io/pay/resumed',
     });
 
     renderConfigurator({ initialPath: '/subscription/purchase?checkout=checkout-owned' });
-    fireEvent.click(await screen.findByRole('button', { name: 'deviceFirst.resumeInvoice' }));
+    const resume = await screen.findByRole('button', { name: 'deviceFirst.resumeInvoice' });
+    // 🔴 Пока счёта нет, предупреждение «страница оплаты откроется вместо кабинета» — ложь:
+    // эта кнопка после правки никуда не уводит, она создаёт счёт. Ровно ту же ложь пункт
+    // снял с экрана подтверждения, и здесь она не должна была остаться.
+    expect(screen.queryByText('deviceFirst.leavingForProvider')).toBeNull();
+
+    fireEvent.click(resume);
 
     // Счёт создан: появилась кнопка оплаты — и уход НЕ случился сам. Проверка «не звали до
     // тапа» обязательна: без неё мутационный прогон показал, что авто-редирект можно вернуть
@@ -728,10 +775,114 @@ describe('DeviceFirstConfigurator interaction safety', () => {
     fireEvent.click(cta);
     expect(assign).toHaveBeenCalledWith('https://app.platega.io/pay/resumed');
     expect(deviceFirstApi.resumeInvoice).toHaveBeenCalledTimes(1);
-    // Протухшее `resume_allowed` сброшено — сервер перечитан по тому же заказу.
+    // 🔴 И главное: кнопка «создать счёт» ИСЧЕЗЛА. Пока протухшее `resume_allowed: true`
+    // оставалось в кэше, человек видел её снова и жал повторно — это и была петля.
+    expect(screen.queryByRole('button', { name: 'deviceFirst.resumeInvoice' })).toBeNull();
+  });
+
+  it('hides the payment CTA when the server says the invoice is no longer live', async () => {
+    // 🔴 Обратная сторона пункта, и её нашли три линзы разом. Сервер отвечает `redirect_url:
+    // null` не только когда «не успел»: это вердикт `_is_live_direct_provider_invoice`
+    // (`bot-code/app/cabinet/routes/device_first.py:161-185`) — счёт оплачен, отменён
+    // провайдером или протух. Перекрыть этот вердикт своим запомненным адресом значит увести
+    // человека на мёртвую страницу Platega, где есть только крестик, — ровно та ловушка,
+    // которую пункт чинит. Здесь фиксируем: сказал `null` — кнопки нет, и экран об этом
+    // говорит честно, а не зовёт «оплатите счёт».
+    const assign = vi.fn();
+    Object.defineProperty(window, 'location', {
+      value: { ...window.location, assign, replace: vi.fn() },
+      writable: true,
+    });
+    vi.mocked(deviceFirstApi.payDirect).mockResolvedValue({
+      checkout: directInvoice(),
+      redirect_url: 'https://app.platega.io/pay/dead',
+    });
+    // Опрос статуса возвращает ТОТ ЖЕ прямой заказ: иначе он подменит его легаси-фикстурой
+    // из `beforeEach`, и проверка уедет на чужую ветку экрана.
+    vi.mocked(deviceFirstApi.get).mockResolvedValue(directInvoice());
+    vi.mocked(deviceFirstApi.getPendingPayment).mockResolvedValue({
+      redirect_url: null,
+      status: 'reconciliation',
+      resume_allowed: false,
+    });
+
+    renderConfigurator();
+    fireEvent.click(await screen.findByText('deviceFirst.review'));
+    fireEvent.click(await screen.findByText(/deviceFirst\.paymentMethodAmount/));
+
+    expect(await screen.findByText('deviceFirst.invoicePreparingText')).toBeTruthy();
     await waitFor(() =>
-      expect(vi.mocked(deviceFirstApi.getPendingPayment).mock.calls.length).toBeGreaterThan(1),
+      expect(
+        screen.queryByRole('button', { name: 'deviceFirst.continueExistingInvoice' }),
+      ).toBeNull(),
     );
+    // Ни обещания оплатить, ни предупреждения про уход — уходить некуда.
+    expect(screen.queryByText('deviceFirst.invoiceReadyText')).toBeNull();
+    expect(screen.queryByText('deviceFirst.leavingForProvider')).toBeNull();
+    expect(assign).not.toHaveBeenCalled();
+    // Выход с экрана при этом остаётся.
+    expect(screen.getByRole('button', { name: 'deviceFirst.changeOptions' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'deviceFirst.cancel' })).toBeTruthy();
+  });
+
+  it('names the invoice dialog by what the screen actually says', async () => {
+    // Прямой счёт объявлялся скринридеру как «Нужно пополнить баланс» — имя чужого экрана.
+    // Ключи зашиты литералами: сторож не должен ходить по тому же выражению, что и код.
+    // Фикстурой окно не поднять: `role="dialog"` есть только у портальной поверхности,
+    // то есть у настоящего заказа. Идём тем же путём, что и человек.
+    vi.mocked(deviceFirstApi.get).mockResolvedValue(directInvoice());
+    renderConfigurator({ initialPath: '/subscription/purchase?checkout=checkout-owned' });
+
+    const dialog = await screen.findByRole('dialog');
+    expect(dialog.getAttribute('aria-label')).toBe('deviceFirst.invoiceReadyTitle');
+    expect(dialog.getAttribute('aria-label')).not.toBe('deviceFirst.needTopup');
+  });
+
+  it('keeps the selection when leaving a resumed confirmation through Change options', async () => {
+    // Вторая половина того же требования. Мутационный прогон показал, что она не прибита
+    // ничем: голый возврат на этом экране переживал весь набор.
+    const wide: DeviceFirstOptions = {
+      ...options,
+      period_options: [30, 90],
+      device_options: [2, 6],
+      price_matrix: [
+        options.price_matrix![0],
+        {
+          period_days: 90,
+          prices: [
+            {
+              device_limit: 6,
+              price_kopeks: 99000,
+              breakdown: options.price_matrix![0].prices[0].breakdown,
+            },
+          ],
+        },
+      ],
+    };
+    const resumed: DeviceFirstCheckout = {
+      ...checkout('confirmation'),
+      settlement_mode: 'direct_purchase_v2',
+      period_days: 90,
+      selected_device_limit: 6,
+    };
+
+    renderConfigurator({ options: wide, fixtureCheckout: resumed });
+    fireEvent.click(screen.getByRole('button', { name: 'deviceFirst.changeOptions' }));
+
+    await waitFor(() =>
+      expect(
+        screen
+          .getByText('deviceFirst.deviceCount:6')
+          .closest('button')
+          ?.getAttribute('aria-checked'),
+      ).toBe('true'),
+    );
+    expect(
+      screen
+        .getByText('deviceFirst.periodMonths:3')
+        .closest('button')
+        ?.getAttribute('aria-checked'),
+    ).toBe('true');
   });
 
   it('stops polling an invoice the provider gave no deadline for', async () => {
@@ -763,6 +914,49 @@ describe('DeviceFirstConfigurator interaction safety', () => {
       const justAfterTimeout = polls();
       await vi.advanceTimersByTimeAsync(2 * 60 * 1000);
       expect(polls()).toBe(justAfterTimeout);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('restarts polling for an invoice created by a resume', async () => {
+    // 🔴 Находка волны 1. `pollStartedAt` сбрасывается только когда меняется СТРОКА состояния
+    // заказа, а `resume` оставляет ту же `awaiting_payment` под тем же id. Значит для нового
+    // счёта опрос не включался бы вовсе: человек создал счёт, оплатил, а экран замер навсегда.
+    // Раньше это было не видно — прямой счёт опрашивался вечно.
+    vi.useFakeTimers();
+    try {
+      const polls = () => vi.mocked(deviceFirstApi.get).mock.calls.length;
+      vi.mocked(deviceFirstApi.get).mockResolvedValue({
+        ...directInvoice(),
+        provider_invoice_expires_at: null,
+      });
+      vi.mocked(deviceFirstApi.getPendingPayment)
+        .mockResolvedValueOnce({ redirect_url: null, status: 'missing', resume_allowed: true })
+        .mockResolvedValue({
+          redirect_url: 'https://app.platega.io/pay/after-resume',
+          status: 'pending',
+          resume_allowed: false,
+        });
+      vi.mocked(deviceFirstApi.resumeInvoice).mockResolvedValue({
+        checkout: { ...directInvoice(), provider_invoice_expires_at: null },
+        redirect_url: 'https://app.platega.io/pay/after-resume',
+      });
+
+      renderConfigurator({ initialPath: '/subscription/purchase?checkout=checkout-owned' });
+      await vi.advanceTimersByTimeAsync(100);
+      await vi.advanceTimersByTimeAsync(3_000);
+      // Переваливаем порог: опрос старого счёта затих.
+      await vi.advanceTimersByTimeAsync(3 * 60 * 1000);
+      const beforeResume = polls();
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(polls()).toBe(beforeResume);
+
+      fireEvent.click(screen.getByRole('button', { name: 'deviceFirst.resumeInvoice' }));
+      await vi.advanceTimersByTimeAsync(100);
+      await vi.advanceTimersByTimeAsync(30_000);
+      // Счёт новый — отсчёт новый, экран снова следит за оплатой.
+      expect(polls()).toBeGreaterThan(beforeResume);
     } finally {
       vi.useRealTimers();
     }
