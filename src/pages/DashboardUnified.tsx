@@ -196,6 +196,11 @@ export default function DashboardUnified() {
       queryClient.invalidateQueries({ queryKey: ['subscription'] }),
       queryClient.invalidateQueries({ queryKey: ['subscriptions-list'] }),
       queryClient.invalidateQueries({ queryKey: ['balance'] }),
+      // 🔴 Пункт 4.11б. Незавершённый заказ здесь не перечитывался, а «потянуть вниз» —
+      // единственный жест обновления на Главной: карточка закрытого заказа от него не
+      // двигалась. Раньше добавлять было бессмысленно (перезапрос снова падал в 404, и
+      // данные оставались), а теперь ответ становится честным `null` — и сброс работает.
+      queryClient.invalidateQueries({ queryKey: ['device-first-open-checkout'] }),
     ];
     if (subscriptionId != null) {
       tasks.push(queryClient.invalidateQueries({ queryKey: ['subscription', subscriptionId] }));

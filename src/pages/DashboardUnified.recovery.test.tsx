@@ -22,15 +22,22 @@ import type { DeviceFirstCheckout } from '@/api/deviceFirst';
  * и гашение блока покупки. Лечим в одной точке чтения — сторожим все три.
  */
 
-const activeSubscription = {
+const expiredSubscription = {
   id: 42,
-  status: 'active',
+  status: 'expired',
+  // 🔴 Именно `is_expired` включает экран P8, где есть кнопка продажи. Без неё экран P1,
+  // кнопки продажи нет физически, и сторож на «угнанную кнопку» пуст — проверено.
+  is_expired: true,
   is_trial: false,
   device_limit: 4,
   traffic_limit_gb: 0,
   traffic_used_gb: 0,
-  end_date: '2026-09-15T12:00:00Z',
+  end_date: '2026-08-01T12:00:00Z',
   autopay_enabled: false,
+  in_grace: false,
+  restriction_subscription: false,
+  can_topup_devices: false,
+  can_topup_traffic: false,
   connected_squads: ['de'],
   subscription_url: 'https://example.invalid/sub',
   links: [],
@@ -98,9 +105,13 @@ vi.mock('../api/deviceFirst', () => ({
     },
   },
 }));
+let subscriptionOf: unknown = expiredSubscription;
 vi.mock('../api/subscription', () => ({
   subscriptionApi: {
-    getSubscription: () => Promise.resolve({ subscription: activeSubscription }),
+    getSubscription: () =>
+      // `has_subscription` — то, по чему страница решает «подписки нет» и показывать ли
+      // блок покупки (`DashboardUnified.tsx:337-339`).
+      Promise.resolve({ subscription: subscriptionOf, has_subscription: subscriptionOf !== null }),
     getSubscriptions: () => Promise.resolve({ subscriptions: [] }),
     getTrialInfo: () => Promise.resolve({ is_available: false }),
     getDevices: () => Promise.resolve({ devices: [] }),
@@ -178,6 +189,7 @@ describe('Главная: карточка незавершённого зака
     navigate.mockClear();
     getOpen = () => Promise.resolve(liveCheckout);
     getOpenCalls = 0;
+    subscriptionOf = expiredSubscription;
   });
 
   it('убирает заказ, когда сервер начал отвечать, что открытого заказа нет', async () => {
@@ -193,11 +205,13 @@ describe('Главная: карточка незавершённого зака
     // Карточки нет — это то, чего добивался владелец.
     await waitFor(() => expect(screen.queryByText('Незавершённый заказ')).toBeNull());
 
-    // 🔴 И главная кнопка продажи больше не угнана: она питается тем же ответом и молча
-    // уводила в мёртвый заказ. На экране этого не видно — проверяем адрес перехода.
-    const buttons = screen.queryAllByRole('button');
-    expect(buttons.length).toBeGreaterThan(0);
-    for (const button of buttons) fireEvent.click(button);
+    // 🔴 И главная кнопка продажи больше не угнана. Она питается тем же ответом и молча
+    // уводила в мёртвый заказ — на экране этого не видно, поэтому проверяем адрес перехода.
+    // Жмём именно ЕЁ, а не «все кнопки подряд»: в цикл попадала сама карточка, и сторож
+    // оказывался переодетым дублем проверки выше.
+    const sell = screen.getByRole('button', { name: 'home.hero.renew' });
+    fireEvent.click(sell);
+    expect(navigate).toHaveBeenCalled();
     for (const [target] of navigate.mock.calls) {
       expect(String(target)).not.toContain('checkout=');
     }
@@ -215,6 +229,56 @@ describe('Главная: карточка незавершённого зака
     await goAwayAndComeBack(queryClient);
 
     expect(screen.getByText('Незавершённый заказ')).toBeTruthy();
+  });
+
+  it('НЕ прячет заказ, по которому деньги уже в полёте', async () => {
+    // 🔴 Прежняя фикстура была только `awaiting_payment`, поэтому проверка «карточки нет»
+    // доказывала лишь отсутствие ОДНОГО вида карточки: у заказа на разборе она рисуется
+    // другим текстом. А это тот самый сегмент, где деньги уже ушли, и потерять вход к нему
+    // дороже всего — сценарий этапа 4.4.
+    const underReview = {
+      ...liveCheckout,
+      lifecycle_state: 'operator_review',
+      ui_state: 'operator_review' as DeviceFirstCheckout['ui_state'],
+      money_state: 'unknown' as const,
+    };
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    getOpen = () => Promise.resolve(underReview);
+    renderHome(queryClient);
+    expect(await screen.findByText('deviceFirst.reviewUnknownTitle')).toBeTruthy();
+
+    getOpen = () => Promise.reject(networkError);
+    await goAwayAndComeBack(queryClient);
+    expect(screen.getByText('deviceFirst.reviewUnknownTitle')).toBeTruthy();
+  });
+
+  it('возвращает человеку возможность купить, когда застрявший заказ закрылся', async () => {
+    // 🔴 Третий потребитель того же ответа. Пока заказ считался «деньги в полёте», у
+    // человека БЕЗ подписки гас весь блок покупки и триала — и после закрытия заказа
+    // оператором он не мог купить ничем. Проверяем, что блок возвращается.
+    subscriptionOf = null;
+    const underReview = {
+      ...liveCheckout,
+      lifecycle_state: 'operator_review',
+      ui_state: 'operator_review' as DeviceFirstCheckout['ui_state'],
+      money_state: 'unknown' as const,
+    };
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    getOpen = () => Promise.resolve(underReview);
+    renderHome(queryClient);
+    await screen.findByText('deviceFirst.reviewUnknownTitle');
+    // 🔴 Ждём, пока страница успокоится. Без этого проверка «блока нет» проходит просто
+    // потому, что данные ещё грузятся, и мутация «убрать гашение блока» её переживает —
+    // проверено, ровно так и вышло.
+    await waitFor(() => expect(queryClient.isFetching()).toBe(0));
+    // Пока заказ считается «деньги в полёте» — пути купить на Главной нет вовсе.
+    const browsePlans = 'Посмотреть тарифы и купить подписку';
+    expect(screen.queryByText(browsePlans)).toBeNull();
+
+    getOpen = () => Promise.reject(noOpenCheckout404);
+    await goAwayAndComeBack(queryClient);
+
+    await waitFor(() => expect(screen.getByText(browsePlans)).toBeTruthy());
   });
 
   it('ведёт к заказу, пока сервер подтверждает, что он есть', async () => {

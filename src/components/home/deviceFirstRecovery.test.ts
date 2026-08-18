@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import {
   deviceFirstRecoveryVariant,
@@ -92,6 +93,22 @@ describe('isNoOpenCheckoutError', () => {
     ).toBe(false);
   });
 
+  it('never treats a broken connection as an answer, in the shapes axios really sends', () => {
+    // 🔴 Формы взяты настоящие: у axios обрыв и таймаут несут `code`, и первая версия
+    // сторожа этого не отражала — мутация «распознавать ещё и по `error.code`» её
+    // пережила, хотя она прячет живой заказ при каждом моргании сети.
+    expect(isNoOpenCheckoutError({ code: 'ERR_NETWORK', message: 'Network Error' })).toBe(false);
+    expect(
+      isNoOpenCheckoutError({ code: 'ECONNABORTED', message: 'timeout of 15000ms exceeded' }),
+    ).toBe(false);
+    expect(isNoOpenCheckoutError({ code: 'ERR_CANCELED', message: 'canceled' })).toBe(false);
+    // Ответ есть, но это не наш код: 5xx и «страницы нет» у FastAPI со строковым detail.
+    expect(isNoOpenCheckoutError({ response: { status: 502, data: '' } })).toBe(false);
+    expect(
+      isNoOpenCheckoutError({ response: { status: 404, data: { detail: 'Not Found' } } }),
+    ).toBe(false);
+  });
+
   it('never treats a broken connection as an answer', () => {
     // 🔴 Самое важное: карточка — единственный вход к живому заказу с Главной. Обрыв связи,
     // 5xx и таймаут обязаны пробрасываться, иначе моргнувшая сеть спрячет чужие деньги.
@@ -100,5 +117,42 @@ describe('isNoOpenCheckoutError', () => {
     expect(isNoOpenCheckoutError({ message: 'timeout of 15000ms exceeded' })).toBe(false);
     expect(isNoOpenCheckoutError(null)).toBe(false);
     expect(isNoOpenCheckoutError(undefined)).toBe(false);
+  });
+});
+
+describe('Главная действительно пользуется распознавателем', () => {
+  // 🔴 Мутационный прогон показал: подменить вызов `isNoOpenCheckoutError` на голую проверку
+  // `status === 404` прямо в Главной можно при полностью зелёном наборе. Юнит выше сторожит
+  // хелпер, а это — что страница ходит через него, а не заводит свою проверку рядом.
+  // Тесты на функцию не доказывают, что функция ПОДКЛЮЧЕНА.
+  const dashboard = readFileSync(
+    new URL('../../pages/DashboardUnified.tsx', import.meta.url),
+    'utf8',
+  );
+  // Границы берём по КОДУ, а не по словам: первая версия этого сторожа обрезала срез по
+  // фразе, которая встречалась в комментарии рядом, и проверяла пустоту.
+  const queryStart = dashboard.indexOf("queryKey: ['device-first-open-checkout']");
+  const bodyStart = dashboard.indexOf('queryFn: async', queryStart);
+  const openCheckoutQuery = dashboard.slice(
+    bodyStart,
+    dashboard.indexOf('\n    retry:', bodyStart),
+  );
+
+  it('гасит заказ через общий распознаватель, а не своей проверкой статуса', () => {
+    expect(openCheckoutQuery).toContain('isNoOpenCheckoutError(error)');
+    expect(openCheckoutQuery).toContain('throw error');
+    // Никакой самодельной проверки статуса рядом: она проглотила бы чужой 404.
+    expect(openCheckoutQuery).not.toContain('=== 404');
+    expect(openCheckoutQuery).not.toContain('status === 404');
+  });
+
+  it('обновляет заказ жестом «потянуть вниз»', () => {
+    // Единственный жест обновления на Главной. До пункта 4.11б этот ключ в списке
+    // отсутствовал, и застрявшая карточка от жеста не двигалась.
+    const pullRefresh = dashboard.slice(
+      dashboard.indexOf('const handlePullRefresh'),
+      dashboard.indexOf('const { pullDistance'),
+    );
+    expect(pullRefresh).toContain("queryKey: ['device-first-open-checkout']");
   });
 });
