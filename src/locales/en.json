@@ -5301,7 +5301,7 @@
     "paymentChecking": "Checking the invoice",
     "paymentCheckingText": "An invoice may have been created and its result is being verified. Do not pay again; no duplicate charge is made automatically.",
     "invoiceReadyTitle": "Order awaiting payment",
-    "invoiceReadyText": "Pay while the invoice is valid. Later, paying the old link only credits your balance and no subscription is activated.",
+    "invoiceReadyText": "Pay while the invoice is valid: an expired invoice no longer activates the subscription.",
     "refreshStatusHint": "If you have already paid and nothing changed here, tap \"Refresh status\".",
     "twoStepPayHint": "We place the order first; you open the payment yourself on the next step.",
     "invoiceValidUntil": "This invoice is valid until {{date}}.",
