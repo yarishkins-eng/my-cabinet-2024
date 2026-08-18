@@ -68,6 +68,22 @@ export function closedCartCopy(
       textKey: 'deviceFirst.lateCreditText',
     };
   }
+  // Пункт 4.4. Заказ закрыл оператор кнопкой разбора. Без этой ветки экран уходил в
+  // резервный текст «Данные подписки или цена изменились — деньги без подтверждения не
+  // списаны»: неправда дважды, и второй раз — тому, у кого деньги как раз списали.
+  // Утверждать про деньги можно только по факту от бэкенда, поэтому веток две, и обе
+  // молчат о том, чего не знают: закрыть заказ оператор может и без возврата.
+  if (terminalReason === 'cancelled_by_operator_review') {
+    return moneyState === 'no_money'
+      ? {
+          titleKey: 'deviceFirst.operatorClosedTitle',
+          textKey: 'deviceFirst.operatorClosedNoMoneyText',
+        }
+      : {
+          titleKey: 'deviceFirst.operatorClosedTitle',
+          textKey: 'deviceFirst.operatorClosedMoneyText',
+        };
+  }
   if (terminalReason !== 'cancelled_by_user_after_invoice' || moneyState !== 'no_money') {
     return null;
   }

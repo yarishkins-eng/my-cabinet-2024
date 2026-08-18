@@ -69,3 +69,32 @@ describe('closedCartCopy — поздняя оплата закрытого за
     expect(closedCartCopy('late_paid_wallet_credit', 'no_money')).toBeNull();
   });
 });
+
+describe('closedCartCopy — заказ закрыл оператор (пункт 4.4)', () => {
+  it('заплатившему клиенту НЕ говорим «деньги не списаны»', () => {
+    // 🔴 Главный сторож этой ветки. Без неё экран уходил в резервный текст
+    // `deviceFirst.refreshText` — «Данные подписки или цена изменились. Создайте новый
+    // расчёт — деньги без подтверждения не списаны». Обе половины ложны, и вторая
+    // ложна тому, у кого деньги как раз удержаны.
+    const copy = closedCartCopy('cancelled_by_operator_review', 'money_in_flight');
+    expect(copy).not.toBeNull();
+    expect(copy?.textKey).toBe('deviceFirst.operatorClosedMoneyText');
+    expect(copy?.titleKey).toBe('deviceFirst.operatorClosedTitle');
+  });
+
+  it('когда денег не было — говорим об этом прямо', () => {
+    expect(closedCartCopy('cancelled_by_operator_review', 'no_money')).toEqual({
+      titleKey: 'deviceFirst.operatorClosedTitle',
+      textKey: 'deviceFirst.operatorClosedNoMoneyText',
+    });
+  });
+
+  it('при неизвестном исходе про деньги ничего не утверждаем', () => {
+    // `unknown` и отсутствие поля обязаны вести в осторожный текст, а не в «не списаны».
+    for (const state of ['unknown', undefined, null] as const) {
+      expect(closedCartCopy('cancelled_by_operator_review', state)?.textKey).toBe(
+        'deviceFirst.operatorClosedMoneyText',
+      );
+    }
+  });
+});
