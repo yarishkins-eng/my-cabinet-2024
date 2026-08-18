@@ -810,13 +810,20 @@ describe('DeviceFirstConfigurator interaction safety', () => {
     fireEvent.click(await screen.findByText('deviceFirst.review'));
     fireEvent.click(await screen.findByText(/deviceFirst\.paymentMethodAmount/));
 
-    expect(await screen.findByText('deviceFirst.invoicePreparingText')).toBeTruthy();
+    // 🔴 Здесь же лежит самый опасный случай этого состояния: сервер гасит адрес и когда
+    // человек УЖЕ ЗАПЛАТИЛ, а вебхук не дошёл (`payment.is_paid` в заборе
+    // `bot-code/app/cabinet/routes/device_first.py:170`). Снаружи он неотличим от «счёт ещё
+    // создаётся». Поэтому экран обязан нести защиту «не оплачивайте повторно»: иначе
+    // оплативший платит второй раз, а деньги вернутся ему на баланс без подписки.
+    expect(await screen.findByText('deviceFirst.paymentChecking')).toBeTruthy();
+    expect(screen.getByText('deviceFirst.paymentCheckingText')).toBeTruthy();
     await waitFor(() =>
       expect(
         screen.queryByRole('button', { name: 'deviceFirst.continueExistingInvoice' }),
       ).toBeNull(),
     );
     // Ни обещания оплатить, ни предупреждения про уход — уходить некуда.
+    expect(screen.queryByText('deviceFirst.invoiceReadyTitle')).toBeNull();
     expect(screen.queryByText('deviceFirst.invoiceReadyText')).toBeNull();
     expect(screen.queryByText('deviceFirst.leavingForProvider')).toBeNull();
     expect(assign).not.toHaveBeenCalled();
@@ -834,8 +841,16 @@ describe('DeviceFirstConfigurator interaction safety', () => {
     renderConfigurator({ initialPath: '/subscription/purchase?checkout=checkout-owned' });
 
     const dialog = await screen.findByRole('dialog');
-    expect(dialog.getAttribute('aria-label')).toBe('deviceFirst.invoiceReadyTitle');
+    // Пока запрос счёта не ответил, экран честно называется «Проверяем счёт»; когда счёт
+    // подтверждён — «Заказ ждёт оплаты». Важно, что имя окна В ЛЮБОЙ момент совпадает с
+    // видимым заголовком и никогда не остаётся чужим «Нужно пополнить баланс».
     expect(dialog.getAttribute('aria-label')).not.toBe('deviceFirst.needTopup');
+    await waitFor(() =>
+      expect(dialog.getAttribute('aria-label')).toBe('deviceFirst.invoiceReadyTitle'),
+    );
+    expect(screen.getByRole('heading', { level: 3 }).textContent).toBe(
+      dialog.getAttribute('aria-label'),
+    );
   });
 
   it('keeps the selection when leaving a resumed confirmation through Change options', async () => {
@@ -908,12 +923,97 @@ describe('DeviceFirstConfigurator interaction safety', () => {
       // Сначала убеждаемся, что опрос вообще идёт: без этого тест был бы зелёным и на
       // сломанном экране, который не опрашивает сервер никогда.
       expect(polls()).toBeGreaterThan(1);
+      // 🔴 И что окно не схлопнуто. У порога обязана быть нижняя граница: без неё его можно
+      // ужать до секунд, и человек, вернувшийся с оплаты, не увидит результата — а «стоп
+      // опроса» сегодня единственное, что решает, сколько экран живёт сам. Минута — заведомо
+      // меньше настоящего порога и заведомо больше «схлопнули до секунд».
+      await vi.advanceTimersByTimeAsync(30_000);
+      const atOneMinute = polls();
+      await vi.advanceTimersByTimeAsync(20_000);
+      expect(polls()).toBeGreaterThan(atOneMinute);
 
       // Переваливаем за две минуты с начала опроса и даём ещё столько же сверху.
       await vi.advanceTimersByTimeAsync(2 * 60 * 1000);
       const justAfterTimeout = polls();
       await vi.advanceTimersByTimeAsync(2 * 60 * 1000);
       expect(polls()).toBe(justAfterTimeout);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('does not loop on the create-invoice button when the resume comes back without a link', async () => {
+    // 🔴 Находка волны 2, и петля была ЖИВА после моей же починки. Сервер сознательно не
+    // отдаёт адрес, если попытка «ambiguous/reconciling»
+    // (`bot-code/app/cabinet/routes/device_first.py:812-819`), а помощник в этом случае молча
+    // выходил, ничего не записав. Протухшее `resume_allowed: true` оставалось, кнопка
+    // «Продолжить создание счёта» никуда не девалась, и второй тап по ней получал
+    // `invoice_resume_unavailable` — код, которого нет в разборе ошибок: человек видел безликое
+    // «попробуйте ещё раз» при всё той же живой кнопке.
+    vi.mocked(deviceFirstApi.get).mockResolvedValue(directInvoice());
+    vi.mocked(deviceFirstApi.getPendingPayment).mockResolvedValue({
+      redirect_url: null,
+      status: 'missing',
+      resume_allowed: true,
+    });
+    // Ответ БЕЗ адреса — ровно то, что отдаёт боевой сервер в этой ветке.
+    vi.mocked(deviceFirstApi.resumeInvoice).mockResolvedValue({ checkout: directInvoice() });
+
+    renderConfigurator({ initialPath: '/subscription/purchase?checkout=checkout-owned' });
+    fireEvent.click(await screen.findByRole('button', { name: 'deviceFirst.resumeInvoice' }));
+
+    // Кнопка создания счёта ушла — жать по кругу больше нечего.
+    await waitFor(() =>
+      expect(screen.queryByRole('button', { name: 'deviceFirst.resumeInvoice' })).toBeNull(),
+    );
+    expect(deviceFirstApi.resumeInvoice).toHaveBeenCalledTimes(1);
+    // И экран честно говорит, что идёт сверка, а не зовёт платить.
+    expect(screen.getByText('deviceFirst.paymentCheckingText')).toBeTruthy();
+    expect(
+      screen.queryByRole('button', { name: 'deviceFirst.continueExistingInvoice' }),
+    ).toBeNull();
+  });
+
+  it('tells the person what to do once the screen stops refreshing itself', async () => {
+    // Опрос теперь замолкает, и подсказка рядом с «Обновить статус» — единственное, что об
+    // этом говорит. Скептик показал, что её можно удалить при полностью зелёном наборе.
+    vi.mocked(deviceFirstApi.get).mockResolvedValue(directInvoice());
+
+    renderConfigurator({ initialPath: '/subscription/purchase?checkout=checkout-owned' });
+
+    const refresh = await screen.findByRole('button', { name: 'deviceFirst.refreshStatus' });
+    const hint = screen.getByText('deviceFirst.refreshStatusHint');
+    // Подсказка идёт ПОСЛЕ кнопки, к которой относится: она объясняет уже увиденное.
+    expect(refresh.compareDocumentPosition(hint) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('keeps polling after payment while the VPN is being provisioned', async () => {
+    // 🔴 Находка волны 2, и это была моя же починка. Тот же запрос обслуживает три состояния:
+    // экран счёта, «Проверяем оплату» и «Настраиваем VPN». Сняв исключение для прямого счёта,
+    // я заглушил все три — то есть заплативший человек смотрел бы на «Настраиваем…» вечно,
+    // и подсказки про «Обновить статус» на том экране нет. Порог обязан касаться ТОЛЬКО
+    // экрана счёта. Состояние и порог зашиты литералами.
+    vi.useFakeTimers();
+    try {
+      const polls = () => vi.mocked(deviceFirstApi.get).mock.calls.length;
+      vi.mocked(deviceFirstApi.get).mockResolvedValue({
+        ...directInvoice(),
+        provider_invoice_expires_at: null,
+        lifecycle_state: 'fulfilling',
+        ui_state: 'processing',
+      });
+
+      renderConfigurator({ initialPath: '/subscription/purchase?checkout=checkout-owned' });
+      await vi.advanceTimersByTimeAsync(100);
+      await vi.advanceTimersByTimeAsync(3_000);
+      await vi.advanceTimersByTimeAsync(3 * 60 * 1000);
+      const afterThreshold = polls();
+      expect(afterThreshold).toBeGreaterThan(1);
+
+      await vi.advanceTimersByTimeAsync(60_000);
+      // Порог позади, а экран выдачи продолжает следить — иначе оплативший не узнает,
+      // что подписка готова.
+      expect(polls()).toBeGreaterThan(afterThreshold);
     } finally {
       vi.useRealTimers();
     }

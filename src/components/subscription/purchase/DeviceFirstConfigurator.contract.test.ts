@@ -43,7 +43,16 @@ describe('DeviceFirstConfigurator responsive and modal contract', () => {
     // fused-born direct confirmation is a live order interrupted before its
     // payment attempt and resumes by the row's own data instead.
     expect(source).toContain('isShowcaseDraft');
-    expect(source).toContain("checkout.settlement_mode !== 'direct_purchase_v2'");
+    // 🔴 Пункт 4.11а. Проверка привязана к ТЕЛУ `isShowcaseDraft`, а не к файлу целиком:
+    // строка `settlement_mode !== 'direct_purchase_v2'` встречается в компоненте ещё в
+    // четырёх местах, и поиск по всему исходнику проходил бы, даже если защиту из самой
+    // функции вырезать. А без неё живой прямой заказ уезжает на экран слива, где его
+    // предлагают отменить.
+    const showcaseDraftBody = source.slice(
+      source.indexOf('function isShowcaseDraft'),
+      source.indexOf('\n}', source.indexOf('function isShowcaseDraft')),
+    );
+    expect(showcaseDraftBody).toContain("checkout.settlement_mode !== 'direct_purchase_v2'");
     expect(source).toContain('resumedConfirmation');
     expect(source).toContain('legacyDraftCancelMutation');
   });

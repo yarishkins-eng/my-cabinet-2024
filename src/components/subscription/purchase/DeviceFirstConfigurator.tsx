@@ -67,10 +67,12 @@ export function DeviceFirstConfigurator({
     // Берём ту же функцию SDK, что и `AppWithNavigator` (`:3-8`), и так же оборачиваем
     // в try/catch: вне Telegram и до монтирования кнопки она бросает, а ронять из-за
     // шапки оплату нельзя.
-    // ⚠️ Второй заход по `pagehide`: три из шести переходов сначала пишут `?checkout=`
-    // в адрес, а эффект видимости кнопки завязан на смену адреса (`AppWithNavigator.tsx:143`)
-    // и может успеть включить её обратно. `pagehide` срабатывает последним, перед
-    // самой заменой документа.
+    // ⚠️ Второй заход по `pagehide`: он страхует от гонки, в которой смена адреса успевает
+    // включить кнопку обратно (эффект видимости завязан на адрес, `AppWithNavigator.tsx:143`).
+    // 🔴 Пункт 4.11а: раньше так делали три из шести переходов — они писали `?checkout=` и
+    // тут же уходили. Этих трёх больше нет, все оставшиеся уходы адрес не трогают, так что
+    // конкретно та гонка сегодня недостижима. Страховку не снимаем: `pagehide` срабатывает
+    // последним перед заменой документа и стоит дёшево, а вернуть её потом будет некому.
     const hide = () => {
       try {
         hideBackButton();
@@ -336,8 +338,9 @@ export function DeviceFirstConfigurator({
       !!checkout &&
       ['awaiting_payment', 'processing', 'provisioning'].includes(checkout.ui_state),
     refetchInterval: (query) => {
+      const isDirectSettlement = checkout?.settlement_mode === 'direct_purchase_v2';
       const providerDeadline =
-        checkout?.settlement_mode === 'direct_purchase_v2' && checkout.provider_invoice_expires_at
+        isDirectSettlement && checkout.provider_invoice_expires_at
           ? Date.parse(checkout.provider_invoice_expires_at)
           : Number.NaN;
       // A direct invoice remains customer-visible for the provider-owned
@@ -346,7 +349,7 @@ export function DeviceFirstConfigurator({
       // its canonical terminal result without asking the person to reload.
       if (Number.isFinite(providerDeadline)) {
         if (Date.now() > providerDeadline + 30_000) return false;
-      } else if (Date.now() - pollStartedAt.current > 2 * 60 * 1000) {
+      } else if (
         // 🔴 Пункт 4.11а. Здесь стояло исключение для `direct_purchase_v2`, и оно означало
         // «прямой счёт опрашиваем вечно». Держалось оно на предположении, что у прямого
         // счёта всегда есть срок провайдера, — а у боевых СБП-счетов срока нет ни у одного
@@ -354,6 +357,13 @@ export function DeviceFirstConfigurator({
         // уничтожал документ вместе с опросом. Убрав редирект, экран остался бы стучать в
         // сервер бесконечно. Счёт без срока теперь замолкает по тому же порогу, что и все
         // остальные; ручной путь — кнопка «Обновить статус» — никуда не делся.
+        // 🔴 Но ТОЛЬКО экран счёта. Этот же запрос обслуживает `processing` и `provisioning`
+        // — экраны ПОСЛЕ оплаты, где человек ждёт выдачи VPN. Заглушить их порогом значило бы
+        // заплатившему показывать «Настраиваем…» вечно, а подсказки про «Обновить статус»
+        // там нет. Для них поведение остаётся ровно прежним.
+        (!isDirectSettlement || checkout?.ui_state === 'awaiting_payment') &&
+        Date.now() - pollStartedAt.current > 2 * 60 * 1000
+      ) {
         return false;
       }
       const updates = query.state.dataUpdateCount;
@@ -515,10 +525,19 @@ export function DeviceFirstConfigurator({
   // протух. Перекрыв вердикт, мы бы вернули человека ровно в ту ловушку, которую чиним, —
   // увели бы на мёртвую страницу провайдера, откуда возврата нет.
   const rememberInvoiceRedirect = (result: DeviceFirstCommitResponse) => {
-    if (!result.redirect_url) return;
+    // 🔴 Записываем БЕЗУСЛОВНО, даже когда адреса нет. Сервер сознательно опускает его, если
+    // попытка «ambiguous/reconciling» (`app/cabinet/routes/device_first.py:812-819`), и раньше
+    // на этом месте стоял ранний выход. Тогда в кэше оставалось протухшее
+    // `resume_allowed: true`, кнопка «Продолжить создание счёта» никуда не девалась, а второй
+    // тап по ней получал `invoice_resume_unavailable` — код, которого нет в разборе ошибок, то
+    // есть безликое «попробуйте ещё раз» при живой кнопке. Ровно та петля, которую пункт чинит.
+    // `resume_allowed: false` здесь — не догадка: сервер отдаёт `true` только когда попыток нет
+    // вовсе, а после этой мутации попытка существует всегда.
     queryClient.setQueryData(['device-first-pending-payment', result.checkout.id], {
-      redirect_url: result.redirect_url,
-      status: 'pending',
+      redirect_url: result.redirect_url ?? null,
+      // Значение сервера, а не выдуманное: адрес есть только у живой `pending`-попытки, его
+      // отсутствие сервер комментирует как сверку.
+      status: result.redirect_url ? 'pending' : 'reconciliation',
       resume_allowed: false,
     });
     // Новый счёт — новый отсчёт опроса. `pollStartedAt` сбрасывается только когда меняется
@@ -915,6 +934,33 @@ export function DeviceFirstConfigurator({
   // старую ссылку Platega (она ещё принимает деньги), а если по ней всё-таки заплатили —
   // сказать, что деньги на балансе. `null` = обычный текст экрана.
   const closedCart = closedCartCopy(checkout?.terminal_reason, checkout?.money_state);
+  // 🔴 Пункт 4.11а. Экран счёта показывают СВАЛКОЙ состояний, и описывать его одним из них
+  // нельзя. Развилка ровно одна и честная: есть ли человеку чем платить.
+  //   есть кнопка  → счёт живой, зовём оплатить, пока он действует;
+  //   кнопки нет   → сервер не отдал адрес. Причин несколько и они неразличимы снаружи:
+  //                  счёт ещё создаётся, уже отменён провайдером, протух —
+  //                  🔴 или ЧЕЛОВЕК УЖЕ ЗАПЛАТИЛ, а вебхук не дошёл: забор
+  //                  `_is_live_direct_provider_invoice` гасит адрес и по `payment.is_paid`
+  //                  (`app/cabinet/routes/device_first.py:170`). Поэтому здесь берётся
+  //                  штатный текст сверки: он единственный несёт защиту «не оплачивайте
+  //                  повторно», а звать в этом состоянии к оплате — приглашать заплатить
+  //                  второй раз. Текст не сочинён заново: он уже написан в проекте ровно
+  //                  для этого состояния.
+  // Условие пишется в ПОЛОЖИТЕЛЬНОЙ форме нарочно: строку `settlement_mode !== 'direct…'`
+  // сторожит `DeviceFirstConfigurator.contract.test.ts:46`, прибивая ею совсем другую защиту
+  // (`isShowcaseDraft`). Лишнее вхождение той же строки сделало бы того сторожа бесполезным.
+  const isDirectInvoice = checkout?.settlement_mode === 'direct_purchase_v2';
+  const canPayNow = Boolean(invoiceRedirectUrl);
+  const directTitleKey = !isDirectInvoice
+    ? 'deviceFirst.needTopup'
+    : canPayNow
+      ? 'deviceFirst.invoiceReadyTitle'
+      : 'deviceFirst.paymentChecking';
+  const directTextKey = !isDirectInvoice
+    ? 'deviceFirst.armedNotice'
+    : canPayNow
+      ? 'deviceFirst.invoiceReadyText'
+      : 'deviceFirst.paymentCheckingText';
 
   return (
     <section
@@ -1278,39 +1324,17 @@ export function DeviceFirstConfigurator({
 
       {checkout?.ui_state === 'awaiting_payment' && (
         <CheckoutSurface
-          // 🔴 Пункт 4.11а: имя окна ветвится так же, как заголовок. Прямой счёт объявлялся
-          // скринридеру как «Нужно пополнить баланс» — чужое имя чужого экрана.
-          label={
-            checkout.settlement_mode === 'direct_purchase_v2'
-              ? t('deviceFirst.invoiceReadyTitle')
-              : t('deviceFirst.needTopup')
-          }
+          // 🔴 Пункт 4.11а: имя окна берёт тот же ключ, что и заголовок — расхождение имени и
+          // видимой надписи невозможно by construction. Прямой счёт объявлялся скринридеру
+          // как «Нужно пополнить баланс», то есть чужим именем чужого экрана.
+          label={t(directTitleKey)}
           portal={fixtureCheckout === undefined}
           dialogRef={dialogRef}
           onKeyDown={trapDialogFocus}
         >
-          <h3 className="text-lg font-bold text-dark-50">
-            {checkout.settlement_mode === 'direct_purchase_v2'
-              ? t('deviceFirst.invoiceReadyTitle')
-              : t('deviceFirst.needTopup')}
-          </h3>
+          <h3 className="text-lg font-bold text-dark-50">{t(directTitleKey)}</h3>
           <Summary checkout={checkout} formatPrice={formatPrice} />
-          <p className="text-sm text-dark-400">
-            {/* 🔴 Пункт 4.11а: до правки сюда попадал только «потерявшийся» покупатель, и
-                текст был про восстановление («счёт мог быть создан, ответ проверяется»).
-                Теперь это первый экран КАЖДОГО покупателя, которому счёт только что создан,
-                — и тот текст стал бы ложью. Ключи разведены: `paymentChecking*` остались
-                ветке настоящей сверки ниже, где они по-прежнему правда.
-                🔴 Вторая развилка — по тому, ЕСТЬ ли чем платить. В эту ветку падает и
-                состояние, где сервер счёт не отдал (попытка ещё создаётся или уже не живая):
-                кнопки оплаты там нет вовсе, и звать «оплатите счёт» — обещать несуществующее.
-                Экран, который показывают свалкой состояний, нельзя описывать одним из них. */}
-            {checkout.settlement_mode !== 'direct_purchase_v2'
-              ? t('deviceFirst.armedNotice')
-              : invoiceRedirectUrl
-                ? t('deviceFirst.invoiceReadyText')
-                : t('deviceFirst.invoicePreparingText')}
-          </p>
+          <p className="text-sm text-dark-400">{t(directTextKey)}</p>
           {checkout.settlement_mode === 'direct_purchase_v2' &&
             invoiceRedirectUrl &&
             invoiceDeadline && (
