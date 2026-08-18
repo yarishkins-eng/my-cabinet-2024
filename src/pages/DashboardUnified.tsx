@@ -31,6 +31,7 @@ import { useSuccessNotification } from '../store/successNotification';
 import { deviceFirstApi } from '../api/deviceFirst';
 import {
   deviceFirstRecoveryVariant,
+  isNoOpenCheckoutError,
   isMoneyInFlightRecovery,
   shouldHideRecoveryCard,
 } from '../components/home/deviceFirstRecovery';
@@ -89,7 +90,27 @@ export default function DashboardUnified() {
   // simply the normal no-checkout state, never a reason to create a duplicate.
   const { data: openDeviceFirstCheckout } = useQuery({
     queryKey: ['device-first-open-checkout'],
-    queryFn: deviceFirstApi.getOpen,
+    // 🔴 Пункт 4.11б. «Заказа нет» приходит ОШИБКОЙ 404, а react-query на ошибке сохраняет
+    // последний удачный ответ — и Главная продолжала рисовать отменённый заказ. Причём не
+    // только карточкой: тем же объектом питаются главная кнопка продажи (`onSell` ниже) и
+    // гашение блока покупки, поэтому лечить надо здесь, в одной точке чтения, а не в трёх
+    // местах отрисовки.
+    // Превращаем в честное `null` ТОЛЬКО канонический код; любую другую ошибку бросаем
+    // дальше, чтобы обрыв связи не спрятал живой заказ — карточка единственный вход к нему
+    // с Главной. Инвалидация тут не годится: она вызывает перезапрос, тот снова 404-ит, и
+    // данные остаются (в проекте уже четыре таких нерабочих сброса этого же ключа).
+    // 🔴 `null` не значит «запомнили навсегда»: при `staleTime: 0` запрос перезапрашивается
+    // на каждом открытии Главной. Это важно — отменённый заказ может ВЕРНУТЬСЯ в открытые,
+    // если по ещё живой ссылке Platega придёт поздняя оплата с расхождением
+    // (`device_first_payment_service.py:2049-2068` → `operator_review`, который сервер отдаёт).
+    queryFn: async () => {
+      try {
+        return await deviceFirstApi.getOpen();
+      } catch (error) {
+        if (isNoOpenCheckoutError(error)) return null;
+        throw error;
+      }
+    },
     retry: false,
     staleTime: 0,
   });
@@ -175,6 +196,11 @@ export default function DashboardUnified() {
       queryClient.invalidateQueries({ queryKey: ['subscription'] }),
       queryClient.invalidateQueries({ queryKey: ['subscriptions-list'] }),
       queryClient.invalidateQueries({ queryKey: ['balance'] }),
+      // 🔴 Пункт 4.11б. Незавершённый заказ здесь не перечитывался, а «потянуть вниз» —
+      // единственный жест обновления на Главной: карточка закрытого заказа от него не
+      // двигалась. Раньше добавлять было бессмысленно (перезапрос снова падал в 404, и
+      // данные оставались), а теперь ответ становится честным `null` — и сброс работает.
+      queryClient.invalidateQueries({ queryKey: ['device-first-open-checkout'] }),
     ];
     if (subscriptionId != null) {
       tasks.push(queryClient.invalidateQueries({ queryKey: ['subscription', subscriptionId] }));
