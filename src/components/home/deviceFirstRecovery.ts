@@ -10,6 +10,28 @@
  *   деньги или выдача уже в полёте — карточка остаётся видимой всегда.
  */
 
+/**
+ * 🔴 Пункт 4.11б. Сервер отвечает на «есть ли открытый заказ?» не пустотой, а ОШИБКОЙ 404
+ * (`bot-code/app/cabinet/routes/device_first.py:396-397`). А react-query при неудачном
+ * перезапросе сохраняет последний удачный ответ — поэтому после отмены заказа Главная
+ * продолжала рисовать его из протухших данных. Владелец поймал это живой проверкой.
+ *
+ * Отличать «заказа нет» надо строго по каноническому коду, а НЕ по статусу 404:
+ * - тем же 404 отвечает `get_current_cabinet_user`, и `detail` там СТРОКА, а не объект
+ *   (`bot-code/app/cabinet/dependencies.py:88-92`) — такой ответ сюда попасть не должен;
+ * - 404 может прийти и от прокси в момент выкладки.
+ *
+ * Всё остальное (обрыв связи, 5xx, таймаут) обязано пробрасываться дальше: карточка на
+ * Главной — вход к живому заказу, и прятать его из-за моргнувшей сети нельзя.
+ */
+export function isNoOpenCheckoutError(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false;
+  const response = (error as { response?: { data?: { detail?: unknown } } }).response;
+  const detail = response?.data?.detail;
+  if (!detail || typeof detail !== 'object') return false;
+  return (detail as { code?: unknown }).code === 'no_open_checkout';
+}
+
 export type DeviceFirstRecoveryVariant = 'operator' | 'awaiting_payment' | 'draft' | 'processing';
 
 export function deviceFirstRecoveryVariant(uiState: string): DeviceFirstRecoveryVariant {
