@@ -33,6 +33,7 @@ const {
 }));
 
 vi.mock('../api/tariffs', () => ({
+  SQUAD_ROLLOUT_PORTION: 25,
   tariffsApi: {
     getTariffs,
     previewSquadRollout,
@@ -146,6 +147,8 @@ describe('кнопка раскатки серверов', () => {
       failed_ids: [],
       skipped_traffic_risk_ids: [7, 9],
       url_mismatch_ids: [],
+      unrestorable_ids: [],
+      remaining: 0,
       stopped_early: false,
       message: 'Готово: 28 из 28.',
     });
@@ -165,9 +168,45 @@ describe('кнопка раскатки серверов', () => {
     expect(shownText).toContain('admin.tariffs.rolloutConfirmText');
     expect(shownText).toContain('"count":28');
     expect(shownText).toContain('"skipped":2');
+    // Владелец должен знать, что за нажатие уедет ПОРЦИЯ, а не всё сразу.
+    expect(shownText).toContain('"portion":25');
 
     await waitFor(() => expect(runSquadRollout).toHaveBeenCalledWith(4));
     expect(notifySuccess).toHaveBeenCalledWith('Готово: 28 из 28.');
+  });
+
+  it('пока операция идёт, на кнопке крутится индикатор', async () => {
+    // Раскатка длится секунды-минуты; статичная затемнённая иконка неотличима
+    // от зависшего экрана, а владелец в этот момент решает, жать ли ещё раз.
+    let release: (value: unknown) => void = () => {};
+    runSquadRollout.mockReturnValue(
+      new Promise((resolve) => {
+        release = resolve;
+      }),
+    );
+    renderPage();
+    // 🔴 Ищем индикатор ВНУТРИ самой кнопки раскатки: в ряду есть соседняя кнопка
+    // со своим спиннером, и поиск по всему экрану был бы зелёным даже без нашего.
+    const rolloutButton = await clickByTitle(/^admin\.tariffs\.rolloutTitle$/);
+
+    await waitFor(() => expect(runSquadRollout).toHaveBeenCalled());
+    await waitFor(() => expect(rolloutButton.querySelector('.animate-spin')).not.toBeNull());
+
+    release({
+      tariff_id: 4,
+      rollout_id: 'r1',
+      total: 1,
+      synced: 1,
+      batches_done: 1,
+      failed_ids: [],
+      skipped_traffic_risk_ids: [],
+      url_mismatch_ids: [],
+      unrestorable_ids: [],
+      remaining: 0,
+      stopped_early: false,
+      message: 'Готово: 1 из 1.',
+    });
+    await waitFor(() => expect(rolloutButton.querySelector('.animate-spin')).toBeNull());
   });
 
   it('отказ владельца в диалоге ничего не раскатывает', async () => {
@@ -206,6 +245,8 @@ describe('кнопка раскатки серверов', () => {
       failed_ids: [],
       skipped_traffic_risk_ids: [],
       url_mismatch_ids: [11, 12],
+      unrestorable_ids: [],
+      remaining: 24,
       stopped_early: true,
       message: 'Раскатка остановлена на полпути — проверьте отчёт ниже, снимок сохранён.',
     });
@@ -230,6 +271,28 @@ describe('кнопка раскатки серверов', () => {
     );
   });
 
+  it('невосстановимые подписки показываются ошибкой, а не зелёным «Готово»', async () => {
+    runSquadRollout.mockResolvedValue({
+      tariff_id: 4,
+      rollout_id: 'r1',
+      total: 5,
+      synced: 3,
+      batches_done: 1,
+      failed_ids: [],
+      skipped_traffic_risk_ids: [],
+      url_mismatch_ids: [],
+      unrestorable_ids: [8, 9],
+      remaining: 0,
+      stopped_early: false,
+      message: 'Готово: 3 из 5. Нельзя вернуть (пустой снимок): 2.',
+    });
+    renderPage();
+    await clickByTitle(/^admin\.tariffs\.rolloutTitle$/);
+
+    await waitFor(() => expect(notifyError).toHaveBeenCalled());
+    expect(notifySuccess).not.toHaveBeenCalled();
+  });
+
   it('возврат по снимку спрашивает подтверждение и зовёт возврат', async () => {
     restoreSquadRollout.mockResolvedValue({
       tariff_id: 4,
@@ -240,6 +303,8 @@ describe('кнопка раскатки серверов', () => {
       failed_ids: [],
       skipped_traffic_risk_ids: [],
       url_mismatch_ids: [],
+      unrestorable_ids: [],
+      remaining: 0,
       stopped_early: false,
       message: 'Готово: 28 из 28.',
     });

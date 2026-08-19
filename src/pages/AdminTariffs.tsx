@@ -2,7 +2,12 @@ import { useState, useCallback, useEffect } from 'react';
 import { useNavigate } from 'react-router';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
-import { tariffsApi, TariffListItem, SquadRolloutResult } from '../api/tariffs';
+import {
+  tariffsApi,
+  TariffListItem,
+  SquadRolloutResult,
+  SQUAD_ROLLOUT_PORTION,
+} from '../api/tariffs';
 import { useDestructiveConfirm, useNotify } from '@/platform';
 import { usePlatform } from '../platform/hooks/usePlatform';
 import {
@@ -27,13 +32,21 @@ import {
   EditIcon,
   GiftIcon,
   GripIcon,
+  ClockIcon,
   PlusIcon,
-  RefreshIcon,
   SaveIcon,
   ServerIcon,
   TrashIcon,
   XIcon,
 } from '@/components/icons';
+
+// Операция идёт секундами-минутами; статичная затемнённая иконка неотличима
+// от зависшего экрана. Тот же кружок, что у кнопки сохранения порядка ниже.
+function Spinner() {
+  return (
+    <div className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
+  );
+}
 
 // ============ Sortable Tariff Card ============
 
@@ -176,16 +189,16 @@ function SortableTariffCard({
                 className="rounded-lg bg-dark-700 p-2 text-dark-300 transition-colors hover:bg-warning-500/20 hover:text-warning-400 disabled:cursor-not-allowed disabled:opacity-50"
                 title={t('admin.tariffs.rolloutTitle')}
               >
-                <ServerIcon />
+                {rolloutBusy ? <Spinner /> : <ServerIcon />}
               </button>
 
               <button
                 onClick={onRestoreRollout}
                 disabled={rolloutBusy}
-                className="rounded-lg bg-dark-700 p-2 text-dark-300 transition-colors hover:bg-dark-600 hover:text-dark-100 disabled:cursor-not-allowed disabled:opacity-50"
+                className="rounded-lg bg-dark-700 p-2 text-dark-300 transition-colors hover:bg-warning-500/20 hover:text-warning-400 disabled:cursor-not-allowed disabled:opacity-50"
                 title={t('admin.tariffs.rolloutRestoreTitle')}
               >
-                <RefreshIcon />
+                {rolloutBusy ? <Spinner /> : <ClockIcon />}
               </button>
 
               <button
@@ -288,7 +301,11 @@ export default function AdminTariffs() {
 
   const reportRolloutResult = (result: SquadRolloutResult) => {
     queryClient.invalidateQueries({ queryKey: ['admin-tariffs'] });
-    if (result.stopped_early || result.failed_ids.length > 0) {
+    if (
+      result.stopped_early ||
+      result.failed_ids.length > 0 ||
+      result.unrestorable_ids.length > 0
+    ) {
       notify.error(result.message);
     } else {
       notify.success(result.message);
@@ -310,6 +327,7 @@ export default function AdminTariffs() {
         t('admin.tariffs.rolloutConfirmText', {
           count: preview.would_change,
           skipped: preview.skipped_traffic_risk_ids.length,
+          portion: SQUAD_ROLLOUT_PORTION,
         }),
         t('admin.tariffs.rolloutConfirmAction'),
         t('admin.tariffs.rolloutTitle'),
