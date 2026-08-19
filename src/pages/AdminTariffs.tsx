@@ -187,7 +187,8 @@ function SortableTariffCard({
                 onClick={onRollout}
                 disabled={rolloutBusy}
                 className="rounded-lg bg-dark-700 p-2 text-dark-300 transition-colors hover:bg-warning-500/20 hover:text-warning-400 disabled:cursor-not-allowed disabled:opacity-50"
-                title={t('admin.tariffs.rolloutTitle')}
+                title={`${t('admin.tariffs.rolloutTitle')}\n\n${t('admin.tariffs.rolloutHint')}`}
+                aria-label={t('admin.tariffs.rolloutTitle')}
               >
                 {rolloutBusy ? <Spinner /> : <ServerIcon />}
               </button>
@@ -196,7 +197,8 @@ function SortableTariffCard({
                 onClick={onRestoreRollout}
                 disabled={rolloutBusy}
                 className="rounded-lg bg-dark-700 p-2 text-dark-300 transition-colors hover:bg-warning-500/20 hover:text-warning-400 disabled:cursor-not-allowed disabled:opacity-50"
-                title={t('admin.tariffs.rolloutRestoreTitle')}
+                title={`${t('admin.tariffs.rolloutRestoreTitle')}\n\n${t('admin.tariffs.rolloutRestoreHint')}`}
+                aria-label={t('admin.tariffs.rolloutRestoreTitle')}
               >
                 {rolloutBusy ? <Spinner /> : <ClockIcon />}
               </button>
