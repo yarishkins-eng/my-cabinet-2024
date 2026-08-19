@@ -190,6 +190,28 @@ export interface TariffStats {
   revenue_rubles: number;
 }
 
+export interface SquadRolloutPreview {
+  tariff_id: number;
+  squads_to_set: string[];
+  candidates: number;
+  would_change: number;
+  would_change_ids: number[];
+  skipped_traffic_risk_ids: number[];
+}
+
+export interface SquadRolloutResult {
+  tariff_id: number;
+  rollout_id: string;
+  total: number;
+  synced: number;
+  batches_done: number;
+  failed_ids: number[];
+  skipped_traffic_risk_ids: number[];
+  url_mismatch_ids: number[];
+  stopped_early: boolean;
+  message: string;
+}
+
 export const tariffsApi = {
   // Get all tariffs
   getTariffs: async (includeInactive = true): Promise<TariffListResponse> => {
@@ -260,4 +282,25 @@ export const tariffsApi = {
     return response.data;
   },
 
+  // Dry run: what a squad rollout would do. Writes nothing, never calls the Panel.
+  previewSquadRollout: async (tariffId: number): Promise<SquadRolloutPreview> => {
+    const response = await apiClient.post(
+      `/cabinet/admin/tariffs/${tariffId}/squad-rollout/preview`,
+    );
+    return response.data;
+  },
+
+  // Apply the tariff's servers to its issued subscriptions, in batches.
+  runSquadRollout: async (tariffId: number): Promise<SquadRolloutResult> => {
+    const response = await apiClient.post(`/cabinet/admin/tariffs/${tariffId}/squad-rollout`, {});
+    return response.data;
+  },
+
+  // Return subscriptions to the pre-image of the last rollout.
+  restoreSquadRollout: async (tariffId: number): Promise<SquadRolloutResult> => {
+    const response = await apiClient.post(
+      `/cabinet/admin/tariffs/${tariffId}/squad-rollout/restore`,
+    );
+    return response.data;
+  },
 };

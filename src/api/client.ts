@@ -289,6 +289,15 @@ apiClient.interceptors.response.use(
       }
     }
 
+    // Остаточный хвост 3.1: без этого владелец при отказе видит «Request failed
+    // with status code 422» вместо причины. Переносим ТОЛЬКО строковый detail —
+    // структурные detail (удалённый аккаунт, блокировки) разбираются ветками
+    // выше по своим полям, и подменять им message нельзя.
+    const detail = (error.response?.data as { detail?: unknown } | undefined)?.detail;
+    if (typeof detail === 'string' && detail.trim()) {
+      error.message = detail;
+    }
+
     return Promise.reject(error);
   },
 );
