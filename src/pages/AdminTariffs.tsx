@@ -307,7 +307,10 @@ export default function AdminTariffs() {
       result.failed_ids.length > 0 ||
       result.unrestorable_ids.length > 0 ||
       result.moved_on_ids.length > 0 ||
-      result.shared_account_ids.length > 0
+      result.shared_account_ids.length > 0 ||
+      // Исчерпанный трафик — тоже неполный результат: бэкенд честно пишет его в
+      // аудит как «partial», а экран красил зелёным «Готово».
+      result.skipped_traffic_risk_ids.length > 0
     ) {
       notify.error(result.message);
     } else {

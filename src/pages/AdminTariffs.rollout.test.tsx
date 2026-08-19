@@ -136,7 +136,7 @@ describe('кнопка раскатки серверов', () => {
       candidates: 30,
       would_change: 28,
       would_change_ids: [],
-      skipped_traffic_risk_ids: [7, 9],
+      skipped_traffic_risk_ids: [],
       shared_account_ids: [],
     });
     runSquadRollout.mockResolvedValue({
@@ -146,7 +146,7 @@ describe('кнопка раскатки серверов', () => {
       synced: 28,
       batches_done: 2,
       failed_ids: [],
-      skipped_traffic_risk_ids: [7, 9],
+      skipped_traffic_risk_ids: [],
       url_mismatch_ids: [],
       unrestorable_ids: [],
       shared_account_ids: [],
@@ -170,7 +170,7 @@ describe('кнопка раскатки серверов', () => {
     const shownText = String(confirmSpy.mock.calls[0][0]);
     expect(shownText).toContain('admin.tariffs.rolloutConfirmText');
     expect(shownText).toContain('"count":28');
-    expect(shownText).toContain('"skipped":2');
+    expect(shownText).toContain('"skipped":0');
     // Владелец должен знать, что за нажатие уедет ПОРЦИЯ, а не всё сразу.
     expect(shownText).toContain('"portion":25');
 
@@ -353,5 +353,173 @@ describe('тексты диалогов', () => {
         expect(filled.length, `${key}: ${filled.length} символов`).toBeLessThanOrEqual(256);
       }
     }
+  });
+});
+
+describe('честность частичного результата', () => {
+  beforeEach(() => {
+    for (const spy of [
+      getTariffs,
+      previewSquadRollout,
+      runSquadRollout,
+      restoreSquadRollout,
+      confirmSpy,
+      notifyError,
+      notifySuccess,
+    ]) {
+      spy.mockReset();
+    }
+    getTariffs.mockResolvedValue({
+      tariffs: [
+        {
+          id: 4,
+          name: 'Team',
+          is_active: true,
+          is_trial_available: false,
+          show_in_gift: false,
+          is_daily: false,
+          daily_price_kopeks: 0,
+          traffic_limit_gb: 100,
+          device_limit: 3,
+          servers_count: 3,
+          subscriptions_count: 30,
+          display_order: 1,
+          description: '',
+        },
+      ],
+      total: 1,
+    });
+    confirmSpy.mockResolvedValue(true);
+    previewSquadRollout.mockResolvedValue({
+      tariff_id: 4,
+      squads_to_set: ['de'],
+      candidates: 30,
+      would_change: 28,
+      would_change_ids: [],
+      skipped_traffic_risk_ids: [],
+      shared_account_ids: [],
+    });
+  });
+
+  afterEach(cleanup);
+
+  const partialCases: Array<[string, Record<string, number[]>]> = [
+    ['трафик исчерпан', { skipped_traffic_risk_ids: [7, 9] }],
+    ['вторая подписка у клиента', { shared_account_ids: [5] }],
+    ['клиент сам сменил серверы', { moved_on_ids: [6] }],
+    ['пустой снимок', { unrestorable_ids: [8] }],
+    ['часть не удалась', { failed_ids: [4] }],
+  ];
+
+  it.each(partialCases)(
+    '«%s» показывается ошибкой, а не зелёным «Готово»',
+    async (_name, extra) => {
+      runSquadRollout.mockResolvedValue({
+        tariff_id: 4,
+        rollout_id: 'r1',
+        total: 28,
+        synced: 26,
+        batches_done: 2,
+        failed_ids: [],
+        skipped_traffic_risk_ids: [],
+        url_mismatch_ids: [],
+        unrestorable_ids: [],
+        shared_account_ids: [],
+        moved_on_ids: [],
+        remaining: 0,
+        stopped_early: false,
+        message: 'Готово: 26 из 28.',
+        ...extra,
+      });
+      renderPage();
+      await clickByTitle(/^admin\.tariffs\.rolloutTitle$/);
+
+      await waitFor(() => expect(notifyError).toHaveBeenCalled());
+      expect(notifySuccess).not.toHaveBeenCalled();
+    },
+  );
+});
+
+describe('кнопка «Изменить» во время раскатки', () => {
+  beforeEach(() => {
+    for (const spy of [
+      getTariffs,
+      previewSquadRollout,
+      runSquadRollout,
+      restoreSquadRollout,
+      confirmSpy,
+      notifyError,
+      notifySuccess,
+    ]) {
+      spy.mockReset();
+    }
+    getTariffs.mockResolvedValue({
+      tariffs: [
+        {
+          id: 4,
+          name: 'Team',
+          is_active: true,
+          is_trial_available: false,
+          show_in_gift: false,
+          is_daily: false,
+          daily_price_kopeks: 0,
+          traffic_limit_gb: 100,
+          device_limit: 3,
+          servers_count: 3,
+          subscriptions_count: 30,
+          display_order: 1,
+          description: '',
+        },
+      ],
+      total: 1,
+    });
+    confirmSpy.mockResolvedValue(true);
+    previewSquadRollout.mockResolvedValue({
+      tariff_id: 4,
+      squads_to_set: ['de'],
+      candidates: 30,
+      would_change: 28,
+      would_change_ids: [],
+      skipped_traffic_risk_ids: [],
+      shared_account_ids: [],
+    });
+  });
+
+  afterEach(cleanup);
+
+  it('гаснет, пока идёт операция — правка тарифа сорвала бы оставшиеся порции', async () => {
+    let release: (value: unknown) => void = () => {};
+    runSquadRollout.mockReturnValue(
+      new Promise((resolve) => {
+        release = resolve;
+      }),
+    );
+    renderPage();
+    await clickByTitle(/^admin\.tariffs\.rolloutTitle$/);
+    await waitFor(() => expect(runSquadRollout).toHaveBeenCalled());
+
+    const editButton = screen
+      .getAllByRole('button')
+      .find((el) => el.getAttribute('title') === 'admin.tariffs.edit');
+    expect(editButton).toBeTruthy();
+    expect((editButton as HTMLButtonElement).disabled).toBe(true);
+
+    release({
+      tariff_id: 4,
+      rollout_id: 'r1',
+      total: 1,
+      synced: 1,
+      batches_done: 1,
+      failed_ids: [],
+      skipped_traffic_risk_ids: [],
+      url_mismatch_ids: [],
+      unrestorable_ids: [],
+      shared_account_ids: [],
+      moved_on_ids: [],
+      remaining: 0,
+      stopped_early: false,
+      message: 'Готово: 1 из 1.',
+    });
+    await waitFor(() => expect((editButton as HTMLButtonElement).disabled).toBe(false));
   });
 });
