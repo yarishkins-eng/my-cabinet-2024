@@ -197,6 +197,7 @@ export interface SquadRolloutPreview {
   would_change: number;
   would_change_ids: number[];
   skipped_traffic_risk_ids: number[];
+  shared_account_ids: number[];
 }
 
 export interface SquadRolloutResult {
@@ -210,6 +211,8 @@ export interface SquadRolloutResult {
   url_mismatch_ids: number[];
   stopped_early: boolean;
   unrestorable_ids: number[];
+  shared_account_ids: number[];
+  moved_on_ids: number[];
   remaining: number;
   message: string;
 }

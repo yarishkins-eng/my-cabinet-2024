@@ -137,6 +137,7 @@ describe('кнопка раскатки серверов', () => {
       would_change: 28,
       would_change_ids: [],
       skipped_traffic_risk_ids: [7, 9],
+      shared_account_ids: [],
     });
     runSquadRollout.mockResolvedValue({
       tariff_id: 4,
@@ -148,6 +149,8 @@ describe('кнопка раскатки серверов', () => {
       skipped_traffic_risk_ids: [7, 9],
       url_mismatch_ids: [],
       unrestorable_ids: [],
+      shared_account_ids: [],
+      moved_on_ids: [],
       remaining: 0,
       stopped_early: false,
       message: 'Готово: 28 из 28.',
@@ -202,6 +205,8 @@ describe('кнопка раскатки серверов', () => {
       skipped_traffic_risk_ids: [],
       url_mismatch_ids: [],
       unrestorable_ids: [],
+      shared_account_ids: [],
+      moved_on_ids: [],
       remaining: 0,
       stopped_early: false,
       message: 'Готово: 1 из 1.',
@@ -226,6 +231,7 @@ describe('кнопка раскатки серверов', () => {
       would_change: 0,
       would_change_ids: [],
       skipped_traffic_risk_ids: [],
+      shared_account_ids: [],
     });
     renderPage();
     await clickByTitle(/^admin\.tariffs\.rolloutTitle$/);
@@ -246,6 +252,8 @@ describe('кнопка раскатки серверов', () => {
       skipped_traffic_risk_ids: [],
       url_mismatch_ids: [11, 12],
       unrestorable_ids: [],
+      shared_account_ids: [],
+      moved_on_ids: [],
       remaining: 24,
       stopped_early: true,
       message: 'Раскатка остановлена на полпути — проверьте отчёт ниже, снимок сохранён.',
@@ -282,6 +290,8 @@ describe('кнопка раскатки серверов', () => {
       skipped_traffic_risk_ids: [],
       url_mismatch_ids: [],
       unrestorable_ids: [8, 9],
+      shared_account_ids: [],
+      moved_on_ids: [],
       remaining: 0,
       stopped_early: false,
       message: 'Готово: 3 из 5. Нельзя вернуть (пустой снимок): 2.',
@@ -304,6 +314,8 @@ describe('кнопка раскатки серверов', () => {
       skipped_traffic_risk_ids: [],
       url_mismatch_ids: [],
       unrestorable_ids: [],
+      shared_account_ids: [],
+      moved_on_ids: [],
       remaining: 0,
       stopped_early: false,
       message: 'Готово: 28 из 28.',
@@ -315,5 +327,31 @@ describe('кнопка раскатки серверов', () => {
     await waitFor(() => expect(restoreSquadRollout).toHaveBeenCalledWith(4));
     // Возврат не должен молча запускать прямую раскатку.
     expect(runSquadRollout).not.toHaveBeenCalled();
+  });
+});
+
+describe('тексты диалогов', () => {
+  it('умещаются в лимит Telegram (256 символов) при любых числах', async () => {
+    // 🔴 Диалог в Telegram — showPopup, у него жёсткий лимит 256 символов, при
+    // превышении он не показывается вовсе и молча деградирует в системное окно.
+    // Прошлая версия текста давала 258 символов ПРИ ЛЮБЫХ числах.
+    const ru = (await import('../locales/ru.json')).default as Record<string, never>;
+    const en = (await import('../locales/en.json')).default as Record<string, never>;
+    for (const bundle of [ru, en]) {
+      const tariffs = (bundle as never as { admin: { tariffs: Record<string, string> } }).admin
+        .tariffs;
+      for (const key of [
+        'rolloutConfirmText',
+        'rolloutRestoreConfirmText',
+        'rolloutNothingToDo',
+        'rolloutFailed',
+      ]) {
+        const filled = tariffs[key]
+          .replace('{{count}}', '9999')
+          .replace('{{skipped}}', '9999')
+          .replace('{{portion}}', '9999');
+        expect(filled.length, `${key}: ${filled.length} символов`).toBeLessThanOrEqual(256);
+      }
+    }
   });
 });

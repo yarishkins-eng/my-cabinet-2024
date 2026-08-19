@@ -203,7 +203,8 @@ function SortableTariffCard({
 
               <button
                 onClick={onEdit}
-                className="rounded-lg bg-dark-700 p-2 text-dark-300 transition-colors hover:bg-dark-600 hover:text-dark-100"
+                disabled={rolloutBusy}
+                className="rounded-lg bg-dark-700 p-2 text-dark-300 transition-colors hover:bg-dark-600 hover:text-dark-100 disabled:cursor-not-allowed disabled:opacity-50"
                 title={t('admin.tariffs.edit')}
               >
                 <EditIcon />
@@ -304,7 +305,9 @@ export default function AdminTariffs() {
     if (
       result.stopped_early ||
       result.failed_ids.length > 0 ||
-      result.unrestorable_ids.length > 0
+      result.unrestorable_ids.length > 0 ||
+      result.moved_on_ids.length > 0 ||
+      result.shared_account_ids.length > 0
     ) {
       notify.error(result.message);
     } else {
