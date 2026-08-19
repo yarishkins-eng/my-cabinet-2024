@@ -2571,6 +2571,8 @@
       "confirmDeleteText": "This action cannot be undone. The tariff will be permanently deleted.",
       "rolloutTitle": "Roll servers out to subscriptions",
       "rolloutRestoreTitle": "Restore servers from snapshot",
+      "rolloutHint": "Hand this tariff's current country list to people who subscribed EARLIER. Without it a newly added country is visible to new buyers only: everyone else keeps the list recorded when they bought. Nobody is disconnected — only the set of countries changes, the connection link stays. Runs 25 subscriptions per press, the first portion being a single one, so you can look before touching the rest. The previous state is stored before every portion — the clock button next to it puts everything back.",
+      "rolloutRestoreHint": "Undo the rollout: give subscriptions back the countries they had before it. Undoes every portion at once, however many presses the rollout took. Leaves alone anyone who changed their country themselves afterwards — that is their choice, not ours to revert. Works from the snapshot the rollout stored; if there is none, the button says so.",
       "rolloutConfirmAction": "Roll out",
       "rolloutRestoreAction": "Restore",
       "rolloutConfirmText": "{{count}} subscriptions will get this tariff's servers — {{portion}} per press, first one as a trial. Clients stay connected: only the server list changes. Skipped: {{skipped}}. A snapshot is kept for the button next to it.",

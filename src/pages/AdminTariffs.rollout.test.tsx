@@ -85,10 +85,12 @@ function renderPage() {
 }
 
 async function clickByTitle(match: RegExp) {
+  // 🔴 Ищем по aria-label, а не по title: подсказка при наведении длинная и
+  // объясняет смысл кнопки владельцу, поэтому по ней нельзя опознавать кнопку.
   const button = await waitFor(() => {
     const found = screen
       .getAllByRole('button')
-      .find((el) => match.test(el.getAttribute('title') || ''));
+      .find((el) => match.test(el.getAttribute('aria-label') || ''));
     if (!found) throw new Error(`кнопка ${match} не найдена`);
     return found;
   });
@@ -521,5 +523,61 @@ describe('кнопка «Изменить» во время раскатки', (
       message: 'Готово: 1 из 1.',
     });
     await waitFor(() => expect((editButton as HTMLButtonElement).disabled).toBe(false));
+  });
+});
+
+describe('подсказки при наведении', () => {
+  it('объясняют смысл, а не повторяют надпись на кнопке', async () => {
+    // 🔴 Просьба владельца после приёмки: «через неделю уже будет непонятно никому».
+    // Подсказка обязана объяснять, ЗАЧЕМ кнопка, а не дублировать её название.
+    const ru = (await import('../locales/ru.json')).default as never;
+    const tariffs = (ru as { admin: { tariffs: Record<string, string> } }).admin.tariffs;
+
+    for (const [titleKey, hintKey] of [
+      ['rolloutTitle', 'rolloutHint'],
+      ['rolloutRestoreTitle', 'rolloutRestoreHint'],
+    ]) {
+      const title = tariffs[titleKey];
+      const hint = tariffs[hintKey];
+      expect(hint, `${hintKey} отсутствует`).toBeTruthy();
+      expect(hint).not.toBe(title);
+      // Короткая подсказка бесполезна: она и была проблемой.
+      expect(hint.length, `${hintKey} слишком короткая: ${hint.length}`).toBeGreaterThan(150);
+    }
+
+    // Подсказка раскатки обязана предупреждать, что клиента это не отключает,
+    // и называть путь назад — иначе владелец не поймёт цену нажатия.
+    expect(tariffs.rolloutHint).toContain('не отключает');
+    expect(tariffs.rolloutHint).toContain('вернёт назад');
+    // Подсказка возврата — что отменяет ВСЕ порции и щадит выбор клиента.
+    expect(tariffs.rolloutRestoreHint).toContain('все порции');
+    expect(tariffs.rolloutRestoreHint).toContain('сам сменил страну');
+  });
+
+  it('реально висят на кнопках, а не просто лежат в локали', async () => {
+    // 🔴 Тексты в файле переводов ничего не доказывают: мутация «снять подсказку с
+    // кнопки» проходила, пока сторож смотрел только в локаль. Читаем DOM.
+    renderPage();
+    const rollout = await waitFor(() => {
+      const found = screen
+        .getAllByRole('button')
+        .find((el) => el.getAttribute('aria-label') === 'admin.tariffs.rolloutTitle');
+      if (!found) throw new Error('кнопка раскатки не найдена');
+      return found;
+    });
+    const restore = screen
+      .getAllByRole('button')
+      .find((el) => el.getAttribute('aria-label') === 'admin.tariffs.rolloutRestoreTitle');
+
+    expect(rollout.getAttribute('title')).toContain('admin.tariffs.rolloutHint');
+    expect(restore?.getAttribute('title')).toContain('admin.tariffs.rolloutRestoreHint');
+  });
+
+  it('заголовок диалога остаётся коротким — длинный расползётся', async () => {
+    const ru = (await import('../locales/ru.json')).default as never;
+    const tariffs = (ru as { admin: { tariffs: Record<string, string> } }).admin.tariffs;
+    for (const key of ['rolloutTitle', 'rolloutRestoreTitle']) {
+      expect(tariffs[key].length, `${key} слишком длинный для заголовка`).toBeLessThanOrEqual(60);
+    }
   });
 });
