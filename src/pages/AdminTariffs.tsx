@@ -2,7 +2,12 @@ import { useState, useCallback, useEffect } from 'react';
 import { useNavigate } from 'react-router';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
-import { tariffsApi, TariffListItem } from '../api/tariffs';
+import {
+  tariffsApi,
+  TariffListItem,
+  SquadRolloutResult,
+  SQUAD_ROLLOUT_PORTION,
+} from '../api/tariffs';
 import { useDestructiveConfirm, useNotify } from '@/platform';
 import { usePlatform } from '../platform/hooks/usePlatform';
 import {
@@ -27,11 +32,21 @@ import {
   EditIcon,
   GiftIcon,
   GripIcon,
+  ClockIcon,
   PlusIcon,
   SaveIcon,
+  ServerIcon,
   TrashIcon,
   XIcon,
 } from '@/components/icons';
+
+// Операция идёт секундами-минутами; статичная затемнённая иконка неотличима
+// от зависшего экрана. Тот же кружок, что у кнопки сохранения порядка ниже.
+function Spinner() {
+  return (
+    <div className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
+  );
+}
 
 // ============ Sortable Tariff Card ============
 
@@ -41,6 +56,9 @@ interface SortableTariffCardProps {
   onDelete: () => void;
   onToggle: () => void;
   onToggleTrial: () => void;
+  onRollout: () => void;
+  onRestoreRollout: () => void;
+  rolloutBusy: boolean;
 }
 
 function SortableTariffCard({
@@ -49,6 +67,9 @@ function SortableTariffCard({
   onDelete,
   onToggle,
   onToggleTrial,
+  onRollout,
+  onRestoreRollout,
+  rolloutBusy,
 }: SortableTariffCardProps) {
   const { t } = useTranslation();
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
@@ -163,8 +184,27 @@ function SortableTariffCard({
               </button>
 
               <button
+                onClick={onRollout}
+                disabled={rolloutBusy}
+                className="rounded-lg bg-dark-700 p-2 text-dark-300 transition-colors hover:bg-warning-500/20 hover:text-warning-400 disabled:cursor-not-allowed disabled:opacity-50"
+                title={t('admin.tariffs.rolloutTitle')}
+              >
+                {rolloutBusy ? <Spinner /> : <ServerIcon />}
+              </button>
+
+              <button
+                onClick={onRestoreRollout}
+                disabled={rolloutBusy}
+                className="rounded-lg bg-dark-700 p-2 text-dark-300 transition-colors hover:bg-warning-500/20 hover:text-warning-400 disabled:cursor-not-allowed disabled:opacity-50"
+                title={t('admin.tariffs.rolloutRestoreTitle')}
+              >
+                {rolloutBusy ? <Spinner /> : <ClockIcon />}
+              </button>
+
+              <button
                 onClick={onEdit}
-                className="rounded-lg bg-dark-700 p-2 text-dark-300 transition-colors hover:bg-dark-600 hover:text-dark-100"
+                disabled={rolloutBusy}
+                className="rounded-lg bg-dark-700 p-2 text-dark-300 transition-colors hover:bg-dark-600 hover:text-dark-100 disabled:cursor-not-allowed disabled:opacity-50"
                 title={t('admin.tariffs.edit')}
               >
                 <EditIcon />
@@ -252,6 +292,75 @@ export default function AdminTariffs() {
 
     if (confirmed) {
       deleteMutation.mutate(tariff.id);
+    }
+  };
+
+  // Раскатка серверов тарифа на уже выданные подписки (пункт 3.2 плана).
+  // Кнопка сначала делает сухой прогон и показывает владельцу ЧИСЛА, и только
+  // потом спрашивает подтверждение: вслепую такое не нажимают.
+  const [rolloutBusyId, setRolloutBusyId] = useState<number | null>(null);
+
+  const reportRolloutResult = (result: SquadRolloutResult) => {
+    queryClient.invalidateQueries({ queryKey: ['admin-tariffs'] });
+    if (
+      result.stopped_early ||
+      result.failed_ids.length > 0 ||
+      result.unrestorable_ids.length > 0 ||
+      result.moved_on_ids.length > 0 ||
+      result.shared_account_ids.length > 0 ||
+      // Исчерпанный трафик — тоже неполный результат: бэкенд честно пишет его в
+      // аудит как «partial», а экран красил зелёным «Готово».
+      result.skipped_traffic_risk_ids.length > 0
+    ) {
+      notify.error(result.message);
+    } else {
+      notify.success(result.message);
+    }
+  };
+
+  const rolloutErrorText = (error: unknown) =>
+    error instanceof Error && error.message ? error.message : t('admin.tariffs.rolloutFailed');
+
+  const handleRollout = async (tariff: TariffListItem) => {
+    setRolloutBusyId(tariff.id);
+    try {
+      const preview = await tariffsApi.previewSquadRollout(tariff.id);
+      if (preview.would_change === 0) {
+        notify.success(t('admin.tariffs.rolloutNothingToDo'));
+        return;
+      }
+      const confirmed = await confirmDelete(
+        t('admin.tariffs.rolloutConfirmText', {
+          count: preview.would_change,
+          skipped: preview.skipped_traffic_risk_ids.length,
+          portion: SQUAD_ROLLOUT_PORTION,
+        }),
+        t('admin.tariffs.rolloutConfirmAction'),
+        t('admin.tariffs.rolloutTitle'),
+      );
+      if (!confirmed) return;
+      reportRolloutResult(await tariffsApi.runSquadRollout(tariff.id));
+    } catch (error) {
+      notify.error(rolloutErrorText(error));
+    } finally {
+      setRolloutBusyId(null);
+    }
+  };
+
+  const handleRestoreRollout = async (tariff: TariffListItem) => {
+    const confirmed = await confirmDelete(
+      t('admin.tariffs.rolloutRestoreConfirmText'),
+      t('admin.tariffs.rolloutRestoreAction'),
+      t('admin.tariffs.rolloutRestoreTitle'),
+    );
+    if (!confirmed) return;
+    setRolloutBusyId(tariff.id);
+    try {
+      reportRolloutResult(await tariffsApi.restoreSquadRollout(tariff.id));
+    } catch (error) {
+      notify.error(rolloutErrorText(error));
+    } finally {
+      setRolloutBusyId(null);
     }
   };
 
@@ -366,6 +475,9 @@ export default function AdminTariffs() {
                   onDelete={() => handleDelete(tariff)}
                   onToggle={() => toggleMutation.mutate(tariff.id)}
                   onToggleTrial={() => toggleTrialMutation.mutate(tariff.id)}
+                  onRollout={() => handleRollout(tariff)}
+                  onRestoreRollout={() => handleRestoreRollout(tariff)}
+                  rolloutBusy={rolloutBusyId === tariff.id}
                 />
               ))}
             </div>

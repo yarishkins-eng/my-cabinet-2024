@@ -190,6 +190,39 @@ export interface TariffStats {
   revenue_rubles: number;
 }
 
+export interface SquadRolloutPreview {
+  tariff_id: number;
+  squads_to_set: string[];
+  candidates: number;
+  would_change: number;
+  would_change_ids: number[];
+  skipped_traffic_risk_ids: number[];
+  shared_account_ids: number[];
+}
+
+export interface SquadRolloutResult {
+  tariff_id: number;
+  rollout_id: string;
+  total: number;
+  synced: number;
+  batches_done: number;
+  failed_ids: number[];
+  skipped_traffic_risk_ids: number[];
+  url_mismatch_ids: number[];
+  stopped_early: boolean;
+  unrestorable_ids: number[];
+  shared_account_ids: number[];
+  moved_on_ids: number[];
+  remaining: number;
+  message: string;
+}
+
+// Раскатка идёт порциями: один запрос трогает не больше стольких подписок.
+// Иначе 106 подписок не укладываются в общий таймаут кабинета (30 сек), владелец
+// видит техническую ошибку, решает «не сработало» и жмёт ещё раз — поверх идущей.
+export const SQUAD_ROLLOUT_PORTION = 25;
+const ROLLOUT_TIMEOUT_MS = 180_000;
+
 export const tariffsApi = {
   // Get all tariffs
   getTariffs: async (includeInactive = true): Promise<TariffListResponse> => {
@@ -260,4 +293,31 @@ export const tariffsApi = {
     return response.data;
   },
 
+  // Dry run: what a squad rollout would do. Writes nothing, never calls the Panel.
+  previewSquadRollout: async (tariffId: number): Promise<SquadRolloutPreview> => {
+    const response = await apiClient.post(
+      `/cabinet/admin/tariffs/${tariffId}/squad-rollout/preview`,
+    );
+    return response.data;
+  },
+
+  // Apply the tariff's servers to its issued subscriptions, in batches.
+  runSquadRollout: async (tariffId: number): Promise<SquadRolloutResult> => {
+    const response = await apiClient.post(
+      `/cabinet/admin/tariffs/${tariffId}/squad-rollout`,
+      { limit: SQUAD_ROLLOUT_PORTION },
+      { timeout: ROLLOUT_TIMEOUT_MS },
+    );
+    return response.data;
+  },
+
+  // Return subscriptions to the pre-image of the last rollout.
+  restoreSquadRollout: async (tariffId: number): Promise<SquadRolloutResult> => {
+    const response = await apiClient.post(
+      `/cabinet/admin/tariffs/${tariffId}/squad-rollout/restore`,
+      undefined,
+      { timeout: ROLLOUT_TIMEOUT_MS },
+    );
+    return response.data;
+  },
 };
