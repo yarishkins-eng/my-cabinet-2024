@@ -3464,6 +3464,7 @@
           "deviceLimitUpdated": "Device limit updated",
           "invalidDays": "Please enter a valid number of days (greater than 0)",
           "tariffRequired": "Choose a tariff first. Without one the subscription gets no servers at all and the client cannot connect.",
+          "saved": "Done. The subscription is updated — check the card above.",
           "backToList": "Back to subscriptions",
           "createNew": "Create new"
         },

@@ -381,6 +381,10 @@ export default function AdminUserDetail() {
       };
       await adminUsersApi.updateSubscription(userId, data);
       await loadUser();
+      // Экран обязан отвечать на нажатие ОБА раза. Показывать только отказ —
+      // значит оставить владельца гадать, сработало ли; ровно это молчание и
+      // дало мине A прожить незамеченной. У соседних действий подтверждение есть.
+      notify.success(t('admin.users.detail.subscription.saved'));
     } catch (error) {
       console.error('Failed to update subscription:', error);
       // Пункт 2.2б. Раньше любой отказ сервера этой формы уходил только в консоль:

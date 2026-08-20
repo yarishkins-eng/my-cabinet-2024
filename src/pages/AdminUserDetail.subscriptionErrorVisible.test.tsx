@@ -164,6 +164,23 @@ describe('Отказ сервера на форме подписки доход�
     );
   });
 
+  it('успех тоже виден: экран отвечает на нажатие оба раза', async () => {
+    // Показывать только отказ — значит оставить владельца гадать, сработало ли.
+    getUser.mockResolvedValue(USER);
+    updateSubscription.mockResolvedValue({ success: true, message: 'ok', subscription: null });
+
+    await renderPage();
+
+    const applyButton = await screen.findByText('admin.users.actions.apply');
+    fireEvent.click(applyButton);
+
+    await waitFor(() => expect(updateSubscription).toHaveBeenCalled());
+    await waitFor(() =>
+      expect(notifySuccess).toHaveBeenCalledWith('admin.users.detail.subscription.saved'),
+    );
+    expect(notifyError).not.toHaveBeenCalled();
+  });
+
   it('отказ без текста причины всё равно виден человеком', async () => {
     getUser.mockResolvedValue(USER);
     updateSubscription.mockRejectedValue(new Error('Network Error'));
