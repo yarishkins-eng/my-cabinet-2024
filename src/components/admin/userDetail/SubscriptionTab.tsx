@@ -274,6 +274,11 @@ export function SubscriptionTab(props: SubscriptionTabProps) {
                       </option>
                     ))}
                 </select>
+                {!selectedTariffId && (
+                  <div className="mt-2 text-xs text-dark-300">
+                    {t('admin.users.detail.subscription.tariffRequired')}
+                  </div>
+                )}
                 <input
                   type="number"
                   value={subDays}
@@ -285,7 +290,7 @@ export function SubscriptionTab(props: SubscriptionTabProps) {
                 />
                 <button
                   onClick={() => onUpdateSubscription('create')}
-                  disabled={actionLoading}
+                  disabled={actionLoading || !selectedTariffId}
                   className="btn-primary w-full"
                 >
                   {actionLoading
@@ -582,6 +587,11 @@ export function SubscriptionTab(props: SubscriptionTabProps) {
                   </option>
                 ))}
             </select>
+            {!selectedTariffId && (
+              <div className="mt-2 text-xs text-dark-300">
+                {t('admin.users.detail.subscription.tariffRequired')}
+              </div>
+            )}
             <input
               type="number"
               value={subDays}
@@ -593,7 +603,7 @@ export function SubscriptionTab(props: SubscriptionTabProps) {
             />
             <button
               onClick={() => onUpdateSubscription('create')}
-              disabled={actionLoading}
+              disabled={actionLoading || !selectedTariffId}
               className="btn-primary w-full"
             >
               {actionLoading

@@ -356,6 +356,14 @@ export default function AdminUserDetail() {
       notify.error(t('admin.users.detail.subscription.invalidDays'));
       return;
     }
+    // Пункт 2.2б. Без тарифа подписка создаётся с пустым списком серверов:
+    // VPN не работает, а раньше об этом не сообщал никто. Настоящий рубеж —
+    // заблокированная кнопка и отказ сервера; это второй рубеж на случай
+    // вызова мимо кнопки (overrideAction). Из интерфейса он недостижим.
+    if (action === 'create' && !selectedTariffId) {
+      notify.error(t('admin.users.detail.subscription.tariffRequired'), t('common.error'));
+      return;
+    }
     setActionLoading(true);
     try {
       const data: UpdateSubscriptionRequest = {
@@ -374,8 +382,19 @@ export default function AdminUserDetail() {
       };
       await adminUsersApi.updateSubscription(userId, data);
       await loadUser();
+      // Экран обязан отвечать на нажатие ОБА раза. Показывать только отказ —
+      // значит оставить владельца гадать, сработало ли; ровно это молчание и
+      // дало мине A прожить незамеченной. У соседних действий подтверждение есть.
+      notify.success(t('admin.users.detail.subscription.saved'));
     } catch (error) {
       console.error('Failed to update subscription:', error);
+      // Пункт 2.2б. Раньше любой отказ сервера этой формы уходил только в консоль:
+      // владелец видел, как спиннер погас, и не мог отличить успех от отказа. Именно
+      // эта немота и позволила мине A прожить незамеченной. Причину берём тем же
+      // приёмом, что и соседний обработчик переименования устройства.
+      const apiMessage = (error as { response?: { data?: { detail?: string } } })?.response?.data
+        ?.detail;
+      notify.error(apiMessage || t('admin.users.userActions.error'), t('common.error'));
     } finally {
       setActionLoading(false);
     }
