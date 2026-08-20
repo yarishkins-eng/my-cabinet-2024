@@ -15,6 +15,11 @@ import { PlatformProvider } from '../platform';
  * сервер отвечает отказом → причина отказа доходит до человека.
  */
 
+// Этот файл рендерит НАСТОЯЩУЮ страницу админки целиком — она тяжёлая, и под
+// полной нагрузкой набора пятисекундного лимита не хватает: в одиночку файл
+// проходит, в общем прогоне даёт красный код возврата, то есть красный CI.
+vi.setConfig({ testTimeout: 30000, hookTimeout: 30000 });
+
 const { getUser, updateSubscription, notifyError, notifySuccess } = vi.hoisted(() => ({
   getUser: vi.fn(),
   updateSubscription: vi.fn(),
@@ -149,9 +154,14 @@ afterEach(() => {
 describe('Отказ сервера на форме подписки доходит до владельца (пункт 2.2б)', () => {
   it('причина из ответа сервера показывается, а не тонет в консоли', async () => {
     getUser.mockResolvedValue(USER);
-    updateSubscription.mockRejectedValue({
-      response: { data: { detail: 'tariff_id parameter is required' } },
-    });
+    // Форма настоящей ошибки axios: без `isAxiosError` разборщик её не признаёт,
+    // и мок молча проверял бы запасной текст вместо причины с сервера.
+    updateSubscription.mockRejectedValue(
+      Object.assign(new Error('Request failed with status code 400'), {
+        isAxiosError: true,
+        response: { status: 400, data: { detail: 'tariff_id parameter is required' } },
+      }),
+    );
 
     await renderPage();
 
@@ -187,6 +197,43 @@ describe('Отказ сервера на форме подписки доход�
   // рендере не разблокировалась после выбора тарифа. По правилу двух попыток
   // третья не пишется. Сегодня дыра не даёт отравленной подписки: без tariff_id
   // сервер отвечает 400, и владелец видит причину. Закрывать вместе с 2.1/2.2.
+
+  it('претензии валидации списком не роняют экран, а читаются словами', async () => {
+    // 🔴 Регрессию внесла сама эта правка (мина BV): встроенная валидация FastAPI
+    // отдаёт `detail` СПИСКОМ объектов, ручная распаковка совала массив в текст
+    // сообщения — экран уходил в белый лист, а в Телеграме не показывал ничего.
+    // Вход достижим: «дней» больше 3650 или дробное.
+    getUser.mockResolvedValue(USER);
+    const listDetail = Object.assign(new Error('Request failed with status code 422'), {
+      isAxiosError: true,
+      response: {
+        status: 422,
+        data: {
+          detail: [
+            {
+              type: 'less_than_equal',
+              loc: ['body', 'days'],
+              msg: 'Input should be less than or equal to 3650',
+            },
+          ],
+        },
+      },
+    });
+    updateSubscription.mockRejectedValue(listDetail);
+
+    await renderPage();
+
+    const applyButton = await screen.findByText('admin.users.actions.apply');
+    fireEvent.click(applyButton);
+
+    await waitFor(() => expect(updateSubscription).toHaveBeenCalled());
+    await waitFor(() => expect(notifyError).toHaveBeenCalled());
+
+    const [message] = notifyError.mock.calls.at(-1) as [unknown, unknown];
+    expect(typeof message).toBe('string');
+    expect(message).toContain('days');
+    expect(message).toContain('3650');
+  });
 
   it('отказ без текста причины всё равно виден человеком', async () => {
     getUser.mockResolvedValue(USER);

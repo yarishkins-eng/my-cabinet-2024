@@ -282,7 +282,7 @@ export function SubscriptionTab(props: SubscriptionTabProps) {
                 <input
                   type="number"
                   value={subDays}
-                  onChange={createNumberInputHandler(onSubDaysChange, 1)}
+                  onChange={createNumberInputHandler(onSubDaysChange, 1, 3650)}
                   placeholder={t('admin.users.detail.subscription.days')}
                   className="input"
                   min={1}
@@ -507,7 +507,7 @@ export function SubscriptionTab(props: SubscriptionTabProps) {
                   <input
                     type="number"
                     value={subDays}
-                    onChange={createNumberInputHandler(onSubDaysChange, 1)}
+                    onChange={createNumberInputHandler(onSubDaysChange, 1, 3650)}
                     placeholder={t('admin.users.detail.subscription.days')}
                     className="input"
                     min={1}
@@ -595,7 +595,7 @@ export function SubscriptionTab(props: SubscriptionTabProps) {
             <input
               type="number"
               value={subDays}
-              onChange={createNumberInputHandler(onSubDaysChange, 1)}
+              onChange={createNumberInputHandler(onSubDaysChange, 1, 3650)}
               placeholder={t('admin.users.detail.subscription.days')}
               className="input"
               min={1}
