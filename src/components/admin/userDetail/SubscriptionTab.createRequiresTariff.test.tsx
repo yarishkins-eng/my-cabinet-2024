@@ -93,14 +93,44 @@ function renderTab(overrides: Partial<SubscriptionTabProps> = {}) {
   return { onUpdateSubscription };
 }
 
-function createButton(): HTMLButtonElement {
-  // Кнопка выдачи — та, что подписана ключом создания подписки.
-  const button = screen
+function createButtons(): HTMLButtonElement[] {
+  // Кнопки выдачи — те, что подписаны ключом создания подписки.
+  const buttons = screen
     .getAllByRole('button')
-    .find((node) => node.textContent?.includes('admin.users.detail.subscription.create'));
-  if (!button) throw new Error('Кнопка «Создать подписку» на экране не найдена');
-  return button as HTMLButtonElement;
+    .filter((node) => node.textContent?.includes('admin.users.detail.subscription.create'));
+  if (buttons.length === 0) throw new Error('Кнопка «Создать подписку» на экране не найдена');
+  return buttons as HTMLButtonElement[];
 }
+
+/** Две подписки (одна истёкшая) — это НЕ мультитариф, такое бывает сегодня. */
+const TWO_SUBSCRIPTIONS = [
+  {
+    id: 1,
+    tariff_id: 5,
+    tariff_name: '⏰Пробный',
+    status: 'expired',
+    is_active: false,
+    is_trial: true,
+    traffic_used_gb: 0,
+    traffic_limit_gb: 10,
+    device_limit: 1,
+    days_remaining: 0,
+    end_date: '2026-08-01T00:00:00Z',
+  },
+  {
+    id: 2,
+    tariff_id: 3,
+    tariff_name: 'Базовый',
+    status: 'active',
+    is_active: true,
+    is_trial: false,
+    traffic_used_gb: 1.5,
+    traffic_limit_gb: 100,
+    device_limit: 2,
+    days_remaining: 20,
+    end_date: '2026-09-10T00:00:00Z',
+  },
+] as unknown as SubscriptionTabProps['userSubscriptions'];
 
 afterEach(() => cleanup());
 
@@ -108,7 +138,7 @@ describe('Выдача подписки из кабинета требует т�
   it('без выбранного тарифа форму отправить нельзя, и причина названа', () => {
     const { onUpdateSubscription } = renderTab({ selectedTariffId: null });
 
-    const button = createButton();
+    const [button] = createButtons();
     expect(button.disabled).toBe(true);
     expect(screen.getByText('admin.users.detail.subscription.tariffRequired')).toBeTruthy();
 
@@ -119,12 +149,34 @@ describe('Выдача подписки из кабинета требует т�
   it('с выбранным тарифом выдача работает как раньше', () => {
     const { onUpdateSubscription } = renderTab({ selectedTariffId: 3 });
 
-    const button = createButton();
+    const [button] = createButtons();
     expect(button.disabled).toBe(false);
     expect(screen.queryByText('admin.users.detail.subscription.tariffRequired')).toBeNull();
 
     fireEvent.click(button);
     expect(onUpdateSubscription).toHaveBeenCalledWith('create');
+  });
+
+  it('вторая кнопка выдачи — в списке подписок — заперта так же', () => {
+    // Экран списка виден уже сегодня: истёкшая подписка остаётся в коллекции,
+    // поэтому «две подписки» бывают и без мультитарифа. Забор на одной кнопке
+    // из двух означал бы, что один экран даёт два разных ответа на один вопрос.
+    const { onUpdateSubscription } = renderTab({
+      userSubscriptions: TWO_SUBSCRIPTIONS,
+      subscriptionDetailView: false,
+      selectedTariffId: null,
+    });
+
+    const buttons = createButtons();
+    expect(buttons.length).toBeGreaterThan(0);
+    for (const button of buttons) {
+      expect(button.disabled).toBe(true);
+      fireEvent.click(button);
+    }
+    expect(onUpdateSubscription).not.toHaveBeenCalled();
+    expect(screen.getAllByText('admin.users.detail.subscription.tariffRequired').length).toBe(
+      buttons.length,
+    );
   });
 
   it('подпись про обязательный тариф есть на всех языках кабинета', async () => {

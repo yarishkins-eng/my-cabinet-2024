@@ -3463,7 +3463,7 @@
           "daysLeft": "d left",
           "deviceLimitUpdated": "Device limit updated",
           "invalidDays": "Please enter a valid number of days (greater than 0)",
-          "tariffRequired": "Select a tariff — without one the subscription is created with no servers and the VPN will not work.",
+          "tariffRequired": "Choose a tariff first. Without one the subscription gets no servers at all and the client cannot connect.",
           "backToList": "Back to subscriptions",
           "createNew": "Create new"
         },

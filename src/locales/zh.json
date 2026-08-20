@@ -2942,7 +2942,7 @@
           "daysLeft": "天剩余",
           "deviceLimitUpdated": "设备限制已更新",
           "invalidDays": "请输入有效天数（大于0）",
-          "tariffRequired": "请选择套餐——否则订阅将不含任何服务器，VPN 无法使用。",
+          "tariffRequired": "请先选择套餐。没有套餐，订阅将不含任何服务器，客户无法连接。",
           "backToList": "返回订阅列表",
           "createNew": "新建"
         },

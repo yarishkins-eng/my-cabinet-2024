@@ -360,7 +360,7 @@ export default function AdminUserDetail() {
     // VPN не работает, а раньше об этом не сообщал никто. Кнопка ниже уже
     // заблокирована, этот забор держит путь целиком (в том числе overrideAction).
     if (action === 'create' && !selectedTariffId) {
-      notify.error(t('admin.users.detail.subscription.tariffRequired'));
+      notify.error(t('admin.users.detail.subscription.tariffRequired'), t('common.error'));
       return;
     }
     setActionLoading(true);
@@ -383,6 +383,13 @@ export default function AdminUserDetail() {
       await loadUser();
     } catch (error) {
       console.error('Failed to update subscription:', error);
+      // Пункт 2.2б. Раньше любой отказ сервера этой формы уходил только в консоль:
+      // владелец видел, как спиннер погас, и не мог отличить успех от отказа. Именно
+      // эта немота и позволила мине A прожить незамеченной. Причину берём тем же
+      // приёмом, что и соседний обработчик переименования устройства.
+      const apiMessage = (error as { response?: { data?: { detail?: string } } })?.response?.data
+        ?.detail;
+      notify.error(apiMessage || t('admin.users.userActions.error'), t('common.error'));
     } finally {
       setActionLoading(false);
     }
