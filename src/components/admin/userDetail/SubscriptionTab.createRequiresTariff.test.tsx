@@ -157,10 +157,14 @@ describe('Выдача подписки из кабинета требует т�
     expect(onUpdateSubscription).toHaveBeenCalledWith('create');
   });
 
-  it('вторая кнопка выдачи — в списке подписок — заперта так же', () => {
-    // Экран списка виден уже сегодня: истёкшая подписка остаётся в коллекции,
-    // поэтому «две подписки» бывают и без мультитарифа. Забор на одной кнопке
-    // из двух означал бы, что один экран даёт два разных ответа на один вопрос.
+  it('вторая форма выдачи — на экране списка подписок — заперта так же', () => {
+    // 🔴 Форм выдачи в компоненте ДВЕ, но на экране всегда ровно одна: блоки
+    // взаимоисключающие (`length > 1` против `length <= 1`). Поэтому здесь
+    // ждём именно ОДНУ кнопку — но принадлежит она СПИСОЧНОЙ ветке, которую
+    // первые два теста не видят вовсе. Экран списка живой уже сегодня:
+    // истёкшая подписка остаётся в коллекции, и «две подписки» бывают без
+    // мультитарифа. `toBe(1)` вместо «больше нуля» — чтобы тест покраснел,
+    // если ветки однажды начнут рисоваться одновременно.
     const { onUpdateSubscription } = renderTab({
       userSubscriptions: TWO_SUBSCRIPTIONS,
       subscriptionDetailView: false,
@@ -168,15 +172,14 @@ describe('Выдача подписки из кабинета требует т�
     });
 
     const buttons = createButtons();
-    expect(buttons.length).toBeGreaterThan(0);
-    for (const button of buttons) {
-      expect(button.disabled).toBe(true);
-      fireEvent.click(button);
-    }
+    expect(buttons.length).toBe(1);
+    // Это НЕ та же кнопка, что в первом тесте: там ветка одиночной подписки.
+    expect(screen.queryByText('admin.users.detail.subscription.noActive')).toBeNull();
+
+    expect(buttons[0].disabled).toBe(true);
+    fireEvent.click(buttons[0]);
     expect(onUpdateSubscription).not.toHaveBeenCalled();
-    expect(screen.getAllByText('admin.users.detail.subscription.tariffRequired').length).toBe(
-      buttons.length,
-    );
+    expect(screen.getAllByText('admin.users.detail.subscription.tariffRequired').length).toBe(1);
   });
 
   it('подпись про обязательный тариф есть на всех языках кабинета', async () => {

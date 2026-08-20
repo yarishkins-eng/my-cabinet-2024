@@ -357,8 +357,9 @@ export default function AdminUserDetail() {
       return;
     }
     // Пункт 2.2б. Без тарифа подписка создаётся с пустым списком серверов:
-    // VPN не работает, а раньше об этом не сообщал никто. Кнопка ниже уже
-    // заблокирована, этот забор держит путь целиком (в том числе overrideAction).
+    // VPN не работает, а раньше об этом не сообщал никто. Настоящий рубеж —
+    // заблокированная кнопка и отказ сервера; это второй рубеж на случай
+    // вызова мимо кнопки (overrideAction). Из интерфейса он недостижим.
     if (action === 'create' && !selectedTariffId) {
       notify.error(t('admin.users.detail.subscription.tariffRequired'), t('common.error'));
       return;

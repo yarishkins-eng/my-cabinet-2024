@@ -28,7 +28,7 @@ vi.mock('../api/adminUsers', () => ({
     updateSubscription,
     // Имена сверены со списком в src/api/adminUsers.ts: подставное имя даёт
     // undefined и роняет страницу задолго до проверяемого нажатия.
-    getAvailableTariffs: vi.fn().mockResolvedValue({ tariffs: [] }),
+    getAvailableTariffs: vi.fn().mockResolvedValue({ tariffs: [{ id: 3, name: 'Базовый' }] }),
     getSyncStatus: vi.fn().mockResolvedValue(null),
     getPanelInfo: vi.fn().mockResolvedValue(null),
     getNodeUsage: vi.fn().mockResolvedValue({ items: [] }),
@@ -180,6 +180,13 @@ describe('Отказ сервера на форме подписки доход�
     );
     expect(notifyError).not.toHaveBeenCalled();
   });
+
+  // 🔴 ПРОБЕЛ, ЗАПИСАН ЧЕСТНО (мина BX). Мутация «выкинуть tariff_id из тела
+  // запроса создания» переживает весь набор: заперта кнопка, но не то, ЧТО она
+  // отправляет. Сторож на это писался дважды и дважды не завёлся — кнопка в
+  // рендере не разблокировалась после выбора тарифа. По правилу двух попыток
+  // третья не пишется. Сегодня дыра не даёт отравленной подписки: без tariff_id
+  // сервер отвечает 400, и владелец видит причину. Закрывать вместе с 2.1/2.2.
 
   it('отказ без текста причины всё равно виден человеком', async () => {
     getUser.mockResolvedValue(USER);
