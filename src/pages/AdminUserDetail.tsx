@@ -356,6 +356,13 @@ export default function AdminUserDetail() {
       notify.error(t('admin.users.detail.subscription.invalidDays'));
       return;
     }
+    // Пункт 2.2б. Без тарифа подписка создаётся с пустым списком серверов:
+    // VPN не работает, а раньше об этом не сообщал никто. Кнопка ниже уже
+    // заблокирована, этот забор держит путь целиком (в том числе overrideAction).
+    if (action === 'create' && !selectedTariffId) {
+      notify.error(t('admin.users.detail.subscription.tariffRequired'));
+      return;
+    }
     setActionLoading(true);
     try {
       const data: UpdateSubscriptionRequest = {

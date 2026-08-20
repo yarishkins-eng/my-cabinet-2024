@@ -591,9 +591,14 @@ export function SubscriptionTab(props: SubscriptionTabProps) {
               min={1}
               max={3650}
             />
+            {!selectedTariffId && (
+              <div className="text-xs text-dark-400">
+                {t('admin.users.detail.subscription.tariffRequired')}
+              </div>
+            )}
             <button
               onClick={() => onUpdateSubscription('create')}
-              disabled={actionLoading}
+              disabled={actionLoading || !selectedTariffId}
               className="btn-primary w-full"
             >
               {actionLoading
