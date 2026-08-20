@@ -27,6 +27,7 @@ import { BalanceTab } from '../components/admin/userDetail/BalanceTab';
 import { TicketsTab } from '../components/admin/userDetail/TicketsTab';
 import { InfoTab } from '../components/admin/userDetail/InfoTab';
 import { SubscriptionTab } from '../components/admin/userDetail/SubscriptionTab';
+import { getApiErrorMessage } from '../utils/api-error';
 import { toNumber } from '../utils/inputHelpers';
 import { usePermissionStore } from '../store/permissions';
 
@@ -390,11 +391,15 @@ export default function AdminUserDetail() {
       console.error('Failed to update subscription:', error);
       // Пункт 2.2б. Раньше любой отказ сервера этой формы уходил только в консоль:
       // владелец видел, как спиннер погас, и не мог отличить успех от отказа. Именно
-      // эта немота и позволила мине A прожить незамеченной. Причину берём тем же
-      // приёмом, что и соседний обработчик переименования устройства.
-      const apiMessage = (error as { response?: { data?: { detail?: string } } })?.response?.data
-        ?.detail;
-      notify.error(apiMessage || t('admin.users.userActions.error'), t('common.error'));
+      // эта немота и позволила мине A прожить незамеченной.
+      // 🔴 Причину достаём готовым разборщиком, а НЕ вручную: у встроенной валидации
+      // FastAPI `detail` приходит СПИСКОМ объектов, и ручная распаковка отдала бы
+      // массив в текст сообщения — экран уходил бы в белый лист, а в Телеграме не
+      // показывал бы ничего. Вход достижим: «дней» больше 3650 или дробное.
+      notify.error(
+        getApiErrorMessage(error, t('admin.users.userActions.error')),
+        t('common.error'),
+      );
     } finally {
       setActionLoading(false);
     }
