@@ -9,6 +9,11 @@ import type {
   DeviceFirstUiState,
 } from '@/api/deviceFirst';
 
+// 🔴 Пункт 1 реза 22.08.2026. Экран уходит на оплату через адаптер платформы
+// (`eslint.config.js:60-64`), а `usePlatform` без провайдера бросает.
+vi.mock('@/platform', () => ({
+  usePlatform: () => ({ openLink: vi.fn() }),
+}));
 vi.mock('@/hooks/useTheme', () => ({
   useTheme: () => ({ isDark: true }),
 }));

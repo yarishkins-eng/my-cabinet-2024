@@ -31,11 +31,16 @@ vi.mock('@/api/deviceFirst', () => ({
     resumeInvoice: vi.fn(),
   },
 }));
-vi.mock('@telegram-apps/sdk-react', () => ({
-  hideBackButton: vi.fn(),
-  // 🔴 Без этого экспорта обращение к `showBackButton` бросает, а собственный catch кода
-  // это глотает: вся ветка «вернуть кнопку, если переход бросил» была непроверяема.
-  showBackButton: vi.fn(),
+// 🔴 Пункт 1 реза 22.08.2026. `hideBackButton`/`showBackButton` больше не нужны: экран
+// не подменяется, поэтому кнопку «Назад» гасить не от чего. Вместо них — `openLink`
+// платформы, которым Телеграм открывает провайдера ОТДЕЛЬНОЙ поверхностью, оставляя
+// мини-приложение в живых. Ходим через адаптер, как требует `eslint.config.js:60-64`.
+const { openLink } = vi.hoisted(() => ({ openLink: vi.fn() }));
+vi.mock('@/platform', () => ({
+  usePlatform: () => ({ openLink }),
+}));
+vi.mock('@/utils/clipboard', () => ({
+  copyToClipboard: vi.fn().mockResolvedValue(undefined),
 }));
 vi.mock('@/hooks/useTheme', () => ({
   useTheme: () => ({ isDark: true }),
@@ -335,7 +340,6 @@ describe('DeviceFirstConfigurator interaction safety', () => {
     // касания: автостарт по диплинку «Оплатить» из бота. Человек уезжал к провайдеру,
     // ничего не нажав в мини-аппе, и вернуться оттуда было нечем. Теперь запуск из бота
     // доводит до нашего экрана счёта; уход — только по явному тапу.
-    const { hideBackButton } = await import('@telegram-apps/sdk-react');
     const assign = vi.fn();
     const replace = vi.fn();
     Object.defineProperty(window, 'location', {
@@ -360,39 +364,18 @@ describe('DeviceFirstConfigurator interaction safety', () => {
     const cta = await screen.findByRole('button', {
       name: 'deviceFirst.continueExistingInvoice',
     });
-    // Экран счёта есть, а уход не случился сам — ни одним из двух способов.
+    // Экран счёта есть, а уход не случился сам — ни одним из трёх способов.
     expect(replace).not.toHaveBeenCalled();
     expect(assign).not.toHaveBeenCalled();
-    expect(vi.mocked(hideBackButton)).not.toHaveBeenCalled();
+    expect(openLink).not.toHaveBeenCalled();
 
     fireEvent.click(cta);
-    expect(assign).toHaveBeenCalledWith('https://app.platega.io/pay/native');
-    expect(vi.mocked(hideBackButton)).toHaveBeenCalled();
-    // 🔴 `location.replace` после правки не осталось в компоненте вовсе. Сторож на него
-    // держим здесь: вернут авто-редирект этим способом — покраснеет.
+    expect(openLink).toHaveBeenCalledWith('https://app.platega.io/pay/native');
+    // 🔴 Пункт 1 реза 22.08.2026. Сторожа на `assign`/`replace` держим ЗДЕСЬ и после
+    // перехода на `openLink`: именно подмена документа была причиной того, что человек не
+    // доезжал до банка. Вернут её любым из двух способов — покраснеет.
+    expect(assign).not.toHaveBeenCalled();
     expect(replace).not.toHaveBeenCalled();
-  });
-
-  it('hides the back button BEFORE leaving, not after', async () => {
-    // Порядок и есть вся правка мины W: после ухода наш код уже не исполняется.
-    const { hideBackButton } = await import('@telegram-apps/sdk-react');
-    const order: string[] = [];
-    vi.mocked(hideBackButton).mockImplementation(() => {
-      order.push('hide');
-    });
-    Object.defineProperty(window, 'location', {
-      value: {
-        ...window.location,
-        assign: vi.fn(() => order.push('leave')),
-        replace: vi.fn(),
-      },
-      writable: true,
-    });
-
-    await payAndTapInvoiceCta('https://app.platega.io/pay/2');
-
-    await waitFor(() => expect(order).toContain('leave'));
-    expect(order).toEqual(['hide', 'leave']);
   });
 
   it('also snaps the period when the tariff no longer sells it', async () => {
@@ -480,63 +463,30 @@ describe('DeviceFirstConfigurator interaction safety', () => {
     ).toBe('false');
   });
 
-  it('takes its pagehide listener with it when the screen unmounts', async () => {
-    // Экран может уйти, так и не уведя человека к провайдеру (ошибка перехода, уход по
-    // меню). Оставленный слушатель погасил бы кнопку «Назад» на чужом экране.
-    const removeSpy = vi.spyOn(window, 'removeEventListener');
-    Object.defineProperty(window, 'location', {
-      value: { ...window.location, assign: vi.fn(), replace: vi.fn() },
-      writable: true,
+  it('survives an opener that throws, and still lets the link be taken by hand', async () => {
+    // 🔴 Пункт 1 реза 22.08.2026, наследник теста «вернуть кнопку, если переход бросил».
+    // Гасить теперь нечего, а запасной ход живёт в адаптере (`TelegramAdapter.ts:289-294`).
+    // Наше свойство другое и оно важнее: отказ ухода не должен ни ронять экран, ни
+    // оставлять человека без способа заплатить. Бросок из обработчика клика раньше уходил
+    // в `window` и делал `npm test` красным при зелёных тестах — поэтому он гасится, а
+    // видимым выходом остаётся кнопка «скопировать ссылку».
+    openLink.mockImplementationOnce(() => {
+      throw new Error('opener unavailable');
     });
-    vi.mocked(deviceFirstApi.payDirect).mockResolvedValue({
-      checkout: directInvoice(),
-      redirect_url: 'https://app.platega.io/pay/3',
-    });
-
-    const { unmount } = renderConfigurator();
-    fireEvent.click(await screen.findByText('deviceFirst.review'));
-    fireEvent.click(await screen.findByText(/deviceFirst\.paymentMethodAmount/));
-    fireEvent.click(
-      await screen.findByRole('button', { name: 'deviceFirst.continueExistingInvoice' }),
-    );
-    await waitFor(() => expect(window.location.assign).toHaveBeenCalled());
-
-    unmount();
-    expect(removeSpy).toHaveBeenCalledWith('pagehide', expect.any(Function));
-    removeSpy.mockRestore();
-  });
-
-  it('restores the back button when the jump itself fails', async () => {
-    const { hideBackButton, showBackButton } = await import('@telegram-apps/sdk-react');
-    Object.defineProperty(window, 'location', {
-      value: {
-        ...window.location,
-        assign: vi.fn(() => {
-          throw new Error('navigation blocked');
-        }),
-        replace: vi.fn(),
-      },
-      writable: true,
-    });
-
-    // 🔴 Пункт 4.11а. Уход переехал из колбэка мутации в обработчик клика, а `leaveForProvider`
-    // бросок ПЕРЕбрасывает (это его сознательное поведение, оно и проверяется ниже). Раньше
-    // исключение глотала react-query; теперь оно доходит до `window`, и vitest засчитывает его
-    // как unhandled error — набор остаётся зелёным по тестам, но `npm test` выходит с кодом 1
-    // и роняет `verify.yml`. Гасим ровно на время этого клика и только здесь.
-    const swallowExpectedThrow = (event: ErrorEvent) => {
-      if (event.error?.message === 'navigation blocked') event.preventDefault();
-    };
-    window.addEventListener('error', swallowExpectedThrow);
+    const unhandled: string[] = [];
+    const catchUnhandled = (event: ErrorEvent) => unhandled.push(event.error?.message ?? '');
+    window.addEventListener('error', catchUnhandled);
     try {
       await payAndTapInvoiceCta('https://app.platega.io/pay/4');
 
-      // Документ остался прежним, экран живой — кнопку надо вернуть, иначе человек
-      // сидит на рабочем экране без «Назад» до перезагрузки.
-      await waitFor(() => expect(vi.mocked(showBackButton)).toHaveBeenCalled());
-      expect(vi.mocked(hideBackButton)).toHaveBeenCalled();
+      expect(openLink).toHaveBeenCalledWith('https://app.platega.io/pay/4');
+      expect(unhandled).toEqual([]);
+      // Экран жив, и забрать ссылку руками по-прежнему можно.
+      expect(
+        await screen.findByRole('button', { name: 'deviceFirst.copyPaymentLink' }),
+      ).toBeTruthy();
     } finally {
-      window.removeEventListener('error', swallowExpectedThrow);
+      window.removeEventListener('error', catchUnhandled);
     }
   });
 
@@ -625,7 +575,6 @@ describe('DeviceFirstConfigurator interaction safety', () => {
     // Мутационный прогон показал: из шести переходов сторожами были закрыты два.
     // Здесь закрываем «Продолжить этот счёт» с экрана заказа — путь возвращающегося
     // человека, того самого, кто теряет контекст чаще всех.
-    const { hideBackButton } = await import('@telegram-apps/sdk-react');
     const assign = vi.fn();
     Object.defineProperty(window, 'location', {
       value: { ...window.location, assign, replace: vi.fn() },
@@ -641,24 +590,8 @@ describe('DeviceFirstConfigurator interaction safety', () => {
     renderConfigurator({ initialPath: '/subscription/purchase?checkout=checkout-owned' });
     fireEvent.click(await screen.findByText('deviceFirst.continueExistingInvoice'));
 
-    expect(assign).toHaveBeenCalledWith('https://app.platega.io/pay/6');
-    expect(vi.mocked(hideBackButton)).toHaveBeenCalled();
-  });
-
-  it('arms the pagehide fallback, not just the synchronous hide', async () => {
-    // 🔴 Три перехода сначала пишут `?checkout=` в адрес, а видимость кнопки завязана
-    // на смену адреса — синхронного гашения мало, кнопку успевают включить обратно.
-    const addSpy = vi.spyOn(window, 'addEventListener');
-    Object.defineProperty(window, 'location', {
-      value: { ...window.location, assign: vi.fn(), replace: vi.fn() },
-      writable: true,
-    });
-
-    await payAndTapInvoiceCta('https://app.platega.io/pay/7');
-
-    await waitFor(() => expect(window.location.assign).toHaveBeenCalled());
-    expect(addSpy).toHaveBeenCalledWith('pagehide', expect.any(Function), { once: true });
-    addSpy.mockRestore();
+    expect(openLink).toHaveBeenCalledWith('https://app.platega.io/pay/6');
+    expect(assign).not.toHaveBeenCalled();
   });
 
   // --- пункт 4.11а: свой экран счёта больше не перепрыгивается ---------------------
@@ -696,9 +629,10 @@ describe('DeviceFirstConfigurator interaction safety', () => {
     ).toBeTruthy();
     expect(screen.getByRole('button', { name: 'deviceFirst.changeOptions' })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'deviceFirst.cancel' })).toBeTruthy();
-    // Уход не начат ни одним из двух способов.
+    // Уход не начат ни одним из трёх способов.
     expect(assign).not.toHaveBeenCalled();
     expect(replace).not.toHaveBeenCalled();
+    expect(openLink).not.toHaveBeenCalled();
   });
 
   it('shows the payment CTA even when the pending-payment read fails outright', async () => {
@@ -726,7 +660,8 @@ describe('DeviceFirstConfigurator interaction safety', () => {
     fireEvent.click(
       await screen.findByRole('button', { name: 'deviceFirst.continueExistingInvoice' }),
     );
-    expect(assign).toHaveBeenCalledWith('https://app.platega.io/pay/from-mutation');
+    expect(openLink).toHaveBeenCalledWith('https://app.platega.io/pay/from-mutation');
+    expect(assign).not.toHaveBeenCalled();
   });
 
   it('does not loop back to the create-invoice button after a resume', async () => {
@@ -770,10 +705,11 @@ describe('DeviceFirstConfigurator interaction safety', () => {
     const cta = await screen.findByRole('button', {
       name: 'deviceFirst.continueExistingInvoice',
     });
-    expect(assign).not.toHaveBeenCalled();
+    expect(openLink).not.toHaveBeenCalled();
 
     fireEvent.click(cta);
-    expect(assign).toHaveBeenCalledWith('https://app.platega.io/pay/resumed');
+    expect(openLink).toHaveBeenCalledWith('https://app.platega.io/pay/resumed');
+    expect(assign).not.toHaveBeenCalled();
     expect(deviceFirstApi.resumeInvoice).toHaveBeenCalledTimes(1);
     // 🔴 И главное: кнопка «создать счёт» ИСЧЕЗЛА. Пока протухшее `resume_allowed: true`
     // оставалось в кэше, человек видел её снова и жал повторно — это и была петля.
@@ -827,6 +763,7 @@ describe('DeviceFirstConfigurator interaction safety', () => {
     expect(screen.queryByText('deviceFirst.invoiceReadyText')).toBeNull();
     expect(screen.queryByText('deviceFirst.leavingForProvider')).toBeNull();
     expect(assign).not.toHaveBeenCalled();
+    expect(openLink).not.toHaveBeenCalled();
     // Выход с экрана при этом остаётся.
     expect(screen.getByRole('button', { name: 'deviceFirst.changeOptions' })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'deviceFirst.cancel' })).toBeTruthy();
@@ -940,6 +877,97 @@ describe('DeviceFirstConfigurator interaction safety', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it('rearms the poll clock when the person comes back from the bank', async () => {
+    // 🔴 Пункт 1 реза 22.08.2026 — регрессия, которую создаёт САМА эта правка.
+    // Пока уход убивал документ, возврат с оплаты был новой загрузкой, и отсчёт опроса
+    // начинался с нуля. Теперь мини-приложение остаётся живым — а порог молчания две
+    // минуты (`:365`) против окна оплаты по СБП в 30–41 минуту. Не перевзведи мы часы,
+    // человек возвращался бы из банка на экран, который замолчал, пока он платил.
+    // Порог зашит литералом нарочно: сторож, перебирающий ту же константу, что и код,
+    // в этом проекте уже дважды переживал мутацию.
+    vi.useFakeTimers();
+    try {
+      const noDeadline = { ...directInvoice(), provider_invoice_expires_at: null };
+      vi.mocked(deviceFirstApi.get).mockResolvedValue(noDeadline);
+      vi.mocked(deviceFirstApi.getPendingPayment).mockResolvedValue({
+        redirect_url: 'https://app.platega.io/pay/return',
+        status: 'pending',
+        resume_allowed: false,
+      });
+      const polls = () => vi.mocked(deviceFirstApi.get).mock.calls.length;
+
+      renderConfigurator({ initialPath: '/subscription/purchase?checkout=checkout-owned' });
+      await vi.advanceTimersByTimeAsync(100);
+      await vi.advanceTimersByTimeAsync(3_000);
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(polls()).toBeGreaterThan(1);
+
+      // Экран замолчал сам — это и есть исходное состояние вернувшегося человека.
+      await vi.advanceTimersByTimeAsync(3 * 60 * 1000);
+      const whenSilent = polls();
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(polls()).toBe(whenSilent);
+
+      // Уходим на оплату и возвращаемся.
+      fireEvent.click(screen.getByRole('button', { name: 'deviceFirst.continueExistingInvoice' }));
+      await vi.advanceTimersByTimeAsync(100);
+      document.dispatchEvent(new Event('visibilitychange'));
+      await vi.advanceTimersByTimeAsync(100);
+      const onReturn = polls();
+
+      // Часы перевзведены: экран снова опрашивает сервер сам.
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(polls()).toBeGreaterThan(onReturn);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('does not refetch on a plain minimise the person never left for', async () => {
+    // Обратная половина: без неё сторож выше был бы зелёным и на экране, который
+    // перезапрашивает сервер от любого сворачивания. Условие — тот же
+    // `paymentLinkOpenedRef`, что на экране пополнения (`TopUpAmount.tsx:301`).
+    vi.mocked(deviceFirstApi.get).mockResolvedValue(directInvoice());
+    vi.mocked(deviceFirstApi.getPendingPayment).mockResolvedValue({
+      redirect_url: 'https://app.platega.io/pay/idle',
+      status: 'pending',
+      resume_allowed: false,
+    });
+
+    renderConfigurator({ initialPath: '/subscription/purchase?checkout=checkout-owned' });
+    await screen.findByRole('button', { name: 'deviceFirst.continueExistingInvoice' });
+    const before = vi.mocked(deviceFirstApi.get).mock.calls.length;
+
+    document.dispatchEvent(new Event('visibilitychange'));
+    await Promise.resolve();
+    expect(vi.mocked(deviceFirstApi.get).mock.calls.length).toBe(before);
+  });
+
+  it('offers the payment link by hand, because the opener can fail without saying so', async () => {
+    // 🔴 `openLink` отказывает МОЛЧА: и SDK, и `window.open` могут не открыть ничего.
+    // Пока уход убивал документ, отказ был виден сразу — экран просто не менялся. Теперь
+    // экран одинаков и при успехе, и при отказе, поэтому забрать ссылку руками обязано
+    // быть можно. Это единственный видимый выход из молчаливого отказа.
+    const { copyToClipboard } = await import('@/utils/clipboard');
+    vi.mocked(deviceFirstApi.get).mockResolvedValue(directInvoice());
+    vi.mocked(deviceFirstApi.getPendingPayment).mockResolvedValue({
+      redirect_url: 'https://app.platega.io/pay/by-hand',
+      status: 'pending',
+      resume_allowed: false,
+    });
+
+    renderConfigurator({ initialPath: '/subscription/purchase?checkout=checkout-owned' });
+    fireEvent.click(await screen.findByRole('button', { name: 'deviceFirst.copyPaymentLink' }));
+
+    await waitFor(() =>
+      expect(vi.mocked(copyToClipboard)).toHaveBeenCalledWith('https://app.platega.io/pay/by-hand'),
+    );
+    // Копируется ИМЕННО платёжный адрес, а не адрес нашей страницы.
+    expect(
+      await screen.findByRole('button', { name: 'deviceFirst.paymentLinkCopied' }),
+    ).toBeTruthy();
   });
 
   it('does not loop on the create-invoice button when the resume comes back without a link', async () => {
@@ -1126,22 +1154,6 @@ describe('DeviceFirstConfigurator interaction safety', () => {
   });
 
   // --- мина W: мёртвой кнопки «Назад» на странице провайдера не остаётся ----------
-
-  it('hides the dead back button before leaving for the payment provider', async () => {
-    const { hideBackButton } = await import('@telegram-apps/sdk-react');
-    const assign = vi.fn();
-    Object.defineProperty(window, 'location', {
-      value: { ...window.location, assign, replace: vi.fn() },
-      writable: true,
-    });
-
-    await payAndTapInvoiceCta('https://app.platega.io/pay/1');
-
-    await waitFor(() => expect(assign).toHaveBeenCalledWith('https://app.platega.io/pay/1'));
-    // Кнопка гасится ДО ухода: на чужой странице наш обработчик уже не существует,
-    // и нажатие уходило бы в пустоту.
-    expect(vi.mocked(hideBackButton)).toHaveBeenCalled();
-  });
 
   it('confirms locally without a server order and births it only from the payment CTA', async () => {
     vi.mocked(deviceFirstApi.payDirect).mockResolvedValue({ checkout: directInvoice() });

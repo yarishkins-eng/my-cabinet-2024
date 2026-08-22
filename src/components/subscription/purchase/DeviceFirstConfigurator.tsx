@@ -22,7 +22,8 @@ import { XIcon } from '@/components/icons';
 import { getGlassColors } from '@/utils/glassTheme';
 import { closedCartCopy, operatorReviewCopy } from '@/utils/deviceFirstMoney';
 import { useTheme } from '@/hooks/useTheme';
-import { hideBackButton, showBackButton } from '@telegram-apps/sdk-react';
+import { usePlatform } from '@/platform';
+import { copyToClipboard } from '@/utils/clipboard';
 
 interface Props {
   options: DeviceFirstOptions;
@@ -42,66 +43,36 @@ export function DeviceFirstConfigurator({
   const [searchParams, setSearchParams] = useSearchParams();
   const queryClient = useQueryClient();
   const { isDark } = useTheme();
+  const { openLink } = usePlatform();
   const g = getGlassColors(isDark);
-  const pendingLeaveRef = useRef<(() => void) | null>(null);
-  useEffect(
-    () => () => {
-      // Экран может размонтироваться, так и не уйдя к провайдеру: слушатель забираем с собой.
-      if (pendingLeaveRef.current) {
-        window.removeEventListener('pagehide', pendingLeaveRef.current);
-        pendingLeaveRef.current = null;
+  const paymentLinkOpenedRef = useRef(false);
+  const openProviderLink = useCallback(
+    (url: string) => {
+      // 🔴 Пункт 1 реза 22.08.2026. Раньше здесь стоял `window.location.assign`: документ
+      // мини-аппа заменялся страницей провайдера прямо в вебвью Телеграма, и оттуда СБП не
+      // мог передать управление приложению банка. Теперь просим Телеграм открыть ссылку
+      // отдельной поверхностью — наш документ остаётся жить за ней.
+      // Это приём НАШЕГО ЖЕ экрана пополнения (`TopUpAmount.tsx:396-404`), а не выдумка.
+      // Замер на боевом 22.08, обе руки — мини-приложение, Platega, возврат в https-кабинет,
+      // то есть отличается ровно способ ухода: пополнение через `openLink` 42 оплаты из 82
+      // (51%), касса через `assign` 5 из 23 (22%), точный тест Фишера p = 0,017.
+      paymentLinkOpenedRef.current = true;
+      // 🔴 Опрос статуса затухает через 2 минуты (`:365`), а окно оплаты по СБП — 30–41
+      // минута. Пока документ умирал, это было незаметно: возврат с оплаты был новой
+      // загрузкой и отсчёт начинался заново. Оставив документ живым, мы обязаны перевзвести
+      // отсчёт сами — иначе вернувшийся из банка человек смотрит на молчащий экран.
+      pollStartedAt.current = Date.now();
+      try {
+        openLink(url);
+      } catch {
+        // 🔴 Отказ опенера НЕ должен ронять экран: до правки бросок из обработчика клика
+        // уходил в `window` и засчитывался как unhandled error — набор оставался зелёным по
+        // тестам, а `npm test` выходил с кодом 1 и ронял `verify.yml`.
+        // Видимый выход из молчаливого отказа один и он рядом — кнопка «скопировать ссылку».
       }
     },
-    [],
+    [openLink],
   );
-  const leaveForProvider = useCallback((go: () => void) => {
-    // 🔴 Мина W. Уходим со страницы мини-аппа на сайт провайдера целиком, и наш
-    // документ вместе с подпиской на кнопку «Назад» перестаёт существовать. Сама
-    // кнопка при этом остаётся нарисованной в шапке Telegram: нажатие уходит в чужой
-    // документ, где нашего обработчика нет, — человек жмёт и не происходит ничего.
-    // Гасим её перед уходом, чтобы в шапке остался только рабочий «Закрыть».
-    // Возвращается она сама на мобильных: возврат с оплаты — это новая загрузка
-    // мини-аппа, и `mountBackButton` в `main.tsx` отрабатывает заново. В Telegram Web,
-    // где мини-апп живёт в iframe, SDK на возврате не инициализируется — там кнопки не
-    // будет, и это лучше прежнего: раньше она была видимой и мёртвой.
-    // Берём ту же функцию SDK, что и `AppWithNavigator` (`:3-8`), и так же оборачиваем
-    // в try/catch: вне Telegram и до монтирования кнопки она бросает, а ронять из-за
-    // шапки оплату нельзя.
-    // ⚠️ Второй заход по `pagehide`: он страхует от гонки, в которой смена адреса успевает
-    // включить кнопку обратно (эффект видимости завязан на адрес, `AppWithNavigator.tsx:143`).
-    // 🔴 Пункт 4.11а: раньше так делали три из шести переходов — они писали `?checkout=` и
-    // тут же уходили. Этих трёх больше нет, все оставшиеся уходы адрес не трогают, так что
-    // конкретно та гонка сегодня недостижима. Страховку не снимаем: `pagehide` срабатывает
-    // последним перед заменой документа и стоит дёшево, а вернуть её потом будет некому.
-    const hide = () => {
-      try {
-        hideBackButton();
-      } catch {
-        /* пусто: шапкой владеет Telegram, её отказ не должен ломать оплату */
-      }
-    };
-    hide();
-    if (pendingLeaveRef.current) {
-      window.removeEventListener('pagehide', pendingLeaveRef.current);
-    }
-    pendingLeaveRef.current = hide;
-    window.addEventListener('pagehide', hide, { once: true });
-    try {
-      go();
-    } catch (error) {
-      // 🔴 Ушли не мы, а исключение: документ остался прежним, экран живой — значит
-      // мёртвой кнопку делать нельзя, её надо вернуть. Иначе человек остаётся на
-      // рабочем экране вообще без «Назад», и починит это только перезагрузка.
-      window.removeEventListener('pagehide', hide);
-      pendingLeaveRef.current = null;
-      try {
-        showBackButton();
-      } catch {
-        /* пусто: та же причина, что и выше */
-      }
-      throw error;
-    }
-  }, []);
   const [period, setPeriod] = useState(
     options.default_period_days ?? options.period_options?.[0] ?? 30,
   );
@@ -122,6 +93,7 @@ export function DeviceFirstConfigurator({
   const [repriced, setRepriced] = useState(false);
   const [actionError, setActionError] = useState<unknown>(null);
   const [confirmAbandon, setConfirmAbandon] = useState(false);
+  const [copiedPaymentLink, setCopiedPaymentLink] = useState(false);
   const [existingPaymentAttempt, setExistingPaymentAttempt] =
     useState<DeviceFirstPaymentAttempt | null>(null);
   const checkoutUiState = checkout?.ui_state;
@@ -614,7 +586,7 @@ export function DeviceFirstConfigurator({
         setExistingPaymentAttempt(attempt);
         return;
       }
-      leaveForProvider(() => window.location.assign(attempt.redirect_url));
+      openProviderLink(attempt.redirect_url);
     },
     onError: recoverAmbiguousCheckout,
   });
@@ -915,6 +887,23 @@ export function DeviceFirstConfigurator({
     void statusQuery.refetch();
     void pendingPayment.refetch();
   };
+  useEffect(() => {
+    // 🔴 Пункт 1 реза 22.08.2026. Мини-приложение больше не умирает при уходе на оплату,
+    // значит возврат из банка — это НЕ новая загрузка, и сам по себе экран не обновится:
+    // `refetchOnWindowFocus` выключен глобально (`main.tsx:121-126`).
+    // Перечитываем заказ и перевзводим отсчёт опроса, иначе человек возвращается на экран,
+    // который замолчал ещё пока он был в банке (порог 2 минуты, `:365`).
+    // Условие `paymentLinkOpenedRef` — то же, что на экране пополнения (`TopUpAmount.tsx:301`):
+    // просто свернуть и развернуть мини-приложение не должно ничего перезапрашивать.
+    const onVisible = () => {
+      if (document.visibilityState !== 'visible') return;
+      if (!paymentLinkOpenedRef.current) return;
+      pollStartedAt.current = Date.now();
+      refreshCheckout();
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => document.removeEventListener('visibilitychange', onVisible);
+  });
   const paymentMethodLabel = (key: string) =>
     key === 'sbp'
       ? t('deviceFirst.sbp')
@@ -1367,11 +1356,36 @@ export function DeviceFirstConfigurator({
                   type="button"
                   onClick={() => {
                     const redirectUrl = invoiceRedirectUrl;
-                    if (redirectUrl) leaveForProvider(() => window.location.assign(redirectUrl));
+                    if (redirectUrl) openProviderLink(redirectUrl);
                   }}
                   className={`w-full rounded-2xl bg-accent-500 px-5 py-3.5 font-semibold text-white ${choiceClass}`}
                 >
                   {t('deviceFirst.continueExistingInvoice')}
+                </button>
+              )}
+              {invoiceRedirectUrl && (
+                // 🔴 Запасной выход. `openLink` отказывает молча: и SDK, и его запасной ход
+                // могут не открыть ничего, не сказав об этом ни слова. Пока уход убивал
+                // документ, отказ был виден сразу — экран просто не менялся. Теперь экран
+                // остаётся прежним и при успехе, и при отказе, поэтому у человека обязан
+                // быть способ забрать ссылку руками. Тот же приём на экране пополнения
+                // (`TopUpAmount.tsx:406-415`).
+                <button
+                  type="button"
+                  onClick={() => {
+                    void copyToClipboard(invoiceRedirectUrl).then(
+                      () => {
+                        setCopiedPaymentLink(true);
+                        setTimeout(() => setCopiedPaymentLink(false), 2000);
+                      },
+                      () => setCopiedPaymentLink(false),
+                    );
+                  }}
+                  className={`min-h-11 w-full rounded-xl border border-dark-600 px-4 py-2 text-sm text-dark-200 ${choiceClass}`}
+                >
+                  {copiedPaymentLink
+                    ? t('deviceFirst.paymentLinkCopied')
+                    : t('deviceFirst.copyPaymentLink')}
                 </button>
               )}
               {pendingPayment.data?.resume_allowed && (
@@ -1482,11 +1496,7 @@ export function DeviceFirstConfigurator({
               </p>
               <button
                 type="button"
-                onClick={() =>
-                  leaveForProvider(() =>
-                    window.location.assign(existingPaymentAttempt.redirect_url),
-                  )
-                }
+                onClick={() => openProviderLink(existingPaymentAttempt.redirect_url)}
                 className={`w-full rounded-2xl bg-accent-500 px-5 py-3.5 font-semibold text-white ${choiceClass}`}
               >
                 {t('deviceFirst.continueExistingInvoice')}
