@@ -103,6 +103,10 @@ export function DeviceFirstConfigurator({
   // `false`: React делал bail-out, ре-рендера не было, и отказ был НЕОТЛИЧИМ от «я не нажал».
   // Кнопка задумана как выход из молчаливого отказа опенера — и сама отказывала молча.
   const [copyState, setCopyState] = useState<'idle' | 'copied' | 'failed'>('idle');
+  // 🔴 Таймер успеха хранится, чтобы его можно было ОТМЕНИТЬ. Без этого догорающий
+  // таймер от прошлого удачного копирования стирал надпись об отказе — то есть ровно
+  // тот инвариант, который эта правка и обещает («отказ остаётся на экране»). Нашёл ревьюер.
+  const copyResetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [existingPaymentAttempt, setExistingPaymentAttempt] =
     useState<DeviceFirstPaymentAttempt | null>(null);
   const checkoutUiState = checkout?.ui_state;
@@ -1382,13 +1386,18 @@ export function DeviceFirstConfigurator({
                 <button
                   type="button"
                   onClick={() => {
+                    // Гасим прошлый таймер: иначе он догорит и сотрёт новый ответ.
+                    if (copyResetTimerRef.current) clearTimeout(copyResetTimerRef.current);
+                    // Возврат в `idle` перед ответом даёт видимый отклик и на ПОВТОРНОЕ
+                    // нажатие поверх висящего отказа — иначе React не перерисует то же значение.
+                    setCopyState('idle');
                     void copyToClipboard(invoiceRedirectUrl).then(
                       () => {
                         // Ссылка у человека в руках — значит платить он уйдёт наружу
                         // ровно так же, как по кнопке. Возврат обязан перечитать заказ.
                         markLeavingToPay();
                         setCopyState('copied');
-                        setTimeout(() => setCopyState('idle'), 2000);
+                        copyResetTimerRef.current = setTimeout(() => setCopyState('idle'), 2000);
                       },
                       // Буфер недоступен: небезопасный контекст или несфокусированный
                       // вебвью (`utils/clipboard.ts`). Отказ обязан быть ВИДЕН, иначе
