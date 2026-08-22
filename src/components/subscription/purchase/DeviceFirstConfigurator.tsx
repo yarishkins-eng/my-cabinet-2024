@@ -46,6 +46,17 @@ export function DeviceFirstConfigurator({
   const { openLink } = usePlatform();
   const g = getGlassColors(isDark);
   const paymentLinkOpenedRef = useRef(false);
+  const markLeavingToPay = useCallback(() => {
+    // 🔴 Оба выхода наружу обязаны отмечаться одинаково: и кнопка оплаты, и «скопировать
+    // ссылку». Пока это знал только первый, человек, оплативший ПО СКОПИРОВАННОЙ ссылке,
+    // возвращался на экран, который не перечитывал заказ и уже замолчал по порогу, — а
+    // подпись под кнопкой обещала ему «заказ обновится сам». Нашла волна ревью, не я.
+    paymentLinkOpenedRef.current = true;
+    // Опрос статуса затухает через 2 минуты (`:365`), а окно оплаты по СБП — 30–41 минута.
+    // Пока документ умирал, это было незаметно: возврат с оплаты был новой загрузкой и
+    // отсчёт начинался заново. Оставив документ живым, мы обязаны перевзвести отсчёт сами.
+    pollStartedAt.current = Date.now();
+  }, []);
   const openProviderLink = useCallback(
     (url: string) => {
       // 🔴 Пункт 1 реза 22.08.2026. Раньше здесь стоял `window.location.assign`: документ
@@ -56,12 +67,7 @@ export function DeviceFirstConfigurator({
       // Замер на боевом 22.08, обе руки — мини-приложение, Platega, возврат в https-кабинет,
       // то есть отличается ровно способ ухода: пополнение через `openLink` 42 оплаты из 82
       // (51%), касса через `assign` 5 из 23 (22%), точный тест Фишера p = 0,017.
-      paymentLinkOpenedRef.current = true;
-      // 🔴 Опрос статуса затухает через 2 минуты (`:365`), а окно оплаты по СБП — 30–41
-      // минута. Пока документ умирал, это было незаметно: возврат с оплаты был новой
-      // загрузкой и отсчёт начинался заново. Оставив документ живым, мы обязаны перевзвести
-      // отсчёт сами — иначе вернувшийся из банка человек смотрит на молчащий экран.
-      pollStartedAt.current = Date.now();
+      markLeavingToPay();
       try {
         openLink(url);
       } catch {
@@ -71,7 +77,7 @@ export function DeviceFirstConfigurator({
         // Видимый выход из молчаливого отказа один и он рядом — кнопка «скопировать ссылку».
       }
     },
-    [openLink],
+    [markLeavingToPay, openLink],
   );
   const [period, setPeriod] = useState(
     options.default_period_days ?? options.period_options?.[0] ?? 30,
@@ -1375,6 +1381,9 @@ export function DeviceFirstConfigurator({
                   onClick={() => {
                     void copyToClipboard(invoiceRedirectUrl).then(
                       () => {
+                        // Ссылка у человека в руках — значит платить он уйдёт наружу
+                        // ровно так же, как по кнопке. Возврат обязан перечитать заказ.
+                        markLeavingToPay();
                         setCopiedPaymentLink(true);
                         setTimeout(() => setCopiedPaymentLink(false), 2000);
                       },

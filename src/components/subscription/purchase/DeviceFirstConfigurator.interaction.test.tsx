@@ -912,7 +912,13 @@ describe('DeviceFirstConfigurator interaction safety', () => {
 
       // Уходим на оплату и возвращаемся.
       fireEvent.click(screen.getByRole('button', { name: 'deviceFirst.continueExistingInvoice' }));
-      await vi.advanceTimersByTimeAsync(100);
+      // 🔴 Полчаса, а не 100 мс, и в этом ВЕСЬ смысл сторожа. Первая версия ждала 100 мс —
+      // за это время часы, взведённые самим кликом, ещё свежие, и проверка проходила по
+      // совпадению: убери перевзвод из обработчика возврата, и тест оставался зелёным.
+      // Нашли две независимые проверки, не я. В жизни человек уходит в банк на 30–41 минуту,
+      // клик-перевзвод к возврату давно протух, и работает ровно та строка, которую этот
+      // сторож обязан держать.
+      await vi.advanceTimersByTimeAsync(30 * 60 * 1000);
       document.dispatchEvent(new Event('visibilitychange'));
       await vi.advanceTimersByTimeAsync(100);
       const onReturn = polls();
@@ -943,6 +949,30 @@ describe('DeviceFirstConfigurator interaction safety', () => {
     document.dispatchEvent(new Event('visibilitychange'));
     await Promise.resolve();
     expect(vi.mocked(deviceFirstApi.get).mock.calls.length).toBe(before);
+  });
+
+  it('treats a copied link as leaving to pay, so the return still refreshes the order', async () => {
+    // 🔴 P0, найденный волной ревью в МОЕЙ ЖЕ правке. Отметку «человек ушёл платить»
+    // ставил только уход по кнопке. Тот, кто скопировал ссылку и оплатил в браузере,
+    // возвращался на экран, который заказ не перечитывал и уже замолчал по порогу двух
+    // минут, — а подпись под кнопкой обещала ему «заказ обновится сам».
+    vi.mocked(deviceFirstApi.get).mockResolvedValue(directInvoice());
+    vi.mocked(deviceFirstApi.getPendingPayment).mockResolvedValue({
+      redirect_url: 'https://app.platega.io/pay/copied',
+      status: 'pending',
+      resume_allowed: false,
+    });
+
+    renderConfigurator({ initialPath: '/subscription/purchase?checkout=checkout-owned' });
+    fireEvent.click(await screen.findByRole('button', { name: 'deviceFirst.copyPaymentLink' }));
+    await screen.findByRole('button', { name: 'deviceFirst.paymentLinkCopied' });
+    const afterCopy = vi.mocked(deviceFirstApi.get).mock.calls.length;
+
+    document.dispatchEvent(new Event('visibilitychange'));
+
+    await waitFor(() =>
+      expect(vi.mocked(deviceFirstApi.get).mock.calls.length).toBeGreaterThan(afterCopy),
+    );
   });
 
   it('offers the payment link by hand, because the opener can fail without saying so', async () => {
