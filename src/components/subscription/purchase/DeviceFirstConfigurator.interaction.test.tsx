@@ -975,6 +975,27 @@ describe('DeviceFirstConfigurator interaction safety', () => {
     );
   });
 
+  it('says so out loud when the clipboard itself refuses', async () => {
+    // 🔴 Д5. Запасной выход не имеет права отказывать молча — иначе он сам тупик.
+    // До правки отказ писал `false` в состояние, которое и так `false`: React делал
+    // bail-out, ре-рендера не было, и отказ был неотличим от «я не нажал».
+    const { copyToClipboard } = await import('@/utils/clipboard');
+    vi.mocked(copyToClipboard).mockRejectedValueOnce(new Error('clipboard unavailable'));
+    vi.mocked(deviceFirstApi.get).mockResolvedValue(directInvoice());
+    vi.mocked(deviceFirstApi.getPendingPayment).mockResolvedValue({
+      redirect_url: 'https://app.platega.io/pay/no-clipboard',
+      status: 'pending',
+      resume_allowed: false,
+    });
+
+    renderConfigurator({ initialPath: '/subscription/purchase?checkout=checkout-owned' });
+    fireEvent.click(await screen.findByRole('button', { name: 'deviceFirst.copyPaymentLink' }));
+
+    // Подпись обязана смениться на отказ, а не остаться прежней.
+    await screen.findByRole('button', { name: 'deviceFirst.paymentLinkCopyFailed' });
+    expect(screen.queryByRole('button', { name: 'deviceFirst.paymentLinkCopied' })).toBeNull();
+  });
+
   it('offers the payment link by hand, because the opener can fail without saying so', async () => {
     // 🔴 `openLink` отказывает МОЛЧА: и SDK, и `window.open` могут не открыть ничего.
     // Пока уход убивал документ, отказ был виден сразу — экран просто не менялся. Теперь

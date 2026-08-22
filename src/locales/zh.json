@@ -4878,6 +4878,7 @@
     "leavingForProvider": "支付页面会在小程序之上打开——当前界面会保留在原处。在账单有效期内，付款后请返回这里：订单会自动更新。若关闭小程序，订单会保留在首页。",
     "copyPaymentLink": "复制链接",
     "paymentLinkCopied": "链接已复制！",
+    "paymentLinkCopyFailed": "复制失败，请点击“前往支付”",
     "refreshTitle": "订单需要更新",
     "refreshText": "订阅或价格已变更。请创建新的报价；未确认前不会扣款。",
     "paymentMismatchTitle": "付款需要核对",

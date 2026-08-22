@@ -99,7 +99,10 @@ export function DeviceFirstConfigurator({
   const [repriced, setRepriced] = useState(false);
   const [actionError, setActionError] = useState<unknown>(null);
   const [confirmAbandon, setConfirmAbandon] = useState(false);
-  const [copiedPaymentLink, setCopiedPaymentLink] = useState(false);
+  // 🔴 Три состояния, а не два. Раньше отказ писал `false` в состояние, которое и так
+  // `false`: React делал bail-out, ре-рендера не было, и отказ был НЕОТЛИЧИМ от «я не нажал».
+  // Кнопка задумана как выход из молчаливого отказа опенера — и сама отказывала молча.
+  const [copyState, setCopyState] = useState<'idle' | 'copied' | 'failed'>('idle');
   const [existingPaymentAttempt, setExistingPaymentAttempt] =
     useState<DeviceFirstPaymentAttempt | null>(null);
   const checkoutUiState = checkout?.ui_state;
@@ -1384,17 +1387,23 @@ export function DeviceFirstConfigurator({
                         // Ссылка у человека в руках — значит платить он уйдёт наружу
                         // ровно так же, как по кнопке. Возврат обязан перечитать заказ.
                         markLeavingToPay();
-                        setCopiedPaymentLink(true);
-                        setTimeout(() => setCopiedPaymentLink(false), 2000);
+                        setCopyState('copied');
+                        setTimeout(() => setCopyState('idle'), 2000);
                       },
-                      () => setCopiedPaymentLink(false),
+                      // Буфер недоступен: небезопасный контекст или несфокусированный
+                      // вебвью (`utils/clipboard.ts`). Отказ обязан быть ВИДЕН, иначе
+                      // запасной выход сам становится тупиком. В `idle` не возвращаем:
+                      // подпись остаётся, пока человек не нажмёт ещё раз.
+                      () => setCopyState('failed'),
                     );
                   }}
                   className={`min-h-11 w-full rounded-xl border border-dark-600 px-4 py-2 text-sm text-dark-200 ${choiceClass}`}
                 >
-                  {copiedPaymentLink
+                  {copyState === 'copied'
                     ? t('deviceFirst.paymentLinkCopied')
-                    : t('deviceFirst.copyPaymentLink')}
+                    : copyState === 'failed'
+                      ? t('deviceFirst.paymentLinkCopyFailed')
+                      : t('deviceFirst.copyPaymentLink')}
                 </button>
               )}
               {pendingPayment.data?.resume_allowed && (
