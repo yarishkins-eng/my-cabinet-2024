@@ -456,15 +456,34 @@ describe('TopUpAmount — короткий путь кассы', () => {
   // обратная конвертация: вместо 450 ₽ ушло бы ~408 ₽. Человек платит комиссию и всё равно
   // возвращается с «не хватает». Автопуть обязан слать своё число, а не то, что в поле.
   it('sends the number the checkout named, not whatever the currency drift left in the field', async () => {
+    // 🔴 Мутация пережила первую версию этого сторожа: при НЕПОДВИЖНОМ курсе поле и эталон
+    // считаются одинаково, `userEditedAmount` ложно, и старая ветка давала тот же ответ —
+    // сторож стерёг совпадение. Настоящая беда требует, чтобы курс ДОЕХАЛ ПОЗЖЕ первого
+    // кадра: поле заполнено по запасному курсу, эталон пересчитан по настоящему, и сравнение
+    // строк объявляет человека редактором, хотя он не касался поля.
     currency.code = 'USD';
-    currency.rubPerUnit = 90.66;
-    renderScreen(`?amount=450&option=11&auto=1&returnTo=${encodeURIComponent(CHECKOUT_RETURN)}`, {
-      warmCache: [platega],
-    });
-
-    await waitFor(() => expect(createTopUp).toHaveBeenCalled());
+    currency.rubPerUnit = 100; // запасной курс `DEFAULT_RATES`
+    let releaseMethods: (value: PaymentMethodFixture[]) => void = () => {};
+    getPaymentMethods.mockReturnValue(
+      new Promise((resolve) => {
+        releaseMethods = resolve;
+      }),
+    );
+    renderScreen(`?amount=450&option=11&auto=1&returnTo=${encodeURIComponent(CHECKOUT_RETURN)}`);
     await settle();
+    // Поле заполнено по запасному курсу: 450 / 100 = «4.5».
+    expect(createTopUp).not.toHaveBeenCalled();
+
+    // Приехал настоящий курс, следом — способы. Эталон стал «4.96», поле осталось «4.5».
+    currency.rubPerUnit = 90.66;
+    await act(async () => {
+      releaseMethods([platega]);
+    });
+    await settle();
+
     // 45000 копеек — ровно недостача кассы. Литерал, а не выражение.
+    // Без починки ушло бы `ceil(convertToRub(4.5) * 100)` = 40797 — человек заплатил бы
+    // комиссию и вернулся на кассу всё с тем же «не хватает».
     expect(createTopUp).toHaveBeenCalledWith(45000, 'platega', '11');
   });
 
