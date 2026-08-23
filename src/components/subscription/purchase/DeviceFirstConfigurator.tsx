@@ -138,6 +138,8 @@ export function DeviceFirstConfigurator({
     nextParams.delete('devices');
     nextParams.delete('method');
     nextParams.delete('autostart');
+    // Этап Б-1: метка возврата с пополнения одноразовая ровно так же, как launch-запрос.
+    nextParams.delete('from');
     setSearchParams(nextParams, { replace: true });
   }, [fixtureCheckout, searchParams, setSearchParams]);
   const acceptCheckout = useCallback(
@@ -236,6 +238,39 @@ export function DeviceFirstConfigurator({
     };
   }, []);
 
+  // 🔴 Этап Б-1, посев выбора после пополнения. Человек ушёл доплачивать ЗА ЭТУ покупку —
+  // вернуть ему её срок и число устройств — уважение к его работе, а не навязывание: цена
+  // всё равно берётся свежая, деньги списываются только явным нажатием.
+  // ⛔ Сеем в `preferredSelectionRef`, а НЕ в `setPeriod`/`setDevices`. Прямой посев в
+  // состояние воскрешает мину X: при холодной загрузке опции ещё не пришли, и эффект
+  // синхронизации ниже честно нормализовал бы посеянный выбор в первый попавшийся вариант —
+  // человек, вернувшийся с деньгами за 5 устройств на 90 дней, молча получил бы 1 на 30.
+  // Ref же дожидается настоящих опций и применяется, только если `priceFor` находит вариант.
+  // ⛔ И НЕ открываем подтверждение автоматически: гард того эффекта первой строкой делает
+  // `if (confirmation || …) return`, то есть на открытом подтверждении выбор не применился бы
+  // НИКОГДА, и на денежном экране человек увидел бы «Недоступно» сразу после успешной доплаты.
+  // Он возвращается на экран выбора со своей конфигурацией и свежей ценой — и подтверждает сам.
+  const topUpReturnSeedRef = useRef(false);
+  useEffect(() => {
+    if (topUpReturnSeedRef.current) return;
+    if (fixtureCheckout !== undefined) return;
+    if (searchParams.get('from') !== 'checkout') return;
+    topUpReturnSeedRef.current = true;
+    const seededPeriod = Number(searchParams.get('period'));
+    const seededDevices = Number(searchParams.get('devices'));
+    if (
+      Number.isInteger(seededPeriod) &&
+      seededPeriod > 0 &&
+      Number.isInteger(seededDevices) &&
+      seededDevices > 0
+    ) {
+      preferredSelectionRef.current = { period: seededPeriod, devices: seededDevices };
+    }
+    // Заряд из адреса снимаем сразу: иначе `?period=&devices=` переживёт перезагрузку и
+    // будет тихо восстанавливать старый выбор поверх нового при каждом `setSearchParams`.
+    consumeNativeLaunchParams();
+  }, [consumeNativeLaunchParams, fixtureCheckout, searchParams]);
+
   const priceFor = useCallback(
     (days: number, deviceLimit: number) =>
       options.price_matrix
@@ -314,6 +349,33 @@ export function DeviceFirstConfigurator({
   // The server rejects an unknown selection with invalid_selection before any
   // resume, so the payment CTA exists only while the selection is priced.
   const confirmSelectionAvailable = Boolean(priceFor(confirmPeriodDays, confirmDeviceLimit));
+  // 🔴 Этап Б-1. Недостача считается ЧЕСТНОЙ разницей и НЕ подгоняется под минимум
+  // платёжной системы: кабинет этого числа не получает вовсе (`deviceFirstApi.paymentMethods`
+  // отдаёт только `key` и `provider_code`), а зашитая здесь константа молча разошлась бы
+  // с `PLATEGA_MIN_AMOUNT_KOPEKS` в тот день, когда владелец поменяет его в `.env`.
+  // Экран пополнения свой минимум показывает сам (`balance.errors.amountRange`) и оставляет
+  // поле редактируемым — тупика нет, а два спорящих числа на одной карточке были бы хуже.
+  const confirmShortageKopeks =
+    confirmTotalKopeks === null ? 0 : Math.max(0, confirmTotalKopeks - (confirmBalanceKopeks ?? 0));
+  // Адрес возврата несёт СВОЮ метку `from=checkout`, а не опознаётся по маршруту: на
+  // `/subscription/purchase` живут ещё три экрана (`TariffPurchaseForm`, `ClassicPurchaseWizard`,
+  // `SwitchTariffSheet`), и они кладут в `returnTo` ровно эту же строку. Метку пишет только касса,
+  // поэтому экран результата пополнения отличает её от них точным сравнением, а не префиксом.
+  // `period`/`devices` едут тем же адресом. ⚠️ Точная формулировка: инертны не сами параметры —
+  // их читает ещё и `fusedAutostart` — а КОНФИГУРАЦИЯ без `autostart=1` и `method`: без этих двух
+  // диплинк-эффект выходит первой же строкой, и наша пара ничего не запускает. Мы их и не кладём.
+  const checkoutTopUpHref = (() => {
+    const target = new URLSearchParams({
+      from: 'checkout',
+      period: String(confirmPeriodDays),
+      devices: String(confirmDeviceLimit),
+    });
+    const params = new URLSearchParams({ returnTo: `/subscription/purchase?${target}` });
+    if (confirmShortageKopeks > 0) {
+      params.set('amount', String(Math.ceil(confirmShortageKopeks / 100)));
+    }
+    return `/balance/top-up?${params}`;
+  })();
 
   const statusQuery = useQuery({
     queryKey: ['device-first-checkout', checkout?.id],
@@ -1279,6 +1341,37 @@ export function DeviceFirstConfigurator({
                   </button>
                 </div>
               )}
+              {/* 🔴 Этап Б-1: «человек имеет право потратить свой баланс в любой момент, а не
+                  когда будет ошибка». Прежде эта кнопка стояла ВНУТРИ блока ошибки
+                  (`{errorMessage && …}`), а ошибки на этом экране практически не бывает: оплату
+                  с баланса при нехватке даже не предлагают, значит и `wallet_insufficient` взяться
+                  неоткуда. То есть кнопку видел кто угодно, кроме того, кому она нужна.
+                  Теперь она сиблинг способам оплаты и живёт по условию «не хватает».
+                  🔴 Дизъюнкт `wallet_insufficient` СОХРАНЁН намеренно: им держится редкая гонка
+                  (баланс утёк между отрисовкой и тапом, итог у возобновлённого заказа закреплён
+                  строкой) и сторож `interaction.test.tsx` «keeps the person on the confirmation
+                  with a top-up path». Уберёшь — сторож покраснеет, и правильно сделает. */}
+              {/* ⚠️ `fixtureCheckout` — витрина экранов: она рисует живой компонент на выдуманных
+                  опциях БЕЗ баланса, поэтому недостача там равна полной цене. Две другие новые
+                  вещи этапа от неё закрыты, и эта обязана быть тоже: иначе на странице, чей
+                  заголовок обещает «платежи не используются», появляется кнопка, уводящая в
+                  настоящую воронку пополнения. */}
+              {fixtureCheckout === undefined &&
+                confirmSelectionAvailable &&
+                confirmTotalKopeks !== null &&
+                (confirmShortageKopeks > 0 || actionErrorCode === 'wallet_insufficient') && (
+                  <button
+                    type="button"
+                    onClick={() => navigate(checkoutTopUpHref)}
+                    className={`w-full rounded-xl border border-accent-400/50 px-4 py-3 text-sm font-semibold text-accent-200 ${choiceClass}`}
+                  >
+                    {confirmShortageKopeks > 0
+                      ? t('deviceFirst.topUpAmount', {
+                          amount: formatPrice(confirmShortageKopeks),
+                        })
+                      : t('deviceFirst.needTopup')}
+                  </button>
+                )}
               <button
                 type="button"
                 onClick={() => {
@@ -1305,19 +1398,13 @@ export function DeviceFirstConfigurator({
           {errorMessage && (
             <div role="alert" className="space-y-2 text-sm text-error-400">
               <p>{errorMessage}</p>
-              {actionErrorCode === 'wallet_insufficient' && (
-                <button
-                  type="button"
-                  onClick={() => navigate('/balance')}
-                  className={`w-full rounded-xl border border-accent-400/50 px-4 py-3 text-sm font-semibold text-accent-200 ${choiceClass}`}
-                >
-                  {confirmTotalKopeks !== null && (confirmBalanceKopeks ?? 0) < confirmTotalKopeks
-                    ? t('deviceFirst.topUpAmount', {
-                        amount: formatPrice(confirmTotalKopeks - (confirmBalanceKopeks ?? 0)),
-                      })
-                    : t('deviceFirst.needTopup')}
-                </button>
-              )}
+              {/* 🔴 Этап Б-1: кнопка пополнения отсюда УБРАНА и переехала к способам оплаты
+                  (выше по файлу). Здесь она была заперта двумя замками разом: внешним
+                  `errorMessage &&` и `actionErrorCode === 'wallet_insufficient'` — то есть
+                  показывалась только тому, у кого денег ХВАТАЛО в момент отрисовки. Оставить её
+                  тут вторым экземпляром нельзя: после отказа опции инвалидируются (`handlePayError`),
+                  баланс обновляется, и оба условия становятся истинными одновременно —
+                  человек увидел бы две одинаковые кнопки. */}
               {legacyTrialSupportAction}
             </div>
           )}

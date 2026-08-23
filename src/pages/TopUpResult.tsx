@@ -13,6 +13,7 @@ import { AnimatedCheckmark } from '@/components/ui/AnimatedCheckmark';
 import { AnimatedCrossmark } from '@/components/ui/AnimatedCrossmark';
 import { loadTopUpPendingInfo, clearTopUpPendingInfo } from '../utils/topUpStorage';
 import { isPaidStatus, isFailedStatus } from '../utils/paymentStatus';
+import { resolveCheckoutReturn } from '../utils/safeRedirect';
 
 // ── Constants ────────────────────────────────────────────────
 const MAX_POLL_MS = 10 * 60 * 1000; // 10 minutes
@@ -67,11 +68,15 @@ function SuccessState({
   const { t } = useTranslation();
   const navigate = useNavigate();
 
+  const checkoutReturn = resolveCheckoutReturn(returnTo);
+
   const handleDone = useCallback(() => {
+    // 🔴 Этап Б-1: касса device-first (метка `from=checkout`) возвращает человека НА СЕБЯ —
+    // ей нечему исполниться самой, корзины у неё нет.
     // Пришли из покупки/продления (returnTo задан) → корзина уже авто-исполнилась на сервере,
     // ведём на Главную, где видна активная подписка. Иначе обычное пополнение → на баланс.
-    navigate(returnTo ? '/' : '/balance', { replace: true });
-  }, [navigate, returnTo]);
+    navigate(checkoutReturn ?? (returnTo ? '/' : '/balance'), { replace: true });
+  }, [navigate, returnTo, checkoutReturn]);
 
   return (
     <motion.div
@@ -95,9 +100,14 @@ function SuccessState({
         onClick={handleDone}
         className="flex w-full items-center justify-center gap-2 rounded-xl bg-accent-500 px-6 py-3 text-sm font-medium text-white transition-colors hover:bg-accent-400"
       >
-        {returnTo
-          ? t('successNotification.goToSubscription', 'Перейти к подписке')
-          : t('balance.topUpResult.goToBalance')}
+        {/* 🔴 Этап Б-1: для кассы «Перейти к подписке» — ложь ровно в ту секунду, когда деньги
+            уже взяты: подписки ещё нет, пополнение ничего не оформило. Берём УЖЕ существующий
+            ключ кассы (есть во всех четырёх локалях), новых не заводим. */}
+        {checkoutReturn
+          ? t('deviceFirst.review')
+          : returnTo
+            ? t('successNotification.goToSubscription', 'Перейти к подписке')
+            : t('balance.topUpResult.goToBalance')}
       </button>
     </motion.div>
   );
@@ -286,6 +296,14 @@ export default function TopUpResult() {
 
   const handleGoBack = useCallback(() => {
     clearTopUpPendingInfo();
+    // 🔴 Этап Б-1 СОЗНАТЕЛЬНО НЕ ТРОГАЕТ эту ветку, хотя первая версия правки её меняла.
+    // Три причины, все проверены: (1) кнопка здесь подписана «Перейти к балансу», и увести её
+    // на кассу — сделать подпись ложью, ровно та ошибка, от которой лечит весь этап;
+    // (2) сюда попадают по ТАЙМАУТУ ожидания, то есть когда неизвестно, дошли ли деньги —
+    // касса в этот момент покажет несвежий баланс и прежнее «не хватает», что хуже, чем экран
+    // баланса, где видно фактическое состояние счёта; (3) ветка достижима только после десяти
+    // минут опроса, поэтому сторожа на неё нет — а поведение без сторожа мутация выбрасывает
+    // молча (проверено: мутация этой строки пережила весь набор).
     // Пришли из покупки (returnTo) → на Главную (корзина могла исполниться), иначе на баланс.
     navigate(searchParams.get('returnTo') ? '/' : '/balance', { replace: true });
   }, [navigate, searchParams]);
@@ -321,6 +339,10 @@ export default function TopUpResult() {
       });
       queryClient.invalidateQueries({ queryKey: ['subscriptions-list'] });
       queryClient.invalidateQueries({ queryKey: ['purchase-options'] });
+      // 🔴 Этап Б-1: касса берёт баланс из СВОЕГО запроса, а он тут не гасился — вернувшийся
+      // человек видел первым кадром старый баланс и прежнее «Не хватает N», то есть ровно то,
+      // ради чего уходил платить.
+      queryClient.invalidateQueries({ queryKey: ['device-first-options'] });
       refreshUser();
     } else if (resolvedFailed) {
       cleanedUpRef.current = true;

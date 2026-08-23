@@ -1834,4 +1834,190 @@ describe('DeviceFirstConfigurator interaction safety', () => {
     ).toBeTruthy();
     expect(screen.queryByText('deviceFirst.error')).toBeNull();
   });
+
+  // ── Этап Б-1: свой баланс можно пустить в дело в любой момент ──────────────────
+
+  // 🔴 Сторож на ГЛАВНОЕ обещание этапа. До Б-1 кнопка пополнения жила внутри блока
+  // ошибки, а ошибки на этом экране не бывает: оплату с баланса при нехватке не
+  // предлагают, значит `wallet_insufficient` взяться неоткуда. Кнопку видел кто угодно,
+  // кроме того, кому она нужна. Проверяем ровно этот случай: денег НЕ хватает, ошибки НЕТ.
+  it('offers a top-up path to a short wallet before any error happens', async () => {
+    // 100 ₽ на балансе против 450 ₽ цены — тот самый массовый случай: рекламный бонус,
+    // которого не хватает на месяц.
+    renderConfigurator({ options: { ...options, balance_kopeks: 10000 } });
+
+    fireEvent.click(screen.getByRole('button', { name: 'deviceFirst.review' }));
+
+    // Ошибки нет — значит кнопка пришла не из блока отказа.
+    expect(screen.queryByRole('alert')).toBeNull();
+    const topUp = await screen.findByRole('button', {
+      name: 'deviceFirst.topUpAmount:350 ₽',
+    });
+
+    fireEvent.click(topUp);
+
+    // Суммы и адреса возврата в проверке ЗАШИТЫ ЛИТЕРАЛАМИ: сторож, который считает
+    // недостачу тем же выражением, что и код, доказывает только сам себя.
+    const target = screen.getByTestId('location').textContent ?? '';
+    expect(target.startsWith('/balance/top-up?')).toBe(true);
+    const query = new URLSearchParams(target.slice(target.indexOf('?') + 1));
+    // Недостача, а не полная цена: 450 − 100 = 350.
+    expect(query.get('amount')).toBe('350');
+    // Возврат несёт метку кассы и ВЫБОР человека — без них он вернётся на пустой экран.
+    expect(query.get('returnTo')).toBe('/subscription/purchase?from=checkout&period=30&devices=2');
+  });
+
+  // 🔴 Обратная половина того же сторожа: у кого денег ХВАТАЕТ, тому предлагать
+  // пополнение — оскорбление и лишний шаг.
+  it('does not offer a top-up path when the wallet already covers the price', async () => {
+    renderConfigurator({ options: { ...options, balance_kopeks: 100000 } });
+
+    fireEvent.click(screen.getByRole('button', { name: 'deviceFirst.review' }));
+
+    expect(
+      await screen.findByRole('button', { name: 'deviceFirst.payAndOrder:450 ₽' }),
+    ).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /deviceFirst.topUpAmount/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'deviceFirst.needTopup' })).toBeNull();
+  });
+
+  // 🔴 Сторож на посев выбора. Человек ушёл с 90 днями и 5 устройствами — обязан вернуться
+  // к ним, а не к умолчанию. Проверяется через НАСТОЯЩУЮ точку входа (адрес возврата),
+  // а не вызовом хелпера: тесты на хелперы не доказывают, что механизм подключён.
+  it('restores the selection carried by the top-up return address', async () => {
+    const wideOptions: DeviceFirstOptions = {
+      ...options,
+      period_options: [30, 90],
+      default_period_days: 30,
+      device_options: [2, 5],
+      price_matrix: [
+        options.price_matrix![0],
+        {
+          period_days: 90,
+          prices: [
+            {
+              device_limit: 5,
+              price_kopeks: 120000,
+              breakdown: {
+                base_price_kopeks: 120000,
+                devices_price_kopeks: 0,
+                promo_group_discount_kopeks: 0,
+                promo_offer_discount_kopeks: 0,
+              },
+            },
+          ],
+        },
+      ],
+    };
+
+    renderConfigurator({
+      options: wideOptions,
+      initialPath: '/subscription/purchase?from=checkout&period=90&devices=5',
+    });
+
+    // Выбор человека восстановлен — 90 дней, а не умолчание 30.
+    await waitFor(() =>
+      expect(
+        screen
+          .getByText('deviceFirst.periodMonths:3')
+          .closest('button')
+          ?.getAttribute('aria-checked'),
+      ).toBe('true'),
+    );
+    // 🔴 Подтверждение НЕ открывается само: эффект синхронизации выходит первой строкой
+    // при открытом подтверждении, и посев не применился бы никогда — человек увидел бы
+    // «Недоступно» сразу после успешной доплаты. Он возвращается на экран выбора,
+    // видит СВЕЖУЮ цену и подтверждает сам.
+    expect(screen.getByRole('button', { name: 'deviceFirst.review' })).toBeTruthy();
+    // Заряд из адреса снят: иначе `?period=&devices=` пережил бы перезагрузку и тихо
+    // возвращал старый выбор поверх нового.
+    await waitFor(() =>
+      expect(screen.getByTestId('location').textContent).toBe('/subscription/purchase'),
+    );
+  });
+
+  // 🔴 Витрина экранов рисует ЖИВОЙ компонент на выдуманных опциях без баланса, поэтому недостача
+  // там равна полной цене и кнопка «Пополнить» появлялась бы на странице, чей заголовок обещает,
+  // что платежи не используются, — и уводила бы в настоящую воронку пополнения.
+  // Мутационный прогон показал, что заслонка `fixtureCheckout === undefined` не была прикрыта
+  // ничем: её снятие переживало весь набор.
+  it('never shows the money top-up button on the fixture showcase', async () => {
+    renderConfigurator({
+      options: { ...options, balance_kopeks: 0 },
+      fixtureCheckout: { ...checkout('confirmation'), settlement_mode: 'direct_purchase_v2' },
+    });
+
+    await waitFor(() =>
+      expect(screen.queryByRole('button', { name: /deviceFirst.topUpAmount/ })).toBeNull(),
+    );
+    expect(screen.queryByRole('button', { name: 'deviceFirst.needTopup' })).toBeNull();
+  });
+
+  // 🔴 Сторож против воскрешения мины X. Он написан ПОСЛЕ того, как мутация убила первую версию:
+  // та сеяла вариант, который в новых опциях продаётся, и тогда посев в состояние и посев в ref
+  // дают одно и то же — сторож был пустым.
+  // Настоящее отличие вот в чём: ref пускает выбор ТОЛЬКО если у комбинации есть ЦЕНА
+  // (priceFor), а нормализация ниже проверяет списки сроков и устройств ПО ОТДЕЛЬНОСТИ.
+  // Значит комбинация, где оба значения в списках, а цены у пары нет, их и разводит:
+  //   · через ref — выбор не применяется, человек остаётся на рабочем умолчании;
+  //   · прямым посевом в состояние — нормализация обе проверки пропускает, состояние остаётся
+  //     непродаваемым, и ВСЕ сроки рисуются «Недоступно» с мёртвой кнопкой. Это и есть мина X.
+  it('never seeds a selection that has no price — that is how mine X came back', async () => {
+    const unpricedPair: DeviceFirstOptions = {
+      ...options,
+      period_options: [30, 90],
+      default_period_days: 30,
+      device_options: [2, 5],
+      // 90 дней продаются, 5 устройств продаются — но ПАРЫ 90×5 в матрице нет.
+      price_matrix: [
+        options.price_matrix![0],
+        {
+          period_days: 90,
+          prices: [
+            {
+              device_limit: 2,
+              price_kopeks: 120000,
+              breakdown: {
+                base_price_kopeks: 120000,
+                devices_price_kopeks: 0,
+                promo_group_discount_kopeks: 0,
+                promo_offer_discount_kopeks: 0,
+              },
+            },
+          ],
+        },
+      ],
+    };
+
+    renderConfigurator({
+      options: unpricedPair,
+      initialPath: '/subscription/purchase?from=checkout&period=90&devices=5',
+    });
+
+    // Экран остался рабочим: держится продающееся умолчание (30 дней), а не мёртвая пара.
+    await waitFor(() =>
+      expect(
+        screen
+          .getByText('deviceFirst.periodMonths:1')
+          .closest('button')
+          ?.getAttribute('aria-checked'),
+      ).toBe('true'),
+    );
+    // И кнопка оформления жива — то есть цена нашлась.
+    expect(screen.getByRole('button', { name: 'deviceFirst.review' })).toBeTruthy();
+  });
+
+  // 🔴 Без метки кассы посев не срабатывает: те же параметры приходят из бот-диплинка,
+  // и там ими распоряжается автостарт, а не мы.
+  it('ignores period/devices in the address when the checkout marker is absent', async () => {
+    renderConfigurator({
+      options: { ...options, period_options: [30], device_options: [2] },
+      initialPath: '/subscription/purchase?period=90&devices=5',
+    });
+
+    // Адрес не тронут — чистильщик посева не звался.
+    expect(screen.getByTestId('location').textContent).toBe(
+      '/subscription/purchase?period=90&devices=5',
+    );
+  });
 });
