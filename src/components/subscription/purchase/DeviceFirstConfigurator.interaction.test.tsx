@@ -1936,6 +1936,23 @@ describe('DeviceFirstConfigurator interaction safety', () => {
     );
   });
 
+  // 🔴 Витрина экранов рисует ЖИВОЙ компонент на выдуманных опциях без баланса, поэтому недостача
+  // там равна полной цене и кнопка «Пополнить» появлялась бы на странице, чей заголовок обещает,
+  // что платежи не используются, — и уводила бы в настоящую воронку пополнения.
+  // Мутационный прогон показал, что заслонка `fixtureCheckout === undefined` не была прикрыта
+  // ничем: её снятие переживало весь набор.
+  it('never shows the money top-up button on the fixture showcase', async () => {
+    renderConfigurator({
+      options: { ...options, balance_kopeks: 0 },
+      fixtureCheckout: { ...checkout('confirmation'), settlement_mode: 'direct_purchase_v2' },
+    });
+
+    await waitFor(() =>
+      expect(screen.queryByRole('button', { name: /deviceFirst.topUpAmount/ })).toBeNull(),
+    );
+    expect(screen.queryByRole('button', { name: 'deviceFirst.needTopup' })).toBeNull();
+  });
+
   // 🔴 Сторож против воскрешения мины X. Он написан ПОСЛЕ того, как мутация убила первую версию:
   // та сеяла вариант, который в новых опциях продаётся, и тогда посев в состояние и посев в ref
   // дают одно и то же — сторож был пустым.
