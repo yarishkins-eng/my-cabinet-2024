@@ -2087,7 +2087,13 @@ describe('DeviceFirstConfigurator interaction safety', () => {
       balance_kopeks: 100000,
     };
     vi.mocked(deviceFirstApi.get).mockResolvedValue(goneFromMatrix);
-    renderConfigurator({ initialPath: '/subscription/purchase?checkout=checkout-owned' });
+    // 🔴 Баланс задаётся В ОПЦИЯХ, а не только в строке заказа: `confirmBalanceKopeks` берёт
+    // сперва опции. Мутация показала, что без этого сторож проходил по чужой причине — его
+    // держало условие ветки частичного баланса, а не проверка «выбор непригоден».
+    renderConfigurator({
+      options: { ...options, balance_kopeks: 100000 },
+      initialPath: '/subscription/purchase?checkout=checkout-owned',
+    });
 
     expect(await screen.findByText('deviceFirst.unavailable')).toBeTruthy();
     expect(screen.queryByText('deviceFirst.reviewBeforeCharge')).toBeNull();
