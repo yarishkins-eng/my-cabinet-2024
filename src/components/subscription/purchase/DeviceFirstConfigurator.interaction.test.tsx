@@ -31,6 +31,16 @@ vi.mock('@/api/deviceFirst', () => ({
     resumeInvoice: vi.fn(),
   },
 }));
+// 🔴 Этап Б-2. Касса читает минимум провайдера БАЛАНСНЫМ запросом (`['payment-methods']`),
+// и его модуль тянет за собой настоящий `i18n` — а он в тестовой среде не поднимается.
+// Мок держит запрос под контролем: по умолчанию сервер молчит, значит сумма остаётся сырой
+// разницей, а автосоздание счёта выключено. Тест, которому нужен минимум, подменяет ответ сам.
+const { getBalancePaymentMethods } = vi.hoisted(() => ({
+  getBalancePaymentMethods: vi.fn(),
+}));
+vi.mock('@/api/balance', () => ({
+  balanceApi: { getPaymentMethods: getBalancePaymentMethods },
+}));
 // 🔴 Пункт 1 реза 22.08.2026. `hideBackButton`/`showBackButton` больше не нужны: экран
 // не подменяется, поэтому кнопку «Назад» гасить не от чего. Вместо них — `openLink`
 // платформы, которым Телеграм открывает провайдера ОТДЕЛЬНОЙ поверхностью, оставляя
@@ -203,6 +213,9 @@ describe('DeviceFirstConfigurator interaction safety', () => {
     vi.mocked(deviceFirstApi.paymentMethods).mockResolvedValue({
       methods: [{ key: 'sbp', provider_code: 2 }],
     });
+    // Умолчание — «минимум провайдера неизвестен»: так ведёт себя холодный экран, пока
+    // балансный запрос не вернулся. Сумма при этом сырая, автосчёт выключен.
+    getBalancePaymentMethods.mockRejectedValue(new Error('payment methods unavailable'));
     // 🔴 Пункт 4.11а. Дефолт изменён на ЖИВОЙ счёт, и это не удобство, а правда боевого
     // сервера: сразу после создания счёта `_is_live_direct_provider_invoice` пропускает
     // адрес (`bot-code/app/cabinet/routes/device_first.py:876`). Прежний дефолт `null`
@@ -1850,8 +1863,11 @@ describe('DeviceFirstConfigurator interaction safety', () => {
 
     // Ошибки нет — значит кнопка пришла не из блока отказа.
     expect(screen.queryByRole('alert')).toBeNull();
+    // 🔴 Этап Б-2: у человека со СВОИМИ деньгами это доплата, а не пополнение. Слова
+    // «и оформить» на кнопке нет и быть не может — возврат приводит на подтверждение,
+    // где надо нажать ещё раз.
     const topUp = await screen.findByRole('button', {
-      name: 'deviceFirst.topUpAmount:350 ₽',
+      name: 'deviceFirst.topUpShortage:350 ₽',
     });
 
     fireEvent.click(topUp);
@@ -1859,12 +1875,353 @@ describe('DeviceFirstConfigurator interaction safety', () => {
     // Суммы и адреса возврата в проверке ЗАШИТЫ ЛИТЕРАЛАМИ: сторож, который считает
     // недостачу тем же выражением, что и код, доказывает только сам себя.
     const target = screen.getByTestId('location').textContent ?? '';
-    expect(target.startsWith('/balance/top-up?')).toBe(true);
+    // 🔴 Этап Б-2: сразу экран суммы нужного провайдера, а не выбор провайдера с одной карточкой.
+    expect(target.startsWith('/balance/top-up/platega?')).toBe(true);
     const query = new URLSearchParams(target.slice(target.indexOf('?') + 1));
     // Недостача, а не полная цена: 450 − 100 = 350.
     expect(query.get('amount')).toBe('350');
     // Возврат несёт метку кассы и ВЫБОР человека — без них он вернётся на пустой экран.
     expect(query.get('returnTo')).toBe('/subscription/purchase?from=checkout&period=30&devices=2');
+    // 🔴 Минимум провайдера в этом прогоне не пришёл (балансный запрос отбит), значит счёт
+    // сам не создаётся: мы не знаем, примет ли сервер сумму. Тихо промолчать здесь — значит
+    // отправить человека в отказ, которого он не вызывал.
+    expect(query.get('auto')).toBeNull();
+    expect(query.get('option')).toBeNull();
+  });
+
+  // 🔴 Сторож на ЧЕСТНУЮ СУММУ. Число на кнопке обязано совпадать с числом в адресе, иначе
+  // человек видит одно, а платит другое. Проверяется на минимуме провайдера, который БОЛЬШЕ
+  // недостачи: 450 − 400 = 50 ₽ не хватает, но провайдер меньше 100 ₽ не примет.
+  it('raises the top-up to the provider minimum and shows the very number it will charge', async () => {
+    getBalancePaymentMethods.mockResolvedValue([
+      {
+        id: 'platega',
+        name: 'Platega',
+        is_available: true,
+        min_amount_kopeks: 10000,
+        max_amount_kopeks: 100000000,
+      },
+    ]);
+    renderConfigurator({ options: { ...options, balance_kopeks: 40000 } });
+
+    fireEvent.click(screen.getByRole('button', { name: 'deviceFirst.review' }));
+
+    // Сводка честно говорит про 50 ₽ недостачи — это разные числа, и оба правдивы.
+    expect(await screen.findByText('deviceFirst.shortage')).toBeTruthy();
+    await screen.findByRole('button', { name: 'deviceFirst.paymentMethodAmount:450 ₽' });
+    const topUp = await screen.findByRole('button', {
+      name: 'deviceFirst.topUpShortage:100 ₽',
+    });
+
+    fireEvent.click(topUp);
+
+    const target = screen.getByTestId('location').textContent ?? '';
+    const query = new URLSearchParams(target.slice(target.indexOf('?') + 1));
+    expect(query.get('amount')).toBe('100');
+    // 🔴 Способ едет ЧИСЛОМ провайдера: касса зовёт его `sbp`, экран пополнения знает его
+    // как `'2'`. Подставить сюда `method.key` значит молча подменить способ на СБП по
+    // умолчанию (`getPreferredOptionId`) у того, кто выбрал карту.
+    expect(query.get('option')).toBe('2');
+    expect(query.get('auto')).toBe('1');
+  });
+
+  // 🔴 Мостик словарей проверяется НЕ на СБП: у СБП число совпало бы случайно с порядком,
+  // и сторож доказывал бы совпадение, а не защиту. Карта российского банка — это `11`.
+  it('carries the provider number of the method the checkout actually chose, not its key', async () => {
+    vi.mocked(deviceFirstApi.paymentMethods).mockResolvedValue({
+      methods: [{ key: 'cards_ru', provider_code: 11 }],
+    });
+    getBalancePaymentMethods.mockResolvedValue([
+      {
+        id: 'platega',
+        name: 'Platega',
+        is_available: true,
+        min_amount_kopeks: 100,
+        max_amount_kopeks: 100000000,
+      },
+    ]);
+    renderConfigurator({ options: { ...options, balance_kopeks: 10000 } });
+
+    fireEvent.click(screen.getByRole('button', { name: 'deviceFirst.review' }));
+    // Ждём именно КНОПКУ СПОСОБА: она появляется только после того, как список способов
+    // приехал и предохранитель `methodKey` подменил зашитый `sbp` на то, что даёт сервер.
+    // Без этого ожидания сторож проверял бы окно, в котором способа ещё нет вовсе.
+    await screen.findByRole('button', { name: 'deviceFirst.paymentMethodAmount:450 ₽' });
+    fireEvent.click(screen.getByRole('button', { name: 'deviceFirst.topUpShortage:350 ₽' }));
+
+    const target = screen.getByTestId('location').textContent ?? '';
+    const query = new URLSearchParams(target.slice(target.indexOf('?') + 1));
+    expect(query.get('option')).toBe('11');
+    expect(query.get('option')).not.toBe('cards_ru');
+  });
+
+  // 🔴 Обратная сторона того же мостика: пока способ с сервера не приехал, `methodKey` держит
+  // зашитый `sbp`, которого сервер может и не давать. В этом окне мы НЕ кладём ни `option`,
+  // ни `auto` — молча подставить чужой способ хуже, чем показать экран выбора.
+  it('sends no provider number at all while the server has not named its methods yet', async () => {
+    let releaseMethods: (value: {
+      methods: Array<{ key: string; provider_code: number }>;
+    }) => void = () => {};
+    vi.mocked(deviceFirstApi.paymentMethods).mockReturnValue(
+      new Promise((resolve) => {
+        releaseMethods = resolve;
+      }),
+    );
+    getBalancePaymentMethods.mockResolvedValue([
+      {
+        id: 'platega',
+        name: 'Platega',
+        is_available: true,
+        min_amount_kopeks: 100,
+        max_amount_kopeks: 100000000,
+      },
+    ]);
+    renderConfigurator({ options: { ...options, balance_kopeks: 10000 } });
+
+    fireEvent.click(screen.getByRole('button', { name: 'deviceFirst.review' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'deviceFirst.topUpShortage:350 ₽' }));
+
+    const target = screen.getByTestId('location').textContent ?? '';
+    const query = new URLSearchParams(target.slice(target.indexOf('?') + 1));
+    expect(target.startsWith('/balance/top-up/platega?')).toBe(true);
+    expect(query.get('amount')).toBe('350');
+    expect(query.get('option')).toBeNull();
+    expect(query.get('auto')).toBeNull();
+    releaseMethods({ methods: [{ key: 'sbp', provider_code: 2 }] });
+  });
+
+  // 🔴 САМАЯ МАССОВАЯ ВЕТКА — новичок с нулём. У него недостача РАВНА полной цене, и до
+  // этапа Б-2 экран показывал ему «Баланс 0 ₽», «Не хватает 450 ₽» и кнопку пополнения:
+  // три упоминания денег, которых нет, над работающей кнопкой прямой оплаты.
+  it('says nothing about a wallet the newcomer does not have', async () => {
+    // 🔴 Балансная сторона отвечает, и у неё ЕСТЬ второй провайдер. Пока сторож держался на
+    // умолчании `beforeEach` (запрос отбит), он был пустым: критик полноты показал, что моя
+    // же починка возвращала кнопку именно в этом состоянии, а тест этого не видел.
+    getBalancePaymentMethods.mockResolvedValue([
+      {
+        id: 'platega',
+        name: 'Platega',
+        is_available: true,
+        min_amount_kopeks: 100,
+        max_amount_kopeks: 100000000,
+      },
+      {
+        id: 'telegram_stars',
+        name: 'Telegram Stars',
+        is_available: true,
+        min_amount_kopeks: 100,
+        max_amount_kopeks: 100000000,
+      },
+    ]);
+    renderConfigurator({ options: { ...options, balance_kopeks: 0 } });
+
+    fireEvent.click(screen.getByRole('button', { name: 'deviceFirst.review' }));
+
+    expect(await screen.findByText(/deviceFirst\.paymentMethodAmount/)).toBeTruthy();
+    expect(screen.queryByText('deviceFirst.balance')).toBeNull();
+    expect(screen.queryByText('deviceFirst.shortage')).toBeNull();
+    expect(screen.queryByRole('button', { name: /deviceFirst\.topUpShortage/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: /deviceFirst\.topUpAmount/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'deviceFirst.needTopup' })).toBeNull();
+    // «ИЛИ оплатите полной суммой» — союз при двух вариантах. Второго варианта у него нет.
+    expect(screen.queryByText('deviceFirst.paymentMethodsAvailable')).toBeNull();
+    // Заголовок не зовёт «проверить итог»: проверять, кроме цены, нечего.
+    expect(screen.getByText('deviceFirst.chooseMethodNotice')).toBeTruthy();
+    expect(screen.queryByText('deviceFirst.chargeNotice')).toBeNull();
+  });
+
+  // 🔴 Обратная половина: у кого баланс ПОКРЫВАЕТ цену, выбирать нечего — кнопка одна.
+  it('drops the choose-a-method promise when there is nothing left to choose', async () => {
+    renderConfigurator({ options: { ...options, balance_kopeks: 100000 } });
+
+    fireEvent.click(screen.getByRole('button', { name: 'deviceFirst.review' }));
+
+    expect(
+      await screen.findByRole('button', { name: 'deviceFirst.payAndOrder:450 ₽' }),
+    ).toBeTruthy();
+    expect(screen.getByText('deviceFirst.reviewBeforeCharge')).toBeTruthy();
+    expect(screen.queryByText('deviceFirst.chargeNotice')).toBeNull();
+    expect(screen.queryByText('deviceFirst.chooseMethodNotice')).toBeNull();
+  });
+
+  // 🔴 Единственный оставшийся выход. Если способы оплаты не поднялись, у человека с нулём
+  // на балансе на экране НЕТ ни одного действия, ведущего к покупке, — только «Повторить» и
+  // «Написать в поддержку». В общем пополнении могут быть другие провайдеры, поэтому кнопка
+  // показывается ДАЖЕ при нулевом балансе, и подписана «Пополнить», а не «Доплатить»:
+  // доплачивать ему не к чему.
+  it('leaves the newcomer a way out when the payment methods themselves are dead', async () => {
+    vi.mocked(deviceFirstApi.paymentMethods).mockRejectedValue(new Error('methods are down'));
+    renderConfigurator({ options: { ...options, balance_kopeks: 0 } });
+
+    fireEvent.click(screen.getByRole('button', { name: 'deviceFirst.review' }));
+
+    expect(await screen.findByText('deviceFirst.errorPaymentMethodsLoad')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'deviceFirst.topUpAmount:450 ₽' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /deviceFirst\.topUpShortage/ })).toBeNull();
+  });
+
+  // 🔴 Нашла волна ревью. Строка-подсказка стоит ВЫШЕ развилки и про её исход не знает. При
+  // упавших способах она обещала «Выберите способ оплаты.» прямо над «Не удалось загрузить
+  // способы оплаты» — экран спорил сам с собой. Молчание честнее: ветка ниже говорит за себя.
+  it('stops promising a choice of method right above the words that there is none', async () => {
+    vi.mocked(deviceFirstApi.paymentMethods).mockRejectedValue(new Error('methods are down'));
+    renderConfigurator({ options: { ...options, balance_kopeks: 0 } });
+
+    fireEvent.click(screen.getByRole('button', { name: 'deviceFirst.review' }));
+
+    expect(await screen.findByText('deviceFirst.errorPaymentMethodsLoad')).toBeTruthy();
+    expect(screen.queryByText('deviceFirst.chooseMethodNotice')).toBeNull();
+    expect(screen.queryByText('deviceFirst.chargeNotice')).toBeNull();
+  });
+
+  // 🔴 Та же болезнь, вторая ветка: у ВОЗОБНОВЛЁННОГО заказа цена остаётся числом, а пары
+  // уже нет в матрице — экран говорит «Недоступно», а подсказка над ним обещала «проверьте
+  // итог перед списанием», хотя списывать нечем и кнопок нет ни одной.
+  it('says nothing about charging when the resumed order has no price left in the matrix', async () => {
+    const goneFromMatrix = {
+      ...checkout('confirmation'),
+      settlement_mode: 'direct_purchase_v2' as const,
+      period_days: 180,
+      selected_device_limit: 9,
+      tariff_total_kopeks: 45000,
+      balance_kopeks: 100000,
+    };
+    vi.mocked(deviceFirstApi.get).mockResolvedValue(goneFromMatrix);
+    // 🔴 Баланс задаётся В ОПЦИЯХ, а не только в строке заказа: `confirmBalanceKopeks` берёт
+    // сперва опции. Мутация показала, что без этого сторож проходил по чужой причине — его
+    // держало условие ветки частичного баланса, а не проверка «выбор непригоден».
+    renderConfigurator({
+      options: { ...options, balance_kopeks: 100000 },
+      initialPath: '/subscription/purchase?checkout=checkout-owned',
+    });
+
+    expect(await screen.findByText('deviceFirst.unavailable')).toBeTruthy();
+    expect(screen.queryByText('deviceFirst.reviewBeforeCharge')).toBeNull();
+    expect(screen.queryByText('deviceFirst.chargeNotice')).toBeNull();
+    expect(screen.queryByText('deviceFirst.chooseMethodNotice')).toBeNull();
+  });
+
+  // 🔴 ТЗ требовало кнопку «первой, АКЦЕНТНОЙ». Она была рамочной — значит в ветке частичного
+  // баланса на экране не оставалось ни одной залитой кнопки, хотя у соседней ветки главное
+  // действие залито. Различать действия одним цветом рамки нельзя.
+  it('fills the top-up button only where it is the main action, and leaves it quiet elsewhere', async () => {
+    getBalancePaymentMethods.mockResolvedValue([
+      {
+        id: 'platega',
+        name: 'Platega',
+        is_available: true,
+        min_amount_kopeks: 100,
+        max_amount_kopeks: 100000000,
+      },
+    ]);
+    renderConfigurator({ options: { ...options, balance_kopeks: 10000 } });
+    fireEvent.click(screen.getByRole('button', { name: 'deviceFirst.review' }));
+    const primary = await screen.findByRole('button', { name: 'deviceFirst.topUpShortage:350 ₽' });
+    expect(primary.className).toContain('bg-accent-500');
+    cleanup();
+
+    // А там, где она запасной выход, заливки быть не должно — иначе перетянет внимание у
+    // способов оплаты, которые короче.
+    vi.mocked(deviceFirstApi.paymentMethods).mockRejectedValue(new Error('methods are down'));
+    renderConfigurator({ options: { ...options, balance_kopeks: 0 } });
+    fireEvent.click(screen.getByRole('button', { name: 'deviceFirst.review' }));
+    const fallback = await screen.findByRole('button', { name: 'deviceFirst.topUpAmount:450 ₽' });
+    expect(fallback.className).not.toContain('bg-accent-500');
+  });
+
+  // 🔴 С копейками на балансе доплата округляется до ПОЛНОЙ цены — то есть человек заплатит
+  // столько же, но пройдёт на три экрана больше. Делать такую дорогу громкой — ровно то, за
+  // что ревью отклонило кандидата «А».
+  it('does not make the longer road loud when topping up costs the same as paying outright', async () => {
+    renderConfigurator({ options: { ...options, balance_kopeks: 50 } });
+
+    fireEvent.click(screen.getByRole('button', { name: 'deviceFirst.review' }));
+
+    const full = await screen.findByRole('button', {
+      name: 'deviceFirst.paymentMethodAmount:450 ₽',
+    });
+    const topUp = screen.getByRole('button', { name: 'deviceFirst.topUpShortage:450 ₽' });
+    // Прямая оплата идёт ПЕРВОЙ, доплата ушла вниз и осталась тихой.
+    expect(full.compareDocumentPosition(topUp) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(topUp.className).not.toContain('bg-accent-500');
+  });
+
+  // 🔴 Сводка печатает честную недостачу, кнопка — сумму счёта. Когда минимум провайдера
+  // больше недостачи, это РАЗНЫЕ числа, и без объяснения человек читает их как ошибку.
+  it('explains where the extra money goes when the provider minimum outgrows the shortage', async () => {
+    getBalancePaymentMethods.mockResolvedValue([
+      {
+        id: 'platega',
+        name: 'Platega',
+        is_available: true,
+        min_amount_kopeks: 10000,
+        max_amount_kopeks: 100000000,
+      },
+    ]);
+    renderConfigurator({ options: { ...options, balance_kopeks: 40000 } });
+
+    fireEvent.click(screen.getByRole('button', { name: 'deviceFirst.review' }));
+
+    expect(
+      await screen.findByRole('button', { name: 'deviceFirst.topUpShortage:100 ₽' }),
+    ).toBeTruthy();
+    // 100 ₽ уйдёт в счёт, 50 ₽ не хватало — 50 ₽ останется. Число зашито литералом.
+    expect(screen.getByText('deviceFirst.topUpSurplusHint:50 ₽')).toBeTruthy();
+  });
+
+  // 🔴 Нашёл прогон сценария по замеренной геометрии телефона 375×667: в ветке, ради которой
+  // этап и делался, строка велела «выберите способ оплаты», а способы лежали на сотню
+  // пикселей НИЖЕ сгиба. Единственная видимая кнопка — «Доплатить», и она способом оплаты не
+  // является. Строку убрали: акцентная кнопка со своей подписью и строка «Или оплатите полной
+  // суммой» прямо над способами объясняют развилку без вранья.
+  it('does not tell the person to pick a method that is two screens below the fold', async () => {
+    renderConfigurator({ options: { ...options, balance_kopeks: 10000 } });
+
+    fireEvent.click(screen.getByRole('button', { name: 'deviceFirst.review' }));
+
+    // Ждём именно кнопку СПОСОБА: до неё блок способов ещё не отрисован, и проверка
+    // «объяснение развилки на месте» проходила бы по пустому экрану.
+    await screen.findByRole('button', { name: 'deviceFirst.paymentMethodAmount:450 ₽' });
+    expect(screen.getByRole('button', { name: 'deviceFirst.topUpShortage:350 ₽' })).toBeTruthy();
+    expect(screen.queryByText('deviceFirst.chargeNotice')).toBeNull();
+    expect(screen.queryByText('deviceFirst.chooseMethodNotice')).toBeNull();
+    expect(screen.queryByText('deviceFirst.reviewBeforeCharge')).toBeNull();
+    // Объяснение развилки при этом на месте — иначе мы просто сняли текст.
+    expect(screen.getByText('deviceFirst.paymentMethodsAvailable')).toBeTruthy();
+    expect(screen.getByText('deviceFirst.topUpShortageHint')).toBeTruthy();
+  });
+
+  // 🔴 И обратное: если на балансной стороне не осталось ни одного провайдера, кнопка ведёт
+  // в пустой экран. Тупик без объяснения хуже отсутствия кнопки.
+  it('does not offer a door that opens into an empty room', async () => {
+    vi.mocked(deviceFirstApi.paymentMethods).mockRejectedValue(new Error('methods are down'));
+    getBalancePaymentMethods.mockResolvedValue([]);
+    renderConfigurator({ options: { ...options, balance_kopeks: 10000 } });
+
+    fireEvent.click(screen.getByRole('button', { name: 'deviceFirst.review' }));
+
+    expect(await screen.findByText('deviceFirst.errorPaymentMethodsLoad')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /deviceFirst\.topUp/ })).toBeNull();
+  });
+
+  // 🔴 Кандидат «А» отклонён ревью: кнопки способов оплаты остаются на ПОЛНУЮ цену и остаются
+  // КНОПКАМИ. Прямая оплата — единственный путь, который сам доводит до подписки (вебхук
+  // выдаёт VPN), и он на одно нажатие короче доплаты. Опустить его в серую строку значит
+  // сделать громкой худшую половину.
+  it('keeps paying the full price a real button next to the top-up, not a paragraph', async () => {
+    renderConfigurator({ options: { ...options, balance_kopeks: 10000 } });
+
+    fireEvent.click(screen.getByRole('button', { name: 'deviceFirst.review' }));
+
+    const full = await screen.findByRole('button', {
+      name: 'deviceFirst.paymentMethodAmount:450 ₽',
+    });
+    expect(full.tagName).toBe('BUTTON');
+    const topUp = screen.getByRole('button', { name: 'deviceFirst.topUpShortage:350 ₽' });
+    // Доплата стоит ПЕРВОЙ: на телефоне до нижних кнопок надо доскроллить.
+    expect(topUp.compareDocumentPosition(full) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // И ровно одна кнопка доплаты на экране, а не две: ветки развода взаимоисключающие.
+    expect(screen.getAllByRole('button', { name: /deviceFirst\.topUp/ })).toHaveLength(1);
   });
 
   // 🔴 Обратная половина того же сторожа: у кого денег ХВАТАЕТ, тому предлагать
@@ -1879,6 +2236,9 @@ describe('DeviceFirstConfigurator interaction safety', () => {
     ).toBeTruthy();
     expect(screen.queryByRole('button', { name: /deviceFirst.topUpAmount/ })).toBeNull();
     expect(screen.queryByRole('button', { name: 'deviceFirst.needTopup' })).toBeNull();
+    // 🔴 Этап Б-2 завёл ВТОРУЮ надпись той же кнопке. Сторож, знающий только первую, остаётся
+    // зелёным и пустым: предлагать доплату тому, у кого хватает, он бы уже не поймал.
+    expect(screen.queryByRole('button', { name: /deviceFirst.topUpShortage/ })).toBeNull();
   });
 
   // 🔴 Сторож на посев выбора. Человек ушёл с 90 днями и 5 устройствами — обязан вернуться

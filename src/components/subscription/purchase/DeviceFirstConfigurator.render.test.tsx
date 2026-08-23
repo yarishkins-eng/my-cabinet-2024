@@ -14,6 +14,12 @@ import type {
 vi.mock('@/platform', () => ({
   usePlatform: () => ({ openLink: vi.fn() }),
 }));
+// 🔴 Этап Б-2. Балансный `['payment-methods']` тянет за собой настоящий `i18n`, который в
+// тестовой среде не поднимается. Разметка снимается `renderToStaticMarkup` — эффекты и
+// запросы там не исполняются вовсе, так что мок нужен ровно ради цепочки импортов.
+vi.mock('@/api/balance', () => ({
+  balanceApi: { getPaymentMethods: vi.fn() },
+}));
 vi.mock('@/hooks/useTheme', () => ({
   useTheme: () => ({ isDark: true }),
 }));
