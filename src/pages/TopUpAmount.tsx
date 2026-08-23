@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate, useParams, useSearchParams } from 'react-router';
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { motion } from 'framer-motion';
 
 import { balanceApi } from '../api/balance';
@@ -76,7 +76,8 @@ export default function TopUpAmount() {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const { methodId } = useParams<{ methodId: string }>();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const queryClient = useQueryClient();
   const { formatAmount, currencySymbol, convertAmount, convertToRub, targetCurrency } =
     useCurrency();
   const { openInvoice, openTelegramLink, openLink, platform } = usePlatform();
@@ -90,6 +91,20 @@ export default function TopUpAmount() {
   const initialAmountRubles = searchParams.get('amount')
     ? parseFloat(searchParams.get('amount')!)
     : undefined;
+  // 🔴 Этап Б-2. Касса приводит сюда со СВОИМ способом — числом провайдера (`option=2`), а не
+  // ключом (`sbp`): числа и есть словарь этого экрана. Предвыбираем только то, что реально
+  // лежит в `method.options`. ⛔ Молча подставлять чужое нельзя: `getPreferredOptionId` при
+  // непопадании ставит СБП, то есть человек, выбравший карту, ушёл бы платить по СБП.
+  const requestedOptionId = searchParams.get('option');
+  const pickOptionId = useCallback(
+    (methodOptions?: PaymentMethod['options']) => {
+      if (requestedOptionId && methodOptions?.some((option) => option.id === requestedOptionId)) {
+        return requestedOptionId;
+      }
+      return getPreferredOptionId(methodOptions);
+    },
+    [requestedOptionId],
+  );
 
   // The amount screen also works after a direct link or page reload, where
   // React Query has no in-memory cache yet.
@@ -112,13 +127,31 @@ export default function TopUpAmount() {
     // Если пользователь ушёл по платёжной ссылке — НЕ перехватываем навигацию здесь (WS мог
     // прийти, пока он в браузере): возврат обработает visibilitychange → экран результата.
     if (paymentLinkOpenedRef.current) return;
+    // 🔴 Этап Б-2, мина EC — живой дефект, доехавший на боевой этапом Б-1.
+    // Отсюда есть ДВА выхода, которые минуют `/balance/top-up/result`, а это единственное
+    // место во всём кабинете, где гасится кэш кассы (`TopUpResult.tsx`, эффект `resolvedPaid`):
+    //   · человек скопировал ссылку и заплатил в браузере или на компьютере — `handleCopyUrl`
+    //     метку ухода не ставит, поэтому WS-успех уходит сюда, а не на экран результата;
+    //   · оплата звёздами: `starsPaymentMutation.onSuccess` зовёт `handleSuccess` напрямую.
+    // Итог был один и тот же: человек заплатил и вернулся на кассу с ПРЕЖНИМ «Не хватает N» —
+    // ровно то, что этап Б-1 объявил закрытым.
+    // ⛔ Лечить это взведением `paymentLinkOpenedRef` внутри копирования НЕЛЬЗЯ: ту же метку
+    // читает слушатель `visibilitychange` ниже, и тогда ЛЮБОЕ переключение приложения после
+    // копирования уводило бы на экран результата — десять минут «Проверяем статус оплаты» за
+    // платёж, которого не было. Гасим кэш здесь, у самого выхода: побочек нет вовсе.
+    queryClient.invalidateQueries({ queryKey: ['balance'] });
+    queryClient.invalidateQueries({ queryKey: ['transactions'] });
+    queryClient.invalidateQueries({ queryKey: ['device-first-options'] });
+    queryClient.invalidateQueries({
+      predicate: (query) => Array.isArray(query.queryKey) && query.queryKey[0] === 'subscription',
+    });
     // returnTo arrives via query string — validate as an in-app path before
     // navigate(), otherwise an absolute or encoded URL produces ugly
     // path artefacts in the URL bar. The validator returns '/' for invalid
     // input; treat that case as "no returnTo" and use the /balance default.
     const safe = getSafeRedirectPath(returnTo);
     navigate(returnTo && safe !== '/' ? safe : '/balance', { replace: true });
-  }, [navigate, returnTo]);
+  }, [navigate, queryClient, returnTo]);
 
   // Keyboard: Escape to go back
   useEffect(() => {
@@ -147,7 +180,7 @@ export default function TopUpAmount() {
   const [amount, setAmount] = useState(initialDisplayAmount);
   const [error, setError] = useState<string | null>(null);
   const [selectedOption, setSelectedOption] = useState<string | null>(
-    getPreferredOptionId(method?.options),
+    pickOptionId(method?.options),
   );
   const [paymentUrl, setPaymentUrl] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
@@ -175,11 +208,13 @@ export default function TopUpAmount() {
       return;
     }
 
+    // Ручной выбор человека сюда не попадает: пока выбранный вариант существует, условие
+    // ложно. То есть метка кассы задаёт НАЧАЛЬНЫЙ способ, а не спорит с ним дальше.
     const optionExists = method.options.some((option) => option.id === selectedOption);
     if (!optionExists) {
-      setSelectedOption(getPreferredOptionId(method.options));
+      setSelectedOption(pickOptionId(method.options));
     }
-  }, [method?.id, method?.options, selectedOption]);
+  }, [method?.id, method?.options, pickOptionId, selectedOption]);
 
   const starsPaymentMutation = useMutation({
     mutationFn: (amountKopeks: number) => balanceApi.createStarsInvoice(amountKopeks),
@@ -306,35 +341,21 @@ export default function TopUpAmount() {
     return () => document.removeEventListener('visibilitychange', onVisible);
   }, [paymentUrl, returnTo, navigate]);
 
-  if (isPaymentMethodsError) {
-    return (
-      <div className="flex flex-col items-center gap-4 py-12 text-center">
-        <p className="text-sm text-dark-400">{t('common.error')}</p>
-        <Button type="button" variant="secondary" size="sm" onClick={() => refetchPaymentMethods()}>
-          {t('balance.topUp')}
-        </Button>
-      </div>
-    );
-  }
-
-  if (isPaymentMethodsLoading || !method) {
-    return (
-      <div className="flex items-center justify-center py-12">
-        <div className="h-8 w-8 animate-spin rounded-full border-2 border-accent-500 border-t-transparent" />
-      </div>
-    );
-  }
-
-  const hasOptions = method.options && method.options.length > 0;
-  const orderedOptions = sortOptionsWithSbpFirst(method.options);
-  const minRubles = method.min_amount_kopeks / 100;
-  const maxRubles = method.max_amount_kopeks / 100;
-  const methodKey = method.id.toLowerCase().replace(/-/g, '_');
+  // 🔴 Этап Б-2. Эти производные и `handleSubmit` подняты ВЫШЕ ранних возвратов ради одного:
+  // автосабмит по метке кассы — это эффект, а хук нельзя объявить после `return`. Значения
+  // считаются с `?.`, а сам `handleSubmit` первой строкой выходит, если способа ещё нет; ниже
+  // по файлу ранний возврат гарантирует `method`, поэтому разметка не изменилась ни в чём.
+  const hasOptions = Boolean(method?.options && method.options.length > 0);
+  const orderedOptions = sortOptionsWithSbpFirst(method?.options);
+  const minRubles = (method?.min_amount_kopeks ?? 0) / 100;
+  const maxRubles = (method?.max_amount_kopeks ?? 0) / 100;
+  const methodKey = (method?.id ?? '').toLowerCase().replace(/-/g, '_');
   const isStarsMethod = methodKey.includes('stars');
   const methodName =
-    t(`balance.paymentMethods.${methodKey}.name`, { defaultValue: '' }) || method.name;
+    t(`balance.paymentMethods.${methodKey}.name`, { defaultValue: '' }) || method?.name || '';
 
   const handleSubmit = () => {
+    if (!method) return;
     setError(null);
     setPaymentUrl(null);
     inputRef.current?.blur();
@@ -382,6 +403,65 @@ export default function TopUpAmount() {
       topUpMutation.mutate(amountKopeks);
     }
   };
+
+  // 🔴 Этап Б-2, автосоздание счёта по метке кассы (`auto=1`). Экран остаётся тем же самым,
+  // просто человек не нажимает «Получить ссылку» на сумме, которую он не выбирал и не может
+  // изменить осмысленно — её посчитала касса.
+  // ⛔ Банк САМИ НЕ ОТКРЫВАЕМ: `openLink` вне живого нажатия режется блокировщиком всплывающих
+  // окон и отказывает МОЛЧА, а метку «ушёл платить» взводит только ручной `handleOpenPayment`.
+  // Автооткрытие сломало бы возврат: человек вернулся бы из банка на застывший «Счёт создан»
+  // и решил, что не заплатил. Один живой тап «Перейти к оплате» остаётся.
+  // Две защёлки, и обе обязательны:
+  //   · `useRef` — против `React.StrictMode` (`main.tsx`), где эффект исполняется дважды и
+  //     сжёг бы две попытки из трёх у `checkRateLimit(PAYMENT, 3, 30000)`;
+  //   · снятие `auto` из адреса через `replace` — против кнопки «назад». Мина DZ: вернувшийся
+  //     с пополнения человек одним нажатием «назад» снова попадает сюда, и без снятия параметра
+  //     этот вход выстрелил бы ВТОРЫМ счётом на ту же сумму. `replace` переписывает ту самую
+  //     запись истории, в которую «назад» и приводит.
+  const autoSubmittedRef = useRef(false);
+  // `handleSubmit` пересоздаётся каждый рендер, и держать его в зависимостях эффекта значило бы
+  // гонять эффект вхолостую на каждом нажатии клавиши в поле суммы. Свежую ссылку хранит ref,
+  // обновляемый отдельным эффектом ВЫШЕ по объявлению — React исполняет эффекты в этом порядке,
+  // поэтому к моменту автосабмита в ref лежит функция текущего рендера, а не прошлого.
+  const submitRef = useRef(handleSubmit);
+  useEffect(() => {
+    submitRef.current = handleSubmit;
+  });
+  useEffect(() => {
+    if (autoSubmittedRef.current) return;
+    if (searchParams.get('auto') !== '1') return;
+    // Ждём способы: без них `handleSubmit` вышел бы первой строкой, а попытку уже потратил.
+    if (!method) return;
+    // Ждём предвыбор варианта — иначе получим свой же отказ «выберите способ».
+    if (hasOptions && !selectedOption) return;
+    // Без суммы в адресе автосабмит показал бы красное «Введите сумму», которую человек не
+    // вводил. Такой вход к нам приходить не должен вовсе, но проверка стоит копейку.
+    if (!initialAmountRubles || initialAmountRubles <= 0) return;
+    autoSubmittedRef.current = true;
+    const nextParams = new URLSearchParams(searchParams);
+    nextParams.delete('auto');
+    setSearchParams(nextParams, { replace: true });
+    submitRef.current();
+  }, [hasOptions, initialAmountRubles, method, searchParams, selectedOption, setSearchParams]);
+
+  if (isPaymentMethodsError) {
+    return (
+      <div className="flex flex-col items-center gap-4 py-12 text-center">
+        <p className="text-sm text-dark-400">{t('common.error')}</p>
+        <Button type="button" variant="secondary" size="sm" onClick={() => refetchPaymentMethods()}>
+          {t('balance.topUp')}
+        </Button>
+      </div>
+    );
+  }
+
+  if (isPaymentMethodsLoading || !method) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <div className="h-8 w-8 animate-spin rounded-full border-2 border-accent-500 border-t-transparent" />
+      </div>
+    );
+  }
 
   const quickAmounts = (method.quick_amounts ?? [])
     .map((amountKopeks) => amountKopeks / 100)
