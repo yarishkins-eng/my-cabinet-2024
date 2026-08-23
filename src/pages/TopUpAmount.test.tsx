@@ -9,6 +9,8 @@ import TopUpAmount from './TopUpAmount';
 import { useSuccessNotification } from '../store/successNotification';
 import { resetRateLimit, RATE_LIMIT_KEYS } from '../utils/rateLimit';
 
+type PaymentMethodFixture = typeof platega;
+
 // 🔴 Этап Б-2. У этого экрана НЕ БЫЛО тестового файла вовсе — и это не мелочь, а пустое
 // место размером с пункт этапа: любую правку здесь можно было откатить, и весь набор
 // оставался зелёным. Файл заведён вместе с автосабмитом и починкой мины EC.
@@ -81,10 +83,16 @@ function LocationProbe() {
 // `main.tsx`, и в нём React исполняет каждый эффект ДВАЖДЫ. Без защёлки автосабмит создал бы
 // два счёта и сжёг две попытки из трёх у `checkRateLimit(PAYMENT, 3, 30000)`. Проверять
 // «ровно один раз» вне `StrictMode` значит проверять условие, которого на боевом не бывает.
-function renderScreen(search: string) {
+function renderScreen(search: string, options: { warmCache?: PaymentMethodFixture[] } = {}) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
+  // 🔴 На боевом кэш `['payment-methods']` ВСЕГДА тёплый: его греет сама касса тем же ключом,
+  // и `auto=1` она кладёт в адрес только после ответа этого запроса. Значит `method` определён
+  // уже на первом рендере, и эффект автосабмита попадает ВНУТРЬ двойного прогона `StrictMode`.
+  // Без прогрева тест ловит другое состояние — то, где `method` ещё нет и двойной прогон
+  // выходит первой строкой. Нашёл критик полноты; мой прежний вывод «ref не нужен» был неверен.
+  if (options.warmCache) queryClient.setQueryData(['payment-methods'], options.warmCache);
   const utils = render(
     <StrictMode>
       <MemoryRouter initialEntries={[`/balance/top-up/platega${search}`]}>
@@ -383,6 +391,81 @@ describe('TopUpAmount — короткий путь кассы', () => {
     await settle();
     expect(createTopUp).not.toHaveBeenCalled();
     expect(screen.getByText('balance.getPaymentLink')).toBeTruthy();
+  });
+
+  // 🔴 Сторож, которого требовало ТЗ и которого у меня НЕ БЫЛО: «убрать ref-латч → краснеет».
+  // Прогреваем кэш ровно как боевой путь, поэтому эффект стреляет внутри двойного прогона
+  // `StrictMode`. Без защёлки — два счёта и две сожжённые попытки из трёх.
+  it('creates exactly one invoice when the methods cache is already warm, as it always is', async () => {
+    renderScreen(`?amount=298&option=11&auto=1&returnTo=${encodeURIComponent(CHECKOUT_RETURN)}`, {
+      warmCache: [platega],
+    });
+
+    await waitFor(() => expect(createTopUp).toHaveBeenCalled());
+    await settle();
+    expect(createTopUp).toHaveBeenCalledTimes(1);
+  });
+
+  // 🔴 Нашёл критик полноты: обработчиков, меняющих сумму, ТРИ. Быстрая кнопка оставляла живой
+  // счёт на ПРЕЖНЕЕ число рядом с новым — а «Получить ссылку» уже спрятана, и человек
+  // оставался с единственной кнопкой «Перейти к оплате» на сумму, которой на экране нет.
+  it('drops the live invoice when a quick amount replaces the number under it', async () => {
+    renderScreen(`?amount=298&option=11&auto=1&returnTo=${encodeURIComponent(CHECKOUT_RETURN)}`, {
+      warmCache: [platega],
+    });
+    await waitFor(() => expect(createTopUp).toHaveBeenCalled());
+    await settle();
+    expect(screen.getByText('balance.openPaymentPage')).toBeTruthy();
+
+    fireEvent.click(screen.getByText('100'));
+    await settle();
+    // Счёт на прежнее число погашен вместе с числом.
+    expect(screen.queryByText('balance.openPaymentPage')).toBeNull();
+    // Смена суммы — это НЕ отправка: второго счёта сама она не делает.
+    expect(createTopUp).toHaveBeenCalledTimes(1);
+
+    // 🔴 Проверяем ДЕЙСТВИЕ, а не надпись кнопки. Надпись здесь обманчива: на прогретом кэше
+    // мутация не успевает переключить статус, и кнопка стоит в состоянии загрузки — то есть
+    // сторож по тексту доказывал бы тайминг, а не работоспособность. Способ создать счёт
+    // заново обязан ВЕРНУТЬСЯ, и вот его прямое доказательство: новый счёт на НОВОЕ число.
+    fireEvent.keyDown(screen.getByRole('spinbutton'), { key: 'Enter' });
+    await settle();
+    expect(createTopUp).toHaveBeenCalledTimes(2);
+    expect(createTopUp).toHaveBeenLastCalledWith(10000, 'platega', '11');
+  });
+
+  // 🔴 Нашёл критик полноты: прятать ОТРИСОВКУ ловушки мало, сам вызов оставался достижим с
+  // клавиатуры, а Enter вдобавок обходит `disabled`. Человек тапает поле посмотреть число,
+  // жмёт «Готово» — и живой счёт исчезает, создаётся второй.
+  it('does not let the keyboard destroy an invoice the finger cannot', async () => {
+    renderScreen(`?amount=298&option=11&auto=1&returnTo=${encodeURIComponent(CHECKOUT_RETURN)}`, {
+      warmCache: [platega],
+    });
+    await waitFor(() => expect(createTopUp).toHaveBeenCalled());
+    await settle();
+
+    fireEvent.keyDown(screen.getByRole('spinbutton'), { key: 'Enter' });
+    await settle();
+    expect(createTopUp).toHaveBeenCalledTimes(1);
+    expect(screen.getByText('balance.openPaymentPage')).toBeTruthy();
+  });
+
+  // 🔴 Нашёл критик полноты. Курс валюты доезжает ПОСЛЕ первого рендера: поле заполнено по
+  // запасному курсу, эталон пересчитан по настоящему — и сравнение строк считает человека
+  // редактором, хотя он ничего не трогал. Каноническая ветка отключалась, и на сервер уходила
+  // обратная конвертация: вместо 450 ₽ ушло бы ~408 ₽. Человек платит комиссию и всё равно
+  // возвращается с «не хватает». Автопуть обязан слать своё число, а не то, что в поле.
+  it('sends the number the checkout named, not whatever the currency drift left in the field', async () => {
+    currency.code = 'USD';
+    currency.rubPerUnit = 90.66;
+    renderScreen(`?amount=450&option=11&auto=1&returnTo=${encodeURIComponent(CHECKOUT_RETURN)}`, {
+      warmCache: [platega],
+    });
+
+    await waitFor(() => expect(createTopUp).toHaveBeenCalled());
+    await settle();
+    // 45000 копеек — ровно недостача кассы. Литерал, а не выражение.
+    expect(createTopUp).toHaveBeenCalledWith(45000, 'platega', '11');
   });
 
   it('stays a manual screen when the checkout marker is absent', async () => {

@@ -357,7 +357,14 @@ export default function TopUpAmount() {
   const methodName =
     t(`balance.paymentMethods.${methodKey}.name`, { defaultValue: '' }) || method?.name || '';
 
-  const handleSubmit = () => {
+  // `chargeExactRubles` — сумма, которую назвала касса. Передаётся только автопутём.
+  // 🔴 Нашёл критик полноты: сравнение строк (`userEditedAmount`) считает человека
+  // редактором, если курс валюты доехал ПОСЛЕ первого рендера — поле было заполнено по
+  // запасному курсу, а эталон пересчитался по настоящему. Тогда каноническая ветка молча
+  // отключалась, и на сервер уходила обратная конвертация: у долларовой локали вместо
+  // 450 ₽ ушло бы ~408 ₽. Человек платит комиссию и всё равно возвращается с «не хватает».
+  // Автопуть не должен зависеть от того, что написано в поле: число он знает сам.
+  const handleSubmit = (chargeExactRubles?: number) => {
     if (!method) return;
     setError(null);
     setPaymentUrl(null);
@@ -389,7 +396,9 @@ export default function TopUpAmount() {
     // floating-point, когда юзер реально вводит свой amount.
     const userEditedAmount = amount.trim() !== initialDisplayAmount.trim();
     let amountKopeks: number;
-    if (!userEditedAmount && initialAmountRubles && initialAmountRubles > 0) {
+    if (chargeExactRubles !== undefined && chargeExactRubles > 0) {
+      amountKopeks = Math.round(chargeExactRubles * 100);
+    } else if (!userEditedAmount && initialAmountRubles && initialAmountRubles > 0) {
       amountKopeks = Math.round(initialAmountRubles * 100);
     } else if (targetCurrency === 'RUB') {
       amountKopeks = Math.round(amountRubles * 100);
@@ -427,10 +436,14 @@ export default function TopUpAmount() {
   //     человек одним нажатием «назад» снова попадает сюда, и без снятия параметра этот вход
   //     выстрелил бы ВТОРЫМ счётом на ту же сумму. `replace` переписывает ту самую запись
   //     истории, в которую «назад» и приводит;
-  //   · `useRef` — второй пояс. ⚠️ Честно про его границу: мутационный прогон показал, что
-  //     снятие ref набор НЕ красит — на сегодняшнем пути его работу делает снятие параметра.
-  //     Он оставлен как страховка на денежном пути (перезапуск эффекта до того, как адрес
-  //     переписан), и отдельного сторожа именно на него нет. Это записано, а не замолчано.
+  //   · `useRef` — против `React.StrictMode` (`main.tsx`), где эффект исполняется ДВАЖДЫ
+  //     подряд, между прогонами адрес переписаться не успевает, и снятие параметра там не
+  //     спасает вовсе. ⚠️ Моё прежнее «ref набор не красит, его работу делает снятие
+  //     параметра» было НЕВЕРНО, и это нашёл критик полноты: на боевом кэш `['payment-methods']`
+  //     всегда тёплый (его греет сама касса тем же ключом), поэтому `method` определён уже на
+  //     первом рендере и эффект попадает ВНУТРЬ двойного монтирования — там ref единственная
+  //     защита от двух счетов и двух сожжённых попыток из трёх. Комментарий, приглашавший его
+  //     удалить, был опаснее отсутствия комментария. Сторож на это теперь есть.
   //     Он же делает решение «не стреляем» окончательным — см. `stopTryingToAutoSubmit`.
   const autoSubmittedRef = useRef(false);
   const autoInvoiceNeedsFocusRef = useRef(false);
@@ -438,7 +451,7 @@ export default function TopUpAmount() {
   // гонять эффект вхолостую на каждом нажатии клавиши в поле суммы. Свежую ссылку хранит ref,
   // обновляемый отдельным эффектом ВЫШЕ по объявлению — React исполняет эффекты в этом порядке,
   // поэтому к моменту автосабмита в ref лежит функция текущего рендера, а не прошлого.
-  const submitRef = useRef(handleSubmit);
+  const submitRef = useRef<(chargeExactRubles?: number) => void>(handleSubmit);
   useEffect(() => {
     submitRef.current = handleSubmit;
   });
@@ -494,7 +507,7 @@ export default function TopUpAmount() {
     nextParams.delete('auto');
     setSearchParams(nextParams, { replace: true });
     autoInvoiceNeedsFocusRef.current = true;
-    submitRef.current();
+    submitRef.current(initialAmountRubles);
   }, [
     hasOptions,
     initialAmountRubles,
@@ -653,6 +666,12 @@ export default function TopUpAmount() {
             onKeyDown={(e) => {
               if (e.key === 'Enter') {
                 e.preventDefault();
+                // 🔴 Нашёл критик полноты: прятать ОТРИСОВКУ ловушки мало — сам вызов остался
+                // достижим с клавиатуры, а Enter вдобавок обходит `disabled`. Человек тапает
+                // поле посмотреть число, жмёт «Готово» — и живой счёт исчезает, создаётся
+                // второй, сгорает попытка. Клавиатура обязана слушаться того же правила,
+                // что и палец.
+                if (paymentUrl) return;
                 handleSubmit();
               }
             }}
@@ -672,14 +691,18 @@ export default function TopUpAmount() {
             автосабмитом он приходит на готовый экран, ничего не нажав, и на телефоне 375×667
             видит ТОЛЬКО её — нужная «Перейти к оплате» уходит за сгиб на две сотни пикселей.
             Прячем её, пока счёт жив. Обратно она возвращается сама, как только человек меняет
-            сумму или способ: оба обработчика гасят `paymentUrl` — то есть выход не потерян. */}
+            сумму или способ: `paymentUrl` гасят ВСЕ ТРИ входа — поле, быстрая кнопка и чип
+            способа, — то есть выход не потерян. (Считать их пришлось критику полноты: я
+            написал «оба обработчика», а их три, и третий счёт не гасил.) */}
         {!paymentUrl && (
           <Button
             type="button"
             fullWidth
             size="lg"
             leftIcon={<SparklesIcon className="h-4 w-4" />}
-            onClick={handleSubmit}
+            // ⚠️ Стрелка обязательна: голый `handleSubmit` получил бы СОБЫТИЕ КЛИКА первым
+            // аргументом — то есть в поле «сумма, назначенная кассой». Поймал `tsc`.
+            onClick={() => handleSubmit()}
             disabled={!amount || parseFloat(amount) <= 0}
             loading={isPending}
           >
@@ -705,6 +728,11 @@ export default function TopUpAmount() {
                 type="button"
                 onClick={() => {
                   setAmount(val);
+                  // 🔴 Нашёл критик полноты: обработчиков, меняющих сумму, ТРИ, а гасил счёт
+                  // я в одном. Быстрая кнопка оставляла живой счёт на прежнее число рядом с
+                  // новым — и, поскольку «Получить ссылку» уже спрятана, человек оставался с
+                  // единственной кнопкой «Перейти к оплате» на сумму, которой на экране нет.
+                  setPaymentUrl(null);
                   inputRef.current?.blur();
                 }}
                 hover
