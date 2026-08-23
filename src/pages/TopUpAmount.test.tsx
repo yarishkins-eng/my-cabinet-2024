@@ -37,13 +37,18 @@ vi.mock('@/platform', () => ({
 vi.mock('@/utils/clipboard', () => ({
   copyToClipboard: vi.fn().mockResolvedValue(undefined),
 }));
+// 🔴 Валюта показа — не декорация, а участник денежной арифметики. По умолчанию рубли
+// (конвертация тождественна), но один сторож обязан гонять НЕрублёвую локаль: там
+// конвертация туда-обратно теряет копейки, и проверка диапазона может отбить свою же сумму.
+const { currency } = vi.hoisted(() => ({ currency: { code: 'RUB', rubPerUnit: 1 } }));
 vi.mock('../hooks/useCurrency', () => ({
   useCurrency: () => ({
     formatAmount: (value: number) => String(value),
     currencySymbol: '₽',
-    convertAmount: (value: number) => value,
-    convertToRub: (value: number) => value,
-    targetCurrency: 'RUB',
+    // Показ округляет ВНИЗ до двух знаков — ровно как `.toFixed(2)` в живом коде.
+    convertAmount: (rubles: number) => Math.floor((rubles / currency.rubPerUnit) * 100) / 100,
+    convertToRub: (units: number) => Math.round(units * currency.rubPerUnit * 100) / 100,
+    targetCurrency: currency.code,
   }),
 }));
 vi.mock('react-i18next', () => ({
@@ -118,6 +123,8 @@ describe('TopUpAmount — короткий путь кассы', () => {
     // 🔴 Ограничитель попыток оплаты живёт в модуле, то есть ПЕРЕЖИВАЕТ тесты: три автосабмита
     // подряд упёрлись бы в свой же потолок, и следующий сторож упал бы по чужой причине.
     resetRateLimit(RATE_LIMIT_KEYS.PAYMENT);
+    currency.code = 'RUB';
+    currency.rubPerUnit = 1;
     getPaymentMethods.mockResolvedValue([platega]);
     createTopUp.mockResolvedValue({
       payment_id: 'pay-1',
@@ -325,6 +332,57 @@ describe('TopUpAmount — короткий путь кассы', () => {
     expect(await screen.findByText('balance.enterAmount')).toBeTruthy();
     await settle();
     expect(createTopUp).toHaveBeenCalledTimes(1);
+  });
+
+  // 🔴 Мутация пережила первую версию этого сторожа, и правильно сделала: в рублях
+  // конвертация тождественна, поэтому «проверять отправляемое число» и «проверять
+  // введённое» давали ОДИН результат — сторож стерёг совпадение, а не защиту.
+  // Здесь локаль долларовая, курс дробный: касса прислала ровно минимум провайдера (100 ₽),
+  // показ округлил его вниз до 1.10, а обратная конвертация даёт 99,73 — меньше минимума.
+  // До починки автосабмит отбивал СВОЮ ЖЕ сумму красной строкой на экране, где человек
+  // ничего не нажимал.
+  it('does not reject its own amount on a currency whose round-trip loses kopecks', async () => {
+    currency.code = 'USD';
+    currency.rubPerUnit = 90.66;
+    getPaymentMethods.mockResolvedValue([{ ...platega, min_amount_kopeks: 10000 }]);
+    renderScreen(`?amount=100&option=11&auto=1&returnTo=${encodeURIComponent(CHECKOUT_RETURN)}`);
+
+    await waitFor(() => expect(createTopUp).toHaveBeenCalled());
+    await settle();
+    // Уходит каноническая сумма кассы, а не её обратная конвертация.
+    expect(createTopUp).toHaveBeenCalledWith(10000, 'platega', '11');
+    expect(screen.queryByText('balance.errors.amountRange')).toBeNull();
+  });
+
+  // 🔴 Вторая мутация, пережившая первую версию: снятие защёлки с решения «не стреляем».
+  // Её входа не было ни в одном сторожа, потому что он требует, чтобы способ, названный
+  // кассой, ПОЯВИЛСЯ у провайдера уже после того, как экран решил молчать. Так бывает, когда
+  // владелец правит набор вариантов в админке между двумя экранами.
+  it('stays silent even after the missing option comes back and the person taps it', async () => {
+    // Сначала варианта «11» у провайдера нет вовсе — экран честно отказывается стрелять.
+    getPaymentMethods.mockResolvedValueOnce([{ ...platega, options: [platega.options[0]] }]);
+    getPaymentMethods.mockResolvedValue([platega]);
+    const { queryClient } = renderScreen(
+      `?amount=298&option=11&auto=1&returnTo=${encodeURIComponent(CHECKOUT_RETURN)}`,
+    );
+    expect(await screen.findByText('balance.enterAmount')).toBeTruthy();
+    await settle();
+    expect(createTopUp).not.toHaveBeenCalled();
+
+    // Варианты обновились, «Карта российского банка» появилась.
+    await act(async () => {
+      await queryClient.invalidateQueries({ queryKey: ['payment-methods'] });
+    });
+    await settle();
+    expect(screen.getByText('Карта российского банка')).toBeTruthy();
+    expect(createTopUp).not.toHaveBeenCalled();
+
+    // И человек сам её выбирает. Это выбор, а не отправка: счёт создаётся только по нажатию
+    // «Получить ссылку». Без защёлки эффект перезапустился бы и выставил счёт молча.
+    fireEvent.click(screen.getByText('Карта российского банка'));
+    await settle();
+    expect(createTopUp).not.toHaveBeenCalled();
+    expect(screen.getByText('balance.getPaymentLink')).toBeTruthy();
   });
 
   it('stays a manual screen when the checkout marker is absent', async () => {
