@@ -432,8 +432,13 @@ export default function TopUpAmount() {
     if (searchParams.get('auto') !== '1') return;
     // Ждём способы: без них `handleSubmit` вышел бы первой строкой, а попытку уже потратил.
     if (!method) return;
-    // Ждём предвыбор варианта — иначе получим свой же отказ «выберите способ».
-    if (hasOptions && !selectedOption) return;
+    // 🔴 Автосабмит только на ТОМ способе, который назвала касса. Проверять «вариант выбран»
+    // мало: при неизвестном номере `pickOptionId` честно откатывается на СБП — и счёт молча
+    // создался бы по СБП у человека, выбравшего карту. Мутационный прогон нашёл это в моём же
+    // коде: сторож на предвыбор был зелёным, потому что стерёг ПОДСВЕТКУ, а не отправку.
+    // Условие заодно закрывает `auto=1` вообще без `option`: сами мы такой адрес не строим,
+    // но руками его собрать можно, и тогда способ выбрали бы за человека мы.
+    if (hasOptions && selectedOption !== requestedOptionId) return;
     // Без суммы в адресе автосабмит показал бы красное «Введите сумму», которую человек не
     // вводил. Такой вход к нам приходить не должен вовсе, но проверка стоит копейку.
     if (!initialAmountRubles || initialAmountRubles <= 0) return;
@@ -442,7 +447,15 @@ export default function TopUpAmount() {
     nextParams.delete('auto');
     setSearchParams(nextParams, { replace: true });
     submitRef.current();
-  }, [hasOptions, initialAmountRubles, method, searchParams, selectedOption, setSearchParams]);
+  }, [
+    hasOptions,
+    initialAmountRubles,
+    method,
+    requestedOptionId,
+    searchParams,
+    selectedOption,
+    setSearchParams,
+  ]);
 
   if (isPaymentMethodsError) {
     return (

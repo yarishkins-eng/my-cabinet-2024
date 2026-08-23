@@ -2,7 +2,7 @@
 
 import { StrictMode } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router';
 import TopUpAmount from './TopUpAmount';
@@ -98,6 +98,20 @@ function renderScreen(search: string) {
 
 const CHECKOUT_RETURN = '/subscription/purchase?from=checkout&period=30&devices=5';
 
+// 🔴 Без этого два сторожа этого файла были ПУСТЫМИ, и показал это мутационный прогон, а не
+// ревью. `waitFor(…toHaveBeenCalledTimes(1))` проходит на ПЕРВОМ вызове и до второго не
+// доживает; `expect(…).not.toHaveBeenCalled()` вообще проходит мгновенно — раньше, чем
+// эффект успевает сработать. Оба сторожа оставались зелёными при снятой защите.
+// `settle` доводит экран до состояния, когда автосабмиту уже нечего ждать: разрешены
+// промисы запросов, отработали эффекты, включая ПОВТОРНЫЙ прогон `StrictMode`.
+async function settle() {
+  for (let tick = 0; tick < 3; tick += 1) {
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+  }
+}
+
 describe('TopUpAmount — короткий путь кассы', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -119,7 +133,11 @@ describe('TopUpAmount — короткий путь кассы', () => {
   it('creates the invoice exactly once for a checkout that asked for it', async () => {
     renderScreen(`?amount=298&option=11&auto=1&returnTo=${encodeURIComponent(CHECKOUT_RETURN)}`);
 
-    await waitFor(() => expect(createTopUp).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(createTopUp).toHaveBeenCalled());
+    // 🔴 Считаем ПОСЛЕ `settle`, а не на первом вызове: в `StrictMode` второй прогон эффекта
+    // идёт следом, и проверка «уже равно единице» его просто не дожидается.
+    await settle();
+    expect(createTopUp).toHaveBeenCalledTimes(1);
     // Сумма и способ — те самые, что посчитала касса. 29800 копеек, вариант '11' (карта),
     // а НЕ '2': `getPreferredOptionId` без метки поставил бы СБП, и человек, выбравший
     // карту, ушёл бы платить по СБП, ничего об этом не узнав.
@@ -128,6 +146,7 @@ describe('TopUpAmount — короткий путь кассы', () => {
     // Второго счёта нет, сколько бы экран ни перерисовался.
     fireEvent.change(await screen.findByRole('spinbutton'), { target: { value: '298' } });
     await waitFor(() => expect(screen.getByText('https://app.platega.io/pay/live')).toBeTruthy());
+    await settle();
     expect(createTopUp).toHaveBeenCalledTimes(1);
   });
 
@@ -167,16 +186,22 @@ describe('TopUpAmount — короткий путь кассы', () => {
     // Экран поднялся, а счёта нет: подставить вместо неизвестного варианта СБП молча —
     // это увести человека платить не тем способом, который он выбрал.
     expect(await screen.findByText('balance.enterAmount')).toBeTruthy();
+    await settle();
     expect(createTopUp).not.toHaveBeenCalled();
+    // Улика того, что эффект ПРОМОЛЧАЛ, а не «мы посмотрели слишком рано»: у сработавшего
+    // автосабмита параметр `auto` из адреса снят, здесь он обязан остаться на месте.
+    expect(screen.getByTestId('location').textContent).toContain('auto=1');
   });
 
   it('never auto-submits an amount the person did not choose', async () => {
     renderScreen('?auto=1');
 
     expect(await screen.findByText('balance.enterAmount')).toBeTruthy();
+    await settle();
     // Без суммы автосабмит выдал бы красное «Введите сумму» тому, кто ничего не нажимал.
     expect(createTopUp).not.toHaveBeenCalled();
     expect(screen.queryByText('balance.errors.enterAmount')).toBeNull();
+    expect(screen.getByTestId('location').textContent).toContain('auto=1');
   });
 
   // 🔴 МИНА EC — живой дефект, доехавший на боевой этапом Б-1, и самый дорогой в этом файле.
@@ -209,6 +234,7 @@ describe('TopUpAmount — короткий путь кассы', () => {
     renderScreen('?amount=298&option=11');
 
     expect(await screen.findByText('balance.enterAmount')).toBeTruthy();
+    await settle();
     expect(createTopUp).not.toHaveBeenCalled();
     // Но предвыбор способа из адреса работает и без автосабмита.
     expect(screen.getByText('Карта российского банка').className).toContain('ring-accent-500/40');
