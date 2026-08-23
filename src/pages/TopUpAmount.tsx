@@ -86,6 +86,9 @@ export default function TopUpAmount() {
   // Пользователь реально нажал «Открыть страницу оплаты» (ушёл платить). Защищает Вариант 2:
   // не уводим на экран результата и не реагируем на WS, пока ссылку не открыли.
   const paymentLinkOpenedRef = useRef(false);
+  // Блок «Счёт создан». После автосчёта человек ничего не нажимал, поэтому сам он вниз не
+  // посмотрит — подтягиваем блок в кадр. На ручном пути не трогаем: там нажатие было его.
+  const invoiceBlockRef = useRef<HTMLDivElement>(null);
 
   const returnTo = searchParams.get('returnTo');
   const initialAmountRubles = searchParams.get('amount')
@@ -376,10 +379,6 @@ export default function TopUpAmount() {
       return;
     }
     const amountRubles = convertToRub(amountCurrency);
-    if (amountRubles < minRubles || amountRubles > maxRubles) {
-      setError(t('balance.errors.amountRange', { min: minRubles, max: maxRubles }));
-      return;
-    }
 
     // Сохраняем canonical RUB amount если юзер НЕ редактировал префилл.
     // Display-rounding в `.toFixed(2)` теряет точность: 150₽ при rate=90.66 → "1.65" USD
@@ -397,6 +396,18 @@ export default function TopUpAmount() {
     } else {
       amountKopeks = Math.ceil(amountRubles * 100);
     }
+    // 🔴 Этап Б-2, нашла волна ревью. Диапазон проверяется по ТОЙ САМОЙ сумме, которая уйдёт
+    // на сервер, а не по её обратной конвертации. Раньше проверка стояла выше и считала
+    // `convertToRub(введённое)`, а отправлялась каноническая ветка `initialAmountRubles` —
+    // два разных числа. У нерублёвой локали (`en` → USD) конвертация туда-обратно теряет до
+    // половины рубля: касса присылала ровно минимум провайдера, показ округлял его вниз, и
+    // проверка отбивала СВОЮ ЖЕ сумму. На ручном пути это была досада в ответ на нажатие; с
+    // автосабмитом стало бы красное «Сумма: 100 – … ₽» на экране, где человек ничего не нажимал.
+    const amountRublesToCharge = amountKopeks / 100;
+    if (amountRublesToCharge < minRubles || amountRublesToCharge > maxRubles) {
+      setError(t('balance.errors.amountRange', { min: minRubles, max: maxRubles }));
+      return;
+    }
     if (isStarsMethod) {
       starsPaymentMutation.mutate(amountKopeks);
     } else {
@@ -411,14 +422,18 @@ export default function TopUpAmount() {
   // окон и отказывает МОЛЧА, а метку «ушёл платить» взводит только ручной `handleOpenPayment`.
   // Автооткрытие сломало бы возврат: человек вернулся бы из банка на застывший «Счёт создан»
   // и решил, что не заплатил. Один живой тап «Перейти к оплате» остаётся.
-  // Две защёлки, и обе обязательны:
-  //   · `useRef` — против `React.StrictMode` (`main.tsx`), где эффект исполняется дважды и
-  //     сжёг бы две попытки из трёх у `checkRateLimit(PAYMENT, 3, 30000)`;
-  //   · снятие `auto` из адреса через `replace` — против кнопки «назад». Мина DZ: вернувшийся
-  //     с пополнения человек одним нажатием «назад» снова попадает сюда, и без снятия параметра
-  //     этот вход выстрелил бы ВТОРЫМ счётом на ту же сумму. `replace` переписывает ту самую
-  //     запись истории, в которую «назад» и приводит.
+  // Две защёлки:
+  //   · снятие `auto` из адреса через `replace` — главная. Мина DZ: вернувшийся с пополнения
+  //     человек одним нажатием «назад» снова попадает сюда, и без снятия параметра этот вход
+  //     выстрелил бы ВТОРЫМ счётом на ту же сумму. `replace` переписывает ту самую запись
+  //     истории, в которую «назад» и приводит;
+  //   · `useRef` — второй пояс. ⚠️ Честно про его границу: мутационный прогон показал, что
+  //     снятие ref набор НЕ красит — на сегодняшнем пути его работу делает снятие параметра.
+  //     Он оставлен как страховка на денежном пути (перезапуск эффекта до того, как адрес
+  //     переписан), и отдельного сторожа именно на него нет. Это записано, а не замолчано.
+  //     Он же делает решение «не стреляем» окончательным — см. `stopTryingToAutoSubmit`.
   const autoSubmittedRef = useRef(false);
+  const autoInvoiceNeedsFocusRef = useRef(false);
   // `handleSubmit` пересоздаётся каждый рендер, и держать его в зависимостях эффекта значило бы
   // гонять эффект вхолостую на каждом нажатии клавиши в поле суммы. Свежую ссылку хранит ref,
   // обновляемый отдельным эффектом ВЫШЕ по объявлению — React исполняет эффекты в этом порядке,
@@ -432,20 +447,53 @@ export default function TopUpAmount() {
     if (searchParams.get('auto') !== '1') return;
     // Ждём способы: без них `handleSubmit` вышел бы первой строкой, а попытку уже потратил.
     if (!method) return;
-    // 🔴 Автосабмит только на ТОМ способе, который назвала касса. Проверять «вариант выбран»
-    // мало: при неизвестном номере `pickOptionId` честно откатывается на СБП — и счёт молча
-    // создался бы по СБП у человека, выбравшего карту. Мутационный прогон нашёл это в моём же
-    // коде: сторож на предвыбор был зелёным, потому что стерёг ПОДСВЕТКУ, а не отправку.
-    // Условие заодно закрывает `auto=1` вообще без `option`: сами мы такой адрес не строим,
-    // но руками его собрать можно, и тогда способ выбрали бы за человека мы.
-    if (hasOptions && selectedOption !== requestedOptionId) return;
+    // 🔴 Решение «не стреляем» обязано быть ОКОНЧАТЕЛЬНЫМ, иначе оно не решение, а пауза.
+    // Нашла волна ревью: выход без защёлки оставлял `auto=1` в адресе и `selectedOption` в
+    // зависимостях — и позже, когда человек сам тыкал в чип способа, эффект перезапускался,
+    // все проверки проходили и счёт создавался, хотя «Получить ссылку» никто не нажимал.
+    const stopTryingToAutoSubmit = () => {
+      autoSubmittedRef.current = true;
+    };
+    // 🔴 Админский тумблер «открывать страницу оплаты сразу». При нём `onSuccess` делает
+    // `window.location.href` — то есть мини-приложение вылетает к провайдеру. На ручном пути
+    // это хотя бы ответ на нажатие; из эффекта это уход БЕЗ ЕДИНОГО КАСАНИЯ, и хуже того:
+    // `setPaymentUrl` не вызывается, `visibilitychange` не встаёт, метка «ушёл платить»
+    // остаётся ложной, а возврат идёт по серверному `return_url` БЕЗ `returnTo` — на кассу
+    // человека не вернёт никто. Раньше цена галочки была «один тап уводит не туда», с
+    // автосабмитом стала бы «уводит само». На боевом флаг выключен; здесь он просто
+    // отключает короткий путь, оставляя ручной ровно таким, каким он был.
+    if (method.open_url_direct) {
+      stopTryingToAutoSubmit();
+      return;
+    }
     // Без суммы в адресе автосабмит показал бы красное «Введите сумму», которую человек не
     // вводил. Такой вход к нам приходить не должен вовсе, но проверка стоит копейку.
-    if (!initialAmountRubles || initialAmountRubles <= 0) return;
+    if (!initialAmountRubles || initialAmountRubles <= 0) {
+      stopTryingToAutoSubmit();
+      return;
+    }
+    // Предвыбор ещё не применён — это не отказ, а ожидание: эффект синхронизации выше пишет
+    // вариант следующим рендером. Латч здесь поставить нельзя, он убил бы честный путь.
+    if (hasOptions && selectedOption === null) return;
+    // 🔴 Автосабмит только на ТОМ способе, который назвала касса, и только если он применён.
+    // Проверять «вариант выбран» мало: при неизвестном номере `pickOptionId` честно
+    // откатывается на СБП — и счёт молча создался бы по СБП у человека, выбравшего карту.
+    // ⚠️ Условие НЕ висит на `hasOptions`, и это не придирка: два серверных фильтра ведут
+    // себя ПРОТИВОПОЛОЖНО на пустом `sub_options` — касса отдаёт все способы с
+    // `provider_code` (`device_first_payment_service.py:1213-1216`), а баланс отдаёт
+    // `options: null` (`payment_method_config_service.py:655-660`). В этом состоянии
+    // `hasOptions` ложно, вариант не выбран, и запрос ушёл бы вообще без способа — а сервер
+    // молча подставляет первый активный (`cabinet/routes/balance.py:468`). Ровно тот исход,
+    // против которого сторож и писали.
+    if (!requestedOptionId || selectedOption !== requestedOptionId) {
+      stopTryingToAutoSubmit();
+      return;
+    }
     autoSubmittedRef.current = true;
     const nextParams = new URLSearchParams(searchParams);
     nextParams.delete('auto');
     setSearchParams(nextParams, { replace: true });
+    autoInvoiceNeedsFocusRef.current = true;
     submitRef.current();
   }, [
     hasOptions,
@@ -456,6 +504,14 @@ export default function TopUpAmount() {
     selectedOption,
     setSearchParams,
   ]);
+
+  useEffect(() => {
+    if (!paymentUrl) return;
+    if (!autoInvoiceNeedsFocusRef.current) return;
+    autoInvoiceNeedsFocusRef.current = false;
+    // `scrollIntoView` нет в jsdom и может не быть в старых вебвью — зовём по возможности.
+    invoiceBlockRef.current?.scrollIntoView?.({ block: 'center' });
+  }, [paymentUrl]);
 
   if (isPaymentMethodsError) {
     return (
@@ -543,7 +599,14 @@ export default function TopUpAmount() {
               <button
                 key={opt.id}
                 type="button"
-                onClick={() => setSelectedOption(opt.id)}
+                onClick={() => {
+                  setSelectedOption(opt.id);
+                  // 🔴 Нашла волна ревью. Ссылка уже выставлена на ПРЕЖНИЙ способ, и до
+                  // этапа Б-2 такого сочетания не бывало: счёт не мог существовать раньше
+                  // выбора. С автосабмитом это состояние по умолчанию — человек приходит на
+                  // готовый экран, выбирает «Карта», жмёт «Перейти к оплате» и платит по СБП.
+                  setPaymentUrl(null);
+                }}
                 className={`relative rounded-xl px-4 py-3 text-sm font-semibold transition-all duration-200 ${
                   selectedOption === opt.id
                     ? 'bg-accent-500/15 text-accent-400 ring-2 ring-accent-500/40'
@@ -579,7 +642,12 @@ export default function TopUpAmount() {
             inputMode="decimal"
             enterKeyHint="done"
             value={amount}
-            onChange={(e) => setAmount(e.target.value)}
+            onChange={(e) => {
+              setAmount(e.target.value);
+              // Счёт выставлен на ПРЕЖНЮЮ сумму: оставить его рядом с новым числом значит
+              // предложить заплатить не то, что человек только что набрал.
+              setPaymentUrl(null);
+            }}
             onFocus={() => setIsInputFocused(true)}
             onBlur={() => setIsInputFocused(false)}
             onKeyDown={(e) => {
@@ -596,21 +664,32 @@ export default function TopUpAmount() {
             {currencySymbol}
           </span>
         </div>
-        <Button
-          type="button"
-          fullWidth
-          size="lg"
-          leftIcon={<SparklesIcon className="h-4 w-4" />}
-          onClick={handleSubmit}
-          disabled={!amount || parseFloat(amount) <= 0}
-          loading={isPending}
-        >
-          {isStarsMethod
-            ? t('balance.topUpAction')
-            : method.open_url_direct
-              ? t('balance.goToPayment')
-              : t('balance.getPaymentLink')}
-        </Button>
+        {/* 🔴 Этап Б-2, нашла волна ревью, и это была САМАЯ дорогая находка. Пока счёт жив,
+            эта кнопка — ловушка: она подписана «Получить ссылку для оплаты», а `handleSubmit`
+            первой же строкой делает `setPaymentUrl(null)` — блок «Счёт создан» ИСЧЕЗАЕТ,
+            создаётся второй счёт и сгорает попытка из трёх (`checkRateLimit`). На ручном пути
+            это было почти незаметно: человек сам её нажал и знал, что результат ниже. С
+            автосабмитом он приходит на готовый экран, ничего не нажав, и на телефоне 375×667
+            видит ТОЛЬКО её — нужная «Перейти к оплате» уходит за сгиб на две сотни пикселей.
+            Прячем её, пока счёт жив. Обратно она возвращается сама, как только человек меняет
+            сумму или способ: оба обработчика гасят `paymentUrl` — то есть выход не потерян. */}
+        {!paymentUrl && (
+          <Button
+            type="button"
+            fullWidth
+            size="lg"
+            leftIcon={<SparklesIcon className="h-4 w-4" />}
+            onClick={handleSubmit}
+            disabled={!amount || parseFloat(amount) <= 0}
+            loading={isPending}
+          >
+            {isStarsMethod
+              ? t('balance.topUpAction')
+              : method.open_url_direct
+                ? t('balance.goToPayment')
+                : t('balance.getPaymentLink')}
+          </Button>
+        )}
       </motion.div>
 
       {/* Quick amount buttons */}
@@ -664,6 +743,8 @@ export default function TopUpAmount() {
       {/* Payment link display - shown when URL is received */}
       {paymentUrl && (
         <motion.div
+          ref={invoiceBlockRef}
+          role="status"
           variants={staggerItem}
           className="space-y-3 rounded-2xl border border-success-500/20 bg-success-500/10 p-4"
         >

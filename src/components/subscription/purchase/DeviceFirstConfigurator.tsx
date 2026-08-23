@@ -27,7 +27,7 @@ import { usePlatform } from '@/platform';
 import { copyToClipboard } from '@/utils/clipboard';
 
 // 🔴 Этап Б-2. Внешние деньги у device-first входят ровно одним каналом: список способов
-// оплаты заказа зашит как `{wallet, platega}` (`device_first_checkout_service.py:1152`).
+// оплаты заказа зашит как `{wallet, platega}` (`device_first_checkout_service.py:1154`).
 // Поэтому и доплата ведёт к тому же провайдеру — иначе `provider_code` с кассы попал бы
 // на экран чужого способа, где такого варианта нет.
 const CHECKOUT_TOP_UP_METHOD_ID = 'platega';
@@ -455,7 +455,10 @@ export function DeviceFirstConfigurator({
   const topUpProviderMinKopeks = checkoutTopUpProvider?.min_amount_kopeks ?? null;
   // Сумма счёта = недостача, округлённая ВВЕРХ до рубля и поднятая до минимума провайдера
   // (он тоже округляется вверх — иначе на кнопке появились бы копейки, которых нет в адресе).
-  // Та же формула уже работает в боте (`device_first_top_up_kopeks`).
+  // Форма та же, что у бота (`device_first_top_up_kopeks`), но ИСТОЧНИК минимума другой, и это
+  // сознательно: бот читает сырой `.env` (`PLATEGA_MIN_AMOUNT_KOPEKS`), а мы — эффективный
+  // минимум после админского сужения (`get_effective_amount_limits`), то есть ровно то число,
+  // которым сервер отобьёт запрос. Поднимут минимум в админке — недоплатит бот, не кабинет.
   const roundUpToRubleKopeks = (kopeks: number) => Math.ceil(kopeks / 100) * 100;
   const topUpChargeKopeks =
     confirmShortageKopeks > 0
@@ -467,8 +470,16 @@ export function DeviceFirstConfigurator({
   // Мостик словарей: касса зовёт способ `sbp`/`cards_ru`/`crypto`, экран пополнения знает тот
   // же способ по числу (`'2'`/`'11'`/`'13'`). Общее поле ровно одно — `provider_code`, и оно
   // буквально `option.id` того экрана (оба фильтруются одним `sub_options`).
-  // ⚠️ Способ берётся из состояния `methodKey`, а НЕ из тапа по кнопке способа: тап создаёт
-  // ПРЯМОЙ счёт на полную цену и на пополнение не идёт вовсе.
+  // ⚠️ ЧЕСТНО ПРО ГРАНИЦУ (переписано волной ревью — прежняя формулировка приписывала человеку
+  // выбор, которого он на этом экране не делает). Способ берётся из состояния `methodKey`, а
+  // кнопки способов его НЕ меняют: тап по ним создаёт ПРЯМОЙ счёт на полную цену и на
+  // пополнение не идёт вовсе. Значит на пополнение уезжает УМОЛЧАНИЕ — первый способ, который
+  // дал сервер (на боевом это СБП). Это не дефект: тот же способ подставил бы и сам экран
+  // пополнения (`getPreferredOptionId`), а выбрать другой человек может там же, чипом. Ценность
+  // параметра в другом: он ЯВНЫЙ и проверяемый, поэтому молчаливой подмены не будет.
+  // ⚠️ И второе: `methodKey` живёт всю сессию компонента. Если человек переключил радиогруппу
+  // на экране счёта прошлого заказа, а заказ умер и вернул его на подтверждение, сюда приедет
+  // ЕГО прошлый выбор. Это его же выбор, а не чужой, но на экране он не подписан.
   const checkoutTopUpOptionId = methods.data?.methods.find(
     (method) => method.key === methodKey,
   )?.provider_code;
@@ -1107,23 +1118,72 @@ export function DeviceFirstConfigurator({
   //   · способы оплаты не поднялись — тогда пополнение единственный оставшийся выход,
   //     и его показываем ДАЖЕ при нулевом балансе (в общем пополнении бывают другие провайдеры);
   //   · `wallet_insufficient` — прежняя гонка.
+  // Один признак на обе точки — заголовок и блок «Недоступно». Пока их было два разных
+  // выражения, они разошлись: заголовок считал только `confirmTotalKopeks === null`.
+  const selectionUnavailable = !confirmSelectionAvailable || confirmTotalKopeks === null;
   const paymentMethodsUnavailable =
     methods.isError || (!!methods.data && methods.data.methods.length === 0);
+  // 🔴 Волна ревью: у кассы способ оплаты ровно один — `platega`. У общего пополнения их может
+  // быть больше (звёзды, крипта, другие эквайеры), и до Б-2 кнопка «Пополнить» была для
+  // новичка ЕДИНСТВЕННОЙ дверью к ним. Спрятав её при нулевом балансе, мы эту дверь закрыли
+  // бы — но только там, где за ней что-то есть. Поэтому смотрим, есть ли на балансной стороне
+  // провайдер, которого касса не предлагает. Данных нет — считаем, что есть: терять последний
+  // выход из-за неотвеченного запроса нельзя.
+  // 🔴 Умолчания у этих двух признаков РАЗНЫЕ, и это не небрежность. Сторож поймал первую
+  // версию, где оба падали в «да»: на холодной загрузке ответа ещё нет, и кнопка появлялась у
+  // каждого новичка — то есть главный пункт этапа отменялся сам собой в самом частом случае.
+  const balanceSideProviders = topUpMethods.data;
+  // Дополнительная дверь — БОНУС. Ответа нет → двери нет: у человека и так стоят кнопки
+  // способов оплаты кассы, он ничего не теряет.
+  const hasForeignTopUpProvider = (balanceSideProviders ?? []).some(
+    (provider) => provider.is_available && provider.id !== CHECKOUT_TOP_UP_METHOD_ID,
+  );
+  // Последний выход — СПАСАТЕЛЬНЫЙ. Ответа нет → выход остаётся: отнять его из-за
+  // неотвеченного запроса значит оставить человека на экране совсем без действий.
+  // Гасим его, только когда точно знаем, что на балансной стороне пусто, — иначе кнопка
+  // ведёт в пустой экран выбора провайдера, а тупик без объяснения хуже отсутствия кнопки.
+  const anyTopUpProviderAvailable =
+    balanceSideProviders === undefined ||
+    balanceSideProviders.some((provider) => provider.is_available);
   const showTopUpAction =
     fixtureCheckout === undefined &&
     confirmSelectionAvailable &&
     confirmTotalKopeks !== null &&
-    ((confirmShortageKopeks > 0 && (hasWallet || paymentMethodsUnavailable)) ||
+    anyTopUpProviderAvailable &&
+    ((confirmShortageKopeks > 0 &&
+      (hasWallet || paymentMethodsUnavailable || hasForeignTopUpProvider)) ||
       actionErrorCode === 'wallet_insufficient');
+  // Где она стоит. ПЕРВОЙ — только там, где доплата действительно короче прямой оплаты.
+  // 🔴 Волна ревью: одного `hasWallet` мало. С одним рублём на балансе недостача почти равна
+  // полной цене, доплата округляется ДО НЕЁ ЖЕ — и громкой становилась дорога, которая на три
+  // экрана длиннее соседней кнопки с тем же числом. Ровно то, за что ревью отклонило кандидата
+  // «А». Порог не выдуман: сравниваем сами числа. Платить столько же, но дольше — не короче.
+  const topUpActionGoesFirst =
+    hasWallet &&
+    !walletCoversTotal &&
+    confirmTotalKopeks !== null &&
+    topUpChargeKopeks > 0 &&
+    topUpChargeKopeks < confirmTotalKopeks;
+
   // ⛔ Слова «и оформить» на этой кнопке НЕТ и быть не может: возврат приводит на подтверждение,
   // где надо нажать ещё раз. У device-first нет корзины (`user_cart_service` не встречается в нём
   // ни разу), поэтому доплата сама подписку не оформляет. Обещать оформление — врать.
   const topUpAction = showTopUpAction ? (
     <div className="space-y-1">
+      {/* 🔴 Волна ревью: ТЗ требовало кнопку «первой, АКЦЕНТНОЙ», а она была рамочной — то есть
+          в ветке частичного баланса на экране не оставалось ни одной залитой кнопки вовсе, хотя
+          у соседней ветки («хватает») главное действие залито. Человек, уже проходивший кассу,
+          ищет глазами заливку. Заливаем ровно там, где кнопка и есть главное действие; там, где
+          она запасной выход, она обязана остаться тихой — иначе перетянет внимание у способов
+          оплаты, которые короче. Отличие видно не только цветом: меняется вес фона. */}
       <button
         type="button"
         onClick={() => navigate(checkoutTopUpHref)}
-        className={`w-full rounded-xl border border-accent-400/50 px-4 py-3 text-sm font-semibold text-accent-200 ${choiceClass}`}
+        className={
+          topUpActionGoesFirst
+            ? `w-full rounded-2xl bg-accent-500 px-5 py-3.5 font-semibold text-white ${choiceClass}`
+            : `w-full rounded-xl border border-accent-400/50 px-4 py-3 text-sm font-semibold text-accent-200 ${choiceClass}`
+        }
       >
         {topUpChargeKopeks > 0
           ? t(hasWallet ? 'deviceFirst.topUpShortage' : 'deviceFirst.topUpAmount', {
@@ -1131,20 +1191,26 @@ export function DeviceFirstConfigurator({
             })
           : t('deviceFirst.needTopup')}
       </button>
-      {/* Подпись существует только там, где есть чем доплачивать и куда возвращаться. */}
-      {hasWallet && topUpChargeKopeks > 0 && confirmTotalKopeks !== null && (
+      {/* Подпись существует только там, где есть чем доплачивать и куда возвращаться.
+          🔴 Волна ревью переписала её текст: прежний («Доплатим … и вернёмся сюда списать …»)
+          обещал автоматику, которой нет. Возврат делает человек, и после него он нажимает ещё
+          раз — у device-first нет корзины, доплата подписку не оформляет. */}
+      {hasWallet && topUpChargeKopeks > 0 && (
+        <p className="text-xs text-dark-400">{t('deviceFirst.topUpShortageHint')}</p>
+      )}
+      {/* 🔴 Волна ревью: сводка печатает честную недостачу, а кнопка — сумму счёта, и это
+          РАЗНЫЕ числа, когда минимум провайдера больше недостачи. Два числа на одной карточке
+          без объяснения человек читает как ошибку. Ключ не сочинён — он уже есть в проекте и
+          говорит ровно про этот остаток на экране счёта. */}
+      {topUpChargeKopeks > confirmShortageKopeks && confirmShortageKopeks > 0 && (
         <p className="text-xs text-dark-400">
-          {t('deviceFirst.topUpShortageHint', {
-            amount: formatPrice(topUpChargeKopeks),
-            total: formatPrice(confirmTotalKopeks),
+          {t('deviceFirst.topUpSurplusHint', {
+            amount: formatPrice(topUpChargeKopeks - confirmShortageKopeks),
           })}
         </p>
       )}
     </div>
   ) : null;
-  // Где она стоит. ПЕРВОЙ — только в ветке частичного баланса, где доплата действительно
-  // короче прямой оплаты. Во всех прочих случаях последней: там она запасной выход, а не путь.
-  const topUpActionGoesFirst = hasWallet && !walletCoversTotal;
 
   return (
     <section
@@ -1383,21 +1449,29 @@ export function DeviceFirstConfigurator({
               />
               {/* 🔴 Этап Б-2. Одна строка на три развилки врала двум из трёх: у кого баланса
                   нет — «проверьте итог» нечего проверять, кроме цены; у кого он всё покрывает —
-                  выбирать способ не из чего, кнопка одна. Развилка `confirmTotalKopeks === null`
-                  оставлена на прежнем тексте намеренно: там экран говорит «Недоступно», и
-                  обещать выбор способа — второе враньё поверх первого. */}
-              <p className="text-xs text-dark-400">
-                {t(
-                  confirmTotalKopeks === null
-                    ? 'deviceFirst.chargeNotice'
-                    : walletCoversTotal
+                  выбирать способ не из чего, кнопка одна.
+                  🔴 Волна ревью нашла ДВЕ ветки, где строка врала и после первой правки, и
+                  обе теперь молчат вместо обещания:
+                  · выбор непригоден (`selectionUnavailable`) — ниже стоит «Недоступно», и мой
+                    прежний комментарий был неверен: условие «Недоступно» ШИРЕ, чем
+                    `confirmTotalKopeks === null`, у возобновлённого заказа цена остаётся
+                    числом, а пары уже нет в матрице. Тогда экран обещал «проверьте итог перед
+                    списанием» над словом «Недоступно» и без единой кнопки;
+                  · способы оплаты не поднялись — обещать «выберите способ оплаты» над
+                    «Не удалось загрузить способы оплаты» значит спорить с самим собой.
+                  Молчание честнее: обе ветки ниже говорят про себя сами. */}
+              {!selectionUnavailable && !(paymentMethodsUnavailable && !walletCoversTotal) && (
+                <p className="text-xs text-dark-400">
+                  {t(
+                    walletCoversTotal
                       ? 'deviceFirst.reviewBeforeCharge'
                       : hasWallet
                         ? 'deviceFirst.chargeNotice'
                         : 'deviceFirst.chooseMethodNotice',
-                )}
-              </p>
-              {!confirmSelectionAvailable || confirmTotalKopeks === null ? (
+                  )}
+                </p>
+              )}
+              {selectionUnavailable ? (
                 <p role="status" className="text-sm text-warning-400">
                   {t('deviceFirst.unavailable')}
                 </p>

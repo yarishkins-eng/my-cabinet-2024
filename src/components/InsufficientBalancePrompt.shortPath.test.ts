@@ -23,9 +23,15 @@ const SHARED_PROMPT = readFileSync(
 describe('короткий путь кассы не протёк в общий экран нехватки', () => {
   it('sends the shared shortage prompt to the plain top-up screen, with no auto-submit', () => {
     expect(SHARED_PROMPT).toContain('/balance/top-up?');
+    // Адрес обязан остаться БЕЗ хвоста провайдера: `/balance/top-up/platega` — короткий путь.
     expect(SHARED_PROMPT).not.toContain('/balance/top-up/');
-    expect(SHARED_PROMPT).not.toContain("'auto'");
-    expect(SHARED_PROMPT).not.toContain("'option'");
-    expect(SHARED_PROMPT).not.toContain('from=checkout');
+    // 🔴 Проверка по СЛОВАМ, а не по кавычкам. Первая версия искала литералы `'auto'`/`'option'`
+    // и была бы зелёной при мутации шаблонной строкой (`` `…?${params}&auto=1` ``) — нашла это
+    // волна ревью, не мутация. Ловим обе формы разом: и `params.set('auto', …)`, и `&auto=1`.
+    for (const forbidden of ['auto', 'option', 'from=checkout']) {
+      expect(SHARED_PROMPT, `в общий экран нехватки просочилось «${forbidden}»`).not.toContain(
+        forbidden,
+      );
+    }
   });
 });

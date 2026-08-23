@@ -230,6 +230,103 @@ describe('TopUpAmount — короткий путь кассы', () => {
     expect(invalidatedKeys).toContain('balance');
   });
 
+  // 🔴 Нашла волна ревью, и это была самая дорогая находка этапа. Пока счёт жив, кнопка
+  // «Получить ссылку для оплаты» — ловушка: `handleSubmit` первой строкой гасит `paymentUrl`,
+  // блок «Счёт создан» исчезает, создаётся второй счёт и сгорает попытка из трёх. На ручном
+  // пути человек сам её нажал и знал, что результат ниже; с автосабмитом он приходит на
+  // готовый экран, и на телефоне 375×667 видит ТОЛЬКО её.
+  it('hides the invoice-destroying button while a live invoice is on the screen', async () => {
+    renderScreen(`?amount=298&option=11&auto=1&returnTo=${encodeURIComponent(CHECKOUT_RETURN)}`);
+
+    await waitFor(() => expect(createTopUp).toHaveBeenCalled());
+    await settle();
+    expect(screen.getByText('balance.openPaymentPage')).toBeTruthy();
+    expect(screen.queryByText('balance.getPaymentLink')).toBeNull();
+
+    // Выход не потерян: сменил способ — счёт погас, кнопка вернулась.
+    fireEvent.click(screen.getByText('СБП'));
+    await settle();
+    expect(screen.getByText('balance.getPaymentLink')).toBeTruthy();
+    expect(screen.queryByText('balance.openPaymentPage')).toBeNull();
+    // И второго счёта при этом никто не создал.
+    expect(createTopUp).toHaveBeenCalledTimes(1);
+  });
+
+  // 🔴 Ссылка выставлена на ПРЕЖНИЙ способ. До автосабмита такого сочетания не бывало: счёт
+  // не мог существовать раньше выбора. Иначе человек выбирает «Карта», жмёт «Перейти к
+  // оплате» и платит по СБП.
+  it('drops a payment link that no longer matches what the person picked', async () => {
+    renderScreen(`?amount=298&option=11&auto=1&returnTo=${encodeURIComponent(CHECKOUT_RETURN)}`);
+    await waitFor(() => expect(createTopUp).toHaveBeenCalled());
+    await settle();
+    expect(screen.getByText('https://app.platega.io/pay/live')).toBeTruthy();
+
+    fireEvent.change(screen.getByRole('spinbutton'), { target: { value: '500' } });
+    await settle();
+    expect(screen.queryByText('https://app.platega.io/pay/live')).toBeNull();
+  });
+
+  // 🔴 Админский тумблер «открывать страницу оплаты сразу». При нём `onSuccess` делает
+  // `window.location.href` — мини-приложение вылетает к провайдеру. Из эффекта это уход БЕЗ
+  // касания, метка «ушёл платить» остаётся ложной, а серверный `return_url` не несёт адреса
+  // возврата на кассу. На боевом флаг выключен; короткий путь обязан выключаться сам, если
+  // его включат, а не полагаться на то, что не включат.
+  it('refuses the short path entirely when the provider is set to jump straight to the bank', async () => {
+    getPaymentMethods.mockResolvedValue([{ ...platega, open_url_direct: true }]);
+    renderScreen(`?amount=298&option=11&auto=1&returnTo=${encodeURIComponent(CHECKOUT_RETURN)}`);
+
+    expect(await screen.findByText('balance.enterAmount')).toBeTruthy();
+    await settle();
+    expect(createTopUp).not.toHaveBeenCalled();
+    expect(screen.getByTestId('location').textContent).toContain('auto=1');
+  });
+
+  // 🔴 Два серверных фильтра ведут себя ПРОТИВОПОЛОЖНО на пустом `sub_options`: касса отдаёт
+  // все способы с номерами, а баланс отдаёт `options: null`. В этом состоянии вариант выбрать
+  // не из чего, и запрос ушёл бы вообще без способа — а сервер молча подставляет первый
+  // активный. Ровно тот исход, против которого сторож и писали.
+  it('creates nothing when the balance side offers no options to honour the checkout choice', async () => {
+    getPaymentMethods.mockResolvedValue([{ ...platega, options: null }]);
+    renderScreen(`?amount=298&option=11&auto=1&returnTo=${encodeURIComponent(CHECKOUT_RETURN)}`);
+
+    expect(await screen.findByText('balance.enterAmount')).toBeTruthy();
+    await settle();
+    expect(createTopUp).not.toHaveBeenCalled();
+  });
+
+  // 🔴 Решение «не стреляем» обязано быть окончательным. Без защёлки выход оставлял `auto=1`
+  // в адресе, а `selectedOption` — в зависимостях эффекта: позже человек сам тыкал в чип
+  // способа, эффект перезапускался, все проверки проходили и счёт создавался, хотя
+  // «Получить ссылку» никто не нажимал.
+  it('never fires later just because the person touched a payment chip', async () => {
+    renderScreen(`?amount=298&option=999&auto=1&returnTo=${encodeURIComponent(CHECKOUT_RETURN)}`);
+    expect(await screen.findByText('balance.enterAmount')).toBeTruthy();
+    await settle();
+    expect(createTopUp).not.toHaveBeenCalled();
+
+    // Человек сам выбирает тот вариант, который назвала касса, — и это НЕ отправка.
+    fireEvent.click(screen.getByText('Карта российского банка'));
+    await settle();
+    expect(createTopUp).not.toHaveBeenCalled();
+  });
+
+  // 🔴 Мина DZ: вернувшийся с пополнения человек одним нажатием «назад» попадает сюда же.
+  // Проверяем ремонтаж по ТОМУ адресу, на который «назад» и приводит, — переписанному.
+  it('creates no second invoice when the person comes back to the rewritten address', async () => {
+    renderScreen(`?amount=298&option=11&auto=1&returnTo=${encodeURIComponent(CHECKOUT_RETURN)}`);
+    await waitFor(() => expect(createTopUp).toHaveBeenCalled());
+    await settle();
+    const rewritten = screen.getByTestId('location').textContent ?? '';
+    expect(rewritten).not.toContain('auto=1');
+    cleanup();
+
+    // Свежий монтаж: защёлка `useRef` тут уже НЕ помогает, работает только снятый параметр.
+    renderScreen(rewritten.slice(rewritten.indexOf('?')));
+    expect(await screen.findByText('balance.enterAmount')).toBeTruthy();
+    await settle();
+    expect(createTopUp).toHaveBeenCalledTimes(1);
+  });
+
   it('stays a manual screen when the checkout marker is absent', async () => {
     renderScreen('?amount=298&option=11');
 
