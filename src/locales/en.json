@@ -5371,7 +5371,7 @@
     "errorFundingLocked": "This order is already awaiting payment via another method. Pay the current invoice or cancel it first.",
     "noMethods": "No payment methods are currently available.",
     "paymentMethodQuestion": "Payment method",
-    "paymentMethodsAvailable": "Payment methods available for this purchase",
+    "paymentMethodsAvailable": "Or pay the full amount — your balance stays untouched",
     "paymentMethodsLoading": "Loading available payment methods…",
     "paymentMethodUnknown": "Another payment method",
     "retry": "Try again",

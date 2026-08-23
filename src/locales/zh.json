@@ -4910,7 +4910,7 @@
     "errorFundingLocked": "该订单已在等待使用其他方式支付。请支付当前账单或先取消订单。",
     "noMethods": "当前没有可用的支付方式。",
     "paymentMethodQuestion": "支付方式",
-    "paymentMethodsAvailable": "此订单可用的支付方式",
+    "paymentMethodsAvailable": "或支付全款 — 余额不会被使用",
     "paymentMethodsLoading": "正在加载可用支付方式…",
     "paymentMethodUnknown": "其他支付方式",
     "continuePayment": "继续付款",

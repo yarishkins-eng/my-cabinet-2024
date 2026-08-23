@@ -4911,7 +4911,7 @@
     "errorFundingLocked": "این سفارش از قبل در انتظار پرداخت با روش دیگری است. فاکتور فعلی را بپردازید یا ابتدا آن را لغو کنید.",
     "noMethods": "در حال حاضر روش پرداختی در دسترس نیست.",
     "paymentMethodQuestion": "روش پرداخت",
-    "paymentMethodsAvailable": "روش‌های پرداخت موجود برای این سفارش",
+    "paymentMethodsAvailable": "یا کل مبلغ را پرداخت کنید — موجودی شما دست‌نخورده می‌ماند",
     "paymentMethodsLoading": "در حال بارگذاری روش‌های پرداخت موجود…",
     "paymentMethodUnknown": "روش پرداخت دیگر",
     "continuePayment": "ادامه پرداخت",
