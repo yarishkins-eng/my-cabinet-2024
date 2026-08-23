@@ -361,8 +361,9 @@ export function DeviceFirstConfigurator({
   // `/subscription/purchase` живут ещё три экрана (`TariffPurchaseForm`, `ClassicPurchaseWizard`,
   // `SwitchTariffSheet`), и они кладут в `returnTo` ровно эту же строку. Метку пишет только касса,
   // поэтому экран результата пополнения отличает её от них точным сравнением, а не префиксом.
-  // `period`/`devices` едут тем же адресом: без `autostart=1` и `method` они инертны
-  // (см. `fusedAutostart` ниже) и ничего не запускают — их читает только посев выбора.
+  // `period`/`devices` едут тем же адресом. ⚠️ Точная формулировка: инертны не сами параметры —
+  // их читает ещё и `fusedAutostart` — а КОНФИГУРАЦИЯ без `autostart=1` и `method`: без этих двух
+  // диплинк-эффект выходит первой же строкой, и наша пара ничего не запускает. Мы их и не кладём.
   const checkoutTopUpHref = (() => {
     const target = new URLSearchParams({
       from: 'checkout',
@@ -1350,7 +1351,13 @@ export function DeviceFirstConfigurator({
                   (баланс утёк между отрисовкой и тапом, итог у возобновлённого заказа закреплён
                   строкой) и сторож `interaction.test.tsx` «keeps the person on the confirmation
                   with a top-up path». Уберёшь — сторож покраснеет, и правильно сделает. */}
-              {confirmSelectionAvailable &&
+              {/* ⚠️ `fixtureCheckout` — витрина экранов: она рисует живой компонент на выдуманных
+                  опциях БЕЗ баланса, поэтому недостача там равна полной цене. Две другие новые
+                  вещи этапа от неё закрыты, и эта обязана быть тоже: иначе на странице, чей
+                  заголовок обещает «платежи не используются», появляется кнопка, уводящая в
+                  настоящую воронку пополнения. */}
+              {fixtureCheckout === undefined &&
+                confirmSelectionAvailable &&
                 confirmTotalKopeks !== null &&
                 (confirmShortageKopeks > 0 || actionErrorCode === 'wallet_insufficient') && (
                   <button

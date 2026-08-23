@@ -1936,6 +1936,60 @@ describe('DeviceFirstConfigurator interaction safety', () => {
     );
   });
 
+  // 🔴 Сторож против воскрешения мины X. Он написан ПОСЛЕ того, как мутация убила первую версию:
+  // та сеяла вариант, который в новых опциях продаётся, и тогда посев в состояние и посев в ref
+  // дают одно и то же — сторож был пустым.
+  // Настоящее отличие вот в чём: ref пускает выбор ТОЛЬКО если у комбинации есть ЦЕНА
+  // (priceFor), а нормализация ниже проверяет списки сроков и устройств ПО ОТДЕЛЬНОСТИ.
+  // Значит комбинация, где оба значения в списках, а цены у пары нет, их и разводит:
+  //   · через ref — выбор не применяется, человек остаётся на рабочем умолчании;
+  //   · прямым посевом в состояние — нормализация обе проверки пропускает, состояние остаётся
+  //     непродаваемым, и ВСЕ сроки рисуются «Недоступно» с мёртвой кнопкой. Это и есть мина X.
+  it('never seeds a selection that has no price — that is how mine X came back', async () => {
+    const unpricedPair: DeviceFirstOptions = {
+      ...options,
+      period_options: [30, 90],
+      default_period_days: 30,
+      device_options: [2, 5],
+      // 90 дней продаются, 5 устройств продаются — но ПАРЫ 90×5 в матрице нет.
+      price_matrix: [
+        options.price_matrix![0],
+        {
+          period_days: 90,
+          prices: [
+            {
+              device_limit: 2,
+              price_kopeks: 120000,
+              breakdown: {
+                base_price_kopeks: 120000,
+                devices_price_kopeks: 0,
+                promo_group_discount_kopeks: 0,
+                promo_offer_discount_kopeks: 0,
+              },
+            },
+          ],
+        },
+      ],
+    };
+
+    renderConfigurator({
+      options: unpricedPair,
+      initialPath: '/subscription/purchase?from=checkout&period=90&devices=5',
+    });
+
+    // Экран остался рабочим: держится продающееся умолчание (30 дней), а не мёртвая пара.
+    await waitFor(() =>
+      expect(
+        screen
+          .getByText('deviceFirst.periodMonths:1')
+          .closest('button')
+          ?.getAttribute('aria-checked'),
+      ).toBe('true'),
+    );
+    // И кнопка оформления жива — то есть цена нашлась.
+    expect(screen.getByRole('button', { name: 'deviceFirst.review' })).toBeTruthy();
+  });
+
   // 🔴 Без метки кассы посев не срабатывает: те же параметры приходят из бот-диплинка,
   // и там ими распоряжается автостарт, а не мы.
   it('ignores period/devices in the address when the checkout marker is absent', async () => {
