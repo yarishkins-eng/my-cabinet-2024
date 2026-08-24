@@ -931,6 +931,7 @@
       "timeout": "Taking Longer Than Expected",
       "timeoutDesc": "Payment processing is taking longer than usual. You can try checking the status again.",
       "goToBalance": "Go to Balance",
+      "backToOrder": "Back to your order",
       "tryAgain": "Try Again"
     },
     "top_up": "Top up balance"

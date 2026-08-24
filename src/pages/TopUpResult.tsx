@@ -19,6 +19,23 @@ import { resolveCheckoutReturn } from '../utils/safeRedirect';
 const MAX_POLL_MS = 10 * 60 * 1000; // 10 minutes
 const POLL_INTERVAL_MS = 3_000;
 
+/**
+ * 🔴 Этап В-1 (мина EG). Запасной выход для состояний, где исход платежа ЕЩЁ НЕИЗВЕСТЕН
+ * (ожидание и таймаут). Возвращает и адрес, и подпись — одним куском намеренно: разошлись
+ * они ровно потому, что жили порознь. Кнопка была подписана «Перейти к балансу» и при любом
+ * адресе возврата уводила на Главную.
+ *
+ * ⛔ На кассу отсюда НЕ уводим, хотя адрес возврата известен. Это сознательное решение этапа
+ * Б-1, и оно остаётся верным: пока исход платежа неизвестен, касса покажет несвежий баланс и
+ * прежнее «не хватает» — то есть соврёт увереннее, чем экран баланса, где видно фактическое
+ * состояние счёта. Здесь чинится подпись, а не назначение.
+ */
+function neutralExit(returnTo: string | null): { path: string; labelKey: string } {
+  return returnTo
+    ? { path: '/', labelKey: 'deviceFirst.home' }
+    : { path: '/balance', labelKey: 'balance.topUpResult.goToBalance' };
+}
+
 // ── Sub-components ───────────────────────────────────────────
 
 function AmountDisplay({ amountKopeks, label }: { amountKopeks: number; label: string }) {
@@ -35,7 +52,15 @@ function AmountDisplay({ amountKopeks, label }: { amountKopeks: number; label: s
   );
 }
 
-function PendingState({ amountKopeks }: { amountKopeks: number | null }) {
+function PendingState({
+  amountKopeks,
+  onLeave,
+  leaveLabelKey,
+}: {
+  amountKopeks: number | null;
+  onLeave: () => void;
+  leaveLabelKey: string;
+}) {
   const { t } = useTranslation();
 
   return (
@@ -54,6 +79,17 @@ function PendingState({ amountKopeks }: { amountKopeks: number | null }) {
       {amountKopeks != null && amountKopeks > 0 && (
         <AmountDisplay amountKopeks={amountKopeks} label={t('balance.topUpResult.topUpAmount')} />
       )}
+      {/* 🔴 Этап В-1 (мина EH): до этой кнопки экран держал человека ДЕСЯТЬ МИНУТ без единого
+          выхода — только спиннер. Уйти отсюда безопасно: деньги зачисляет уведомление от
+          платёжной системы, а не этот экран, и о зачислении бот пришлёт сообщение сам.
+          Кнопка нарочно тихая: ждать здесь по-прежнему правильнее, чем уходить. */}
+      <button
+        type="button"
+        onClick={onLeave}
+        className="flex w-full items-center justify-center gap-2 rounded-xl bg-dark-800/50 px-6 py-3 text-sm font-medium text-dark-200 transition-colors hover:bg-dark-700/50"
+      >
+        {t(leaveLabelKey)}
+      </button>
     </motion.div>
   );
 }
@@ -101,10 +137,13 @@ function SuccessState({
         className="flex w-full items-center justify-center gap-2 rounded-xl bg-accent-500 px-6 py-3 text-sm font-medium text-white transition-colors hover:bg-accent-400"
       >
         {/* 🔴 Этап Б-1: для кассы «Перейти к подписке» — ложь ровно в ту секунду, когда деньги
-            уже взяты: подписки ещё нет, пополнение ничего не оформило. Берём УЖЕ существующий
-            ключ кассы (есть во всех четырёх локалях), новых не заводим. */}
+            уже взяты: подписки ещё нет, пополнение ничего не оформило.
+            🔴 Этап В-1 (мина EI): подпись Б-1 брала ключ кассы `deviceFirst.review`, а он же
+            подписывает главную кнопку САМОЙ кассы. Человек нажимал «Перейти к оформлению» и
+            видел «Перейти к оформлению» второй раз, ниже сгиба, — и не понимал, сработало ли
+            первое нажатие. Своя подпись говорит, куда ведёт: назад к его покупке. */}
         {checkoutReturn
-          ? t('deviceFirst.review')
+          ? t('balance.topUpResult.backToOrder')
           : returnTo
             ? t('successNotification.goToSubscription', 'Перейти к подписке')
             : t('balance.topUpResult.goToBalance')}
@@ -113,13 +152,25 @@ function SuccessState({
   );
 }
 
-function FailedState({ amountKopeks }: { amountKopeks: number | null }) {
+function FailedState({
+  amountKopeks,
+  returnTo,
+}: {
+  amountKopeks: number | null;
+  returnTo: string | null;
+}) {
   const { t } = useTranslation();
   const navigate = useNavigate();
+
+  const checkoutReturn = resolveCheckoutReturn(returnTo);
 
   const handleTryAgain = useCallback(() => {
     navigate('/balance', { replace: true });
   }, [navigate]);
+
+  const handleBackToOrder = useCallback(() => {
+    navigate(checkoutReturn!, { replace: true });
+  }, [navigate, checkoutReturn]);
 
   return (
     <motion.div
@@ -138,18 +189,42 @@ function FailedState({ amountKopeks }: { amountKopeks: number | null }) {
         <AmountDisplay amountKopeks={amountKopeks} label={t('balance.topUpResult.topUpAmount')} />
       )}
 
-      <button
-        type="button"
-        onClick={handleTryAgain}
-        className="flex w-full items-center justify-center gap-2 rounded-xl bg-dark-800/50 px-6 py-3 text-sm font-medium text-dark-200 transition-colors hover:bg-dark-700/50"
-      >
-        {t('balance.topUpResult.tryAgain')}
-      </button>
+      {/* 🔴 Этап В-1 (мина EB): у экрана отказа был ОДИН выход — на баланс. Человек, который
+          шёл доплатить за конкретную покупку и у которого не прошла оплата, оказывался без
+          дороги обратно к своему заказу: заказ жив, выбор сохранён, а вернуться нечем.
+          Дверь ставится только по метке кассы `from=checkout` — у соседних экранов покупки
+          корзина не сохраняется, и возвращать их сюда было бы обещанием, которое не сбудется. */}
+      <div className="flex w-full flex-col gap-3">
+        {checkoutReturn && (
+          <button
+            type="button"
+            onClick={handleBackToOrder}
+            className="w-full rounded-xl bg-accent-500 px-6 py-3 text-sm font-medium text-white transition-colors hover:bg-accent-400"
+          >
+            {t('balance.topUpResult.backToOrder')}
+          </button>
+        )}
+        <button
+          type="button"
+          onClick={handleTryAgain}
+          className="flex w-full items-center justify-center gap-2 rounded-xl bg-dark-800/50 px-6 py-3 text-sm font-medium text-dark-200 transition-colors hover:bg-dark-700/50"
+        >
+          {t('balance.topUpResult.tryAgain')}
+        </button>
+      </div>
     </motion.div>
   );
 }
 
-function TimeoutState({ onRetry, onGoBack }: { onRetry: () => void; onGoBack: () => void }) {
+function TimeoutState({
+  onRetry,
+  onGoBack,
+  goBackLabelKey,
+}: {
+  onRetry: () => void;
+  onGoBack: () => void;
+  goBackLabelKey: string;
+}) {
   const { t } = useTranslation();
 
   return (
@@ -191,7 +266,10 @@ function TimeoutState({ onRetry, onGoBack }: { onRetry: () => void; onGoBack: ()
           onClick={onGoBack}
           className="w-full rounded-xl bg-dark-800/50 px-6 py-3 text-sm font-medium text-dark-200 transition-colors hover:bg-dark-700/50"
         >
-          {t('balance.topUpResult.goToBalance')}
+          {/* 🔴 Этап В-1 (мина EG): подпись была зашита в «Перейти к балансу», а нажатие при
+              заданном адресе возврата уводило на Главную. Теперь подпись приходит вместе с
+              назначением из `neutralExit` — разойтись им больше нечем. */}
+          {t(goBackLabelKey)}
         </button>
       </div>
     </motion.div>
@@ -294,8 +372,21 @@ export default function TopUpResult() {
     }
   }, [canPollById, setPollTimedOut, refetch, refetchLatest]);
 
+  // 🔴 Этап В-1. Адрес возврата берётся из строки браузера, а если её нет — из памяти.
+  // Строки нет ровно в том случае, ради которого этап и затеян: человек вернулся из банка
+  // кнопкой провайдера, Телеграм запустил мини-приложение ЗАНОВО, и всё, что доехало, —
+  // короткая метка запуска. Порядок именно такой: строка свежее памяти, если есть.
+  const returnTo = searchParams.get('returnTo') ?? pendingInfo?.return_to ?? null;
+  const exit = neutralExit(returnTo);
+
   const handleGoBack = useCallback(() => {
-    clearTopUpPendingInfo();
+    // 🔴 Этап В-1 УБРАЛ отсюда `clearTopUpPendingInfo()`, и это не уборка, а починка.
+    // Уйти с экрана — не значит «платёж закончился»: человек мог уже нажать оплату в банке.
+    // А память о пополнении с этапа В-1 несёт ЕДИНСТВЕННЫЙ уцелевший адрес возврата на кассу:
+    // когда он вернётся кнопкой платёжной системы, Телеграм запустит мини-приложение заново,
+    // и строки браузера не будет. Стерев запись здесь, мы бы своими руками сломали то, ради
+    // чего этап затеян. Запись и без того живёт не дольше 30 минут (`topUpStorage`) и
+    // перезаписывается следующим пополнением, а на исходе платежа её гасят эффекты ниже.
     // 🔴 Этап Б-1 СОЗНАТЕЛЬНО НЕ ТРОГАЕТ эту ветку, хотя первая версия правки её меняла.
     // Три причины, все проверены: (1) кнопка здесь подписана «Перейти к балансу», и увести её
     // на кассу — сделать подпись ложью, ровно та ошибка, от которой лечит весь этап;
@@ -305,8 +396,8 @@ export default function TopUpResult() {
     // минут опроса, поэтому сторожа на неё нет — а поведение без сторожа мутация выбрасывает
     // молча (проверено: мутация этой строки пережила весь набор).
     // Пришли из покупки (returnTo) → на Главную (корзина могла исполниться), иначе на баланс.
-    navigate(searchParams.get('returnTo') ? '/' : '/balance', { replace: true });
-  }, [navigate, searchParams]);
+    navigate(exit.path, { replace: true });
+  }, [navigate, exit.path]);
 
   // Redirect to balance if absolutely no data source available
   useEffect(() => {
@@ -370,13 +461,21 @@ export default function TopUpResult() {
         aria-atomic="true"
       >
         {resolvedPaid ? (
-          <SuccessState amountKopeks={amountKopeks} returnTo={searchParams.get('returnTo')} />
+          <SuccessState amountKopeks={amountKopeks} returnTo={returnTo} />
         ) : resolvedFailed ? (
-          <FailedState amountKopeks={amountKopeks} />
+          <FailedState amountKopeks={amountKopeks} returnTo={returnTo} />
         ) : pollTimedOut ? (
-          <TimeoutState onRetry={handleRetryPoll} onGoBack={handleGoBack} />
+          <TimeoutState
+            onRetry={handleRetryPoll}
+            onGoBack={handleGoBack}
+            goBackLabelKey={exit.labelKey}
+          />
         ) : (
-          <PendingState amountKopeks={amountKopeks} />
+          <PendingState
+            amountKopeks={amountKopeks}
+            onLeave={handleGoBack}
+            leaveLabelKey={exit.labelKey}
+          />
         )}
       </div>
     </div>

@@ -1,5 +1,6 @@
 ﻿import apiClient from './client';
 import i18n from '../i18n';
+import { isInTelegramWebApp } from '../hooks/useTelegramSDK';
 import type {
   Balance,
   Transaction,
@@ -56,6 +57,7 @@ export const balanceApi = {
       payment_method: string;
       payment_option?: string;
       language?: string;
+      return_surface?: string;
     } = {
       amount_kopeks: amountKopeks,
       payment_method: paymentMethod,
@@ -64,6 +66,11 @@ export const balanceApi = {
       payload.payment_option = paymentOption;
     }
     payload.language = i18n.language || 'ru';
+    // 🔴 Этап В-1. Говорим серверу, КУДА возвращать человека после банка. Раньше он этого не
+    // знал и всегда называл адрес сайта кабинета — а человек в тот момент во внешнем браузере,
+    // где он не авторизован, и упирался в форму входа. Спрашивать сервер об этом бесполезно:
+    // с его стороны запрос из мини-приложения и из браузера выглядит одинаково.
+    payload.return_surface = isInTelegramWebApp() ? 'telegram' : 'web';
     const response = await apiClient.post('/cabinet/balance/topup', payload);
     return response.data;
   },

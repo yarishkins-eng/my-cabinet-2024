@@ -743,6 +743,7 @@
       "timeout": "处理时间较长",
       "timeoutDesc": "付款处理时间比平时长。您可以再次检查状态。",
       "goToBalance": "查看余额",
+      "backToOrder": "返回您的订单",
       "tryAgain": "重试"
     },
     "top_up": "充值"
