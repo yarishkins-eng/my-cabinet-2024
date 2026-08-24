@@ -204,7 +204,12 @@ export function DeviceFirstConfigurator({
     queryKey: ['device-first-checkout', initialCheckoutId],
     queryFn: () => deviceFirstApi.get(initialCheckoutId!),
     enabled: fixtureCheckout === undefined && !!initialCheckoutId && !checkout,
-    retry: false,
+    // 🔴 Этап В-1: было `retry: false`, и одной сетевой осечки хватало, чтобы экран сказал
+    // ЗАПЛАТИВШЕМУ «деньги без подтверждения не списаны» и предложил создать новый расчёт.
+    // Раньше сюда попадали редко и своими руками; теперь это АВТОМАТИЧЕСКОЕ приземление после
+    // оплаты картой — то есть холодный старт вебвью, где первая попытка запроса срывается
+    // чаще всего. Запрос читающий, повтор безопасен.
+    retry: 2,
   });
   useEffect(() => {
     const restored = restoredCheckout.data;
