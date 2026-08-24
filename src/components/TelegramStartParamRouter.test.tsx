@@ -1,8 +1,9 @@
 // @vitest-environment jsdom
 
-import { cleanup, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { MemoryRouter, Route, Routes, useLocation } from 'react-router';
+import { StrictMode } from 'react';
+import { MemoryRouter, Route, Routes, useLocation, useNavigate } from 'react-router';
 
 import { TelegramStartParamRouter } from './TelegramStartParamRouter';
 import { resolveStartParamPath } from '../utils/telegramStartParam';
@@ -19,16 +20,40 @@ function LocationProbe() {
   return <output data-testid="location">{location.pathname + location.search}</output>;
 }
 
+/** Кнопка, которой человек уходит с экрана результата своими руками. */
+function LeaveButton() {
+  const navigate = useNavigate();
+  return (
+    <button type="button" onClick={() => navigate('/referral')}>
+      уйти
+    </button>
+  );
+}
+
+// 🔴 `StrictMode` — не украшение: он включён в `main.tsx`, и React исполняет каждый эффект
+// ДВАЖДЫ. Проверять приземление вне него значит проверять условие, которого на боевом нет.
 function renderRouter() {
   return render(
-    <MemoryRouter initialEntries={['/']}>
-      <TelegramStartParamRouter />
-      <LocationProbe />
-      <Routes>
-        <Route path="*" element={null} />
-      </Routes>
-    </MemoryRouter>,
+    <StrictMode>
+      <MemoryRouter initialEntries={['/']}>
+        <TelegramStartParamRouter />
+        <LocationProbe />
+        <LeaveButton />
+        <Routes>
+          <Route path="*" element={null} />
+        </Routes>
+      </MemoryRouter>
+    </StrictMode>,
   );
+}
+
+/** Довести приложение до состояния, когда эффектам уже нечего ждать. */
+async function settle() {
+  for (let tick = 0; tick < 3; tick += 1) {
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+  }
 }
 
 describe('resolveStartParamPath — разбор метки запуска', () => {
@@ -100,6 +125,27 @@ describe('TelegramStartParamRouter — приземление после воз�
     // кода, который уводит с задержкой в один тик.
     await waitFor(() => expect(retrieveLaunchParams).toHaveBeenCalled());
     expect(screen.getByTestId('location').textContent).toBe('/');
+  });
+
+  // 🔴 Метка живёт в параметрах запуска ВСЮ сессию, а не гаснет после первого чтения. Без
+  // замка «один раз за запуск» повторное срабатывание эффекта выдёргивало бы человека обратно
+  // на экран результата с того места, куда он ушёл сам.
+  it('уведя один раз, больше не выдёргивает человека обратно', async () => {
+    retrieveLaunchParams.mockReturnValue({ tgWebAppStartParam: 'tup-platega-ok' });
+
+    renderRouter();
+    await waitFor(() =>
+      expect(screen.getByTestId('location').textContent).toBe(
+        '/balance/top-up/result?method=platega&status=success',
+      ),
+    );
+
+    fireEvent.click(screen.getByText('уйти'));
+    // Ждём не мгновенно: проверка сразу после клика прошла бы и у кода, который выдёргивает
+    // человека обратно на следующем тике.
+    await settle();
+
+    expect(screen.getByTestId('location').textContent).toBe('/referral');
   });
 
   it('чужую метку не перехватывает', async () => {

@@ -13,7 +13,7 @@ import { AnimatedCheckmark } from '@/components/ui/AnimatedCheckmark';
 import { AnimatedCrossmark } from '@/components/ui/AnimatedCrossmark';
 import { loadTopUpPendingInfo, clearTopUpPendingInfo } from '../utils/topUpStorage';
 import { isPaidStatus, isFailedStatus } from '../utils/paymentStatus';
-import { resolveCheckoutReturn } from '../utils/safeRedirect';
+import { getSafeRedirectPath, resolveCheckoutReturn } from '../utils/safeRedirect';
 
 // ── Constants ────────────────────────────────────────────────
 const MAX_POLL_MS = 10 * 60 * 1000; // 10 minutes
@@ -32,7 +32,7 @@ const POLL_INTERVAL_MS = 3_000;
  */
 function neutralExit(returnTo: string | null): { path: string; labelKey: string } {
   return returnTo
-    ? { path: '/', labelKey: 'deviceFirst.home' }
+    ? { path: '/', labelKey: 'balance.topUpResult.goToHome' }
     : { path: '/balance', labelKey: 'balance.topUpResult.goToBalance' };
 }
 
@@ -83,10 +83,15 @@ function PendingState({
           выхода — только спиннер. Уйти отсюда безопасно: деньги зачисляет уведомление от
           платёжной системы, а не этот экран, и о зачислении бот пришлёт сообщение сам.
           Кнопка нарочно тихая: ждать здесь по-прежнему правильнее, чем уходить. */}
+      {/* Ширина по содержимому, а не `w-full`: (1) на экране, чья работа — «подожди»,
+          самым крупным органом управления был выход, вдвое шире суммы, ради которой человек
+          здесь; (2) `w-full` ставила её ровно в тот прямоугольник, где через секунду
+          появляется АКЦЕНТНАЯ кнопка следующего состояния, — палец, тянувшийся к серой
+          «На главную», попадал бы в «Вернуться к покупке». Высота 44 px сохранена. */}
       <button
         type="button"
         onClick={onLeave}
-        className="flex w-full items-center justify-center gap-2 rounded-xl bg-dark-800/50 px-6 py-3 text-sm font-medium text-dark-200 transition-colors hover:bg-dark-700/50"
+        className="flex min-h-[44px] items-center justify-center gap-2 rounded-xl bg-dark-800/50 px-6 py-3 text-sm font-medium text-dark-200 transition-colors hover:bg-dark-700/50"
       >
         {t(leaveLabelKey)}
       </button>
@@ -142,10 +147,15 @@ function SuccessState({
             подписывает главную кнопку САМОЙ кассы. Человек нажимал «Перейти к оформлению» и
             видел «Перейти к оформлению» второй раз, ниже сгиба, — и не понимал, сработало ли
             первое нажатие. Своя подпись говорит, куда ведёт: назад к его покупке. */}
+        {/* 🔴 Средняя ветка тоже переписана этапом В-1. Она брала ключ уведомлений
+            `successNotification.goToSubscription`, а тот в персидском и китайском говорит
+            «перейти к подписке» — при том что кнопка ведёт на Главную, где подписки может
+            не быть. Это ровно мина EG, тремя строками ниже места, где EG чинили. Берём тот
+            же собственный ключ, что и запасной выход: подпись и назначение сшиты в одном месте. */}
         {checkoutReturn
           ? t('balance.topUpResult.backToOrder')
           : returnTo
-            ? t('successNotification.goToSubscription', 'Перейти к подписке')
+            ? t('balance.topUpResult.goToHome')
             : t('balance.topUpResult.goToBalance')}
       </button>
     </motion.div>
@@ -164,9 +174,16 @@ function FailedState({
 
   const checkoutReturn = resolveCheckoutReturn(returnTo);
 
+  // 🔴 Этап В-1. Кнопка была подписана «Попробовать снова», а уводила на ОБЗОР баланса —
+  // ни повтора, ни выбора способа, хотя текст над ней обещает ровно это. Ведём на выбор
+  // способа оплаты, то есть туда, где подпись становится правдой. Адрес возврата едем с
+  // собой: `TopUpMethodSelect` пробрасывает его дальше, и после удачной оплаты человек
+  // вернётся к своей покупке, а не «на баланс».
   const handleTryAgain = useCallback(() => {
-    navigate('/balance', { replace: true });
-  }, [navigate]);
+    const safeReturn = returnTo ? getSafeRedirectPath(returnTo) : '/';
+    const query = safeReturn === '/' ? '' : `?returnTo=${encodeURIComponent(safeReturn)}`;
+    navigate(`/balance/top-up${query}`, { replace: true });
+  }, [navigate, returnTo]);
 
   const handleBackToOrder = useCallback(() => {
     navigate(checkoutReturn!, { replace: true });
@@ -304,14 +321,16 @@ export default function TopUpResult() {
 
   // Determine if we can poll by specific payment_id (need method + numeric payment_id)
   const parsedPaymentId = pendingInfo?.payment_id ? parseInt(pendingInfo.payment_id, 10) : NaN;
-  const canPollById =
-    !!(pendingInfo?.method_id && !isNaN(parsedPaymentId)) &&
-    !isRedirectSuccess &&
-    !isRedirectFailed;
+  // 🔴 Этап В-1. Раньше метка исхода в адресе ВЫКЛЮЧАЛА опрос сервера: экран объявлял
+  // исход со слов платёжной системы и больше ничего не спрашивал. До этапа так почти не
+  // случалось — возврат провайдера приземлялся во внешнем браузере, где человек не
+  // авторизован, и экран физически не показывался. В-1 сделал этот путь ОСНОВНЫМ, а
+  // заодно дал экрану всё, чтобы спросить: `payment_id` теперь переживает перезапуск
+  // мини-приложения. Поэтому опрос идёт всегда, когда есть кого спрашивать.
+  const canPollById = !!(pendingInfo?.method_id && !isNaN(parsedPaymentId));
 
-  // Fallback: poll by method via /latest endpoint when no sessionStorage data
-  const canPollByMethod =
-    !canPollById && !!methodFromUrl && !isRedirectSuccess && !isRedirectFailed;
+  // Fallback: poll by method via /latest endpoint when no stored payment id
+  const canPollByMethod = !canPollById && !!methodFromUrl;
 
   // Poll payment status by specific ID (primary path — sessionStorage available)
   const { data: paymentStatus, refetch } = useQuery({
@@ -412,20 +431,47 @@ export default function TopUpResult() {
   // Determine current visual state
   const amountKopeks = effectivePayment?.amount_kopeks ?? pendingInfo?.amount_kopeks ?? null;
 
-  const resolvedPaid =
-    isRedirectSuccess ||
-    effectivePayment?.is_paid ||
-    (effectivePayment && isPaidStatus(effectivePayment.status));
+  // 🔴 Этап В-1. Кто здесь главный — сервер, а не адресная строка.
+  //
+  // «Оплачено» экран объявляет ТОЛЬКО со слов сервера, пока сервера есть о чём спросить.
+  // Иначе человек, вернувшийся из банка раньше, чем платёжная система прислала нам
+  // подтверждение, читал «Баланс пополнен», шёл на кассу — и касса честно говорила ему
+  // «не хватает». Второй платёж за ту же покупку в одно нажатие.
+  //
+  // «Не прошло» показываем сразу: увести человека на `failedUrl` — это уже решение
+  // платёжной системы, и заставлять его смотреть в спиннер незачем. Но опрос при этом
+  // НЕ останавливается, и если сервер скажет «оплачено», экран себя поправит. Так
+  // закрывается обратный случай: провайдер вернул на «отказ», пока платёж ещё жив, а
+  // потом деньги всё же подтвердились.
+  const serverSaysPaid = Boolean(
+    effectivePayment && (effectivePayment.is_paid || isPaidStatus(effectivePayment.status)),
+  );
+  const serverSaysFailed = Boolean(effectivePayment && isFailedStatus(effectivePayment.status));
+  const canAskServer = canPollById || canPollByMethod;
 
-  const resolvedFailed =
-    isRedirectFailed || (effectivePayment && isFailedStatus(effectivePayment.status));
+  const resolvedPaid = serverSaysPaid || (!canAskServer && isRedirectSuccess);
+  const resolvedFailed = !resolvedPaid && (serverSaysFailed || isRedirectFailed);
 
-  // Clean up sessionStorage and invalidate queries when payment resolves
+  // 🔴 Этап В-1. Память гасим ТОЛЬКО когда ЭТОТ ЖЕ исход подтвердил сервер.
+  //
+  // Исход, пришедший лишь из адреса, — это слово, сказанное снаружи. После В-1 такой адрес
+  // умеет собрать кто угодно: `t.me/<бот>?startapp=tup-platega-ok` откроет мини-приложение
+  // сразу на экране «Баланс пополнен». Денег это не двигает (зачисляет вебхук, а не экран),
+  // но гашение памяти двигало бы: у человека, чей платёж В ЭТУ МИНУТУ в полёте, стёрся бы
+  // адрес возврата на кассу — то есть чужая ссылка ломала бы ровно то, что чинит этот этап.
+  // Не стереть безопасно: запись живёт не дольше 30 минут и перезаписывается следующим
+  // пополнением. Стереть по чужому слову — нет.
+  //
+  // ⚠️ Забор именно «сервер сказал ТО ЖЕ», а не «сервер вообще ответил». Первую версию я
+  // написал вторым способом, и сторож её поймал: сервер отвечал «ещё не оплачен», а экран
+  // считал это подтверждением отказа и стирал запись.
+
+  // Clean up storage and invalidate queries when payment resolves
   useEffect(() => {
     if (cleanedUpRef.current) return;
     if (resolvedPaid) {
       cleanedUpRef.current = true;
-      clearTopUpPendingInfo();
+      if (serverSaysPaid) clearTopUpPendingInfo();
       queryClient.invalidateQueries({ queryKey: ['balance'] });
       queryClient.invalidateQueries({ queryKey: ['transactions'] });
       queryClient.invalidateQueries({
@@ -438,11 +484,13 @@ export default function TopUpResult() {
       // ради чего уходил платить.
       queryClient.invalidateQueries({ queryKey: ['device-first-options'] });
       refreshUser();
-    } else if (resolvedFailed) {
+    } else if (resolvedFailed && serverSaysFailed) {
+      // Отказ, о котором сказал только адрес, память не гасит: платёж может быть ещё жив,
+      // а вместе с записью ушёл бы адрес возврата на кассу.
       cleanedUpRef.current = true;
       clearTopUpPendingInfo();
     }
-  }, [resolvedPaid, resolvedFailed, queryClient, refreshUser]);
+  }, [resolvedPaid, resolvedFailed, serverSaysPaid, serverSaysFailed, queryClient, refreshUser]);
 
   // Haptic feedback on status resolution (fire once)
   useEffect(() => {
