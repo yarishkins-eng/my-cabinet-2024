@@ -1,10 +1,12 @@
 // @vitest-environment jsdom
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router';
 import TopUpResult from './TopUpResult';
+import { balanceApi } from '../api/balance';
+import type { PendingPayment } from '../types';
 
 // 🔴 Этап Б-1. До этого файла у экрана результата пополнения НЕ БЫЛО НИ ОДНОГО ТЕСТА, и весь
 // пункт 2 этапа (возврат человека на кассу) не был прикрыт ничем: мутационный прогон показал,
@@ -24,8 +26,12 @@ vi.mock('../store/auth', () => ({
     selector({ refreshUser }),
 }));
 
+// 🔴 Хаптик наблюдаем НАМЕРЕННО: он сообщает человеку исход платежа телом, а не глазами,
+// и врал ровно там, где экран сам себя поправляет. Прежний мок создавал новую заглушку на
+// каждый вызов — проверить по нему было нечего.
+const hapticNotification = vi.hoisted(() => vi.fn());
 vi.mock('@/platform', () => ({
-  useHaptic: () => ({ notification: vi.fn(), impact: vi.fn() }),
+  useHaptic: () => ({ notification: hapticNotification, impact: vi.fn() }),
 }));
 
 vi.mock('../hooks/useCurrency', () => ({
@@ -69,6 +75,59 @@ function LocationProbe() {
 // выражением, что и проверяемый код, доказывает только сам себя.
 const CHECKOUT_RETURN = '/subscription/purchase?from=checkout&period=90&devices=5';
 
+/**
+ * Записать память о начатом пополнении так, как её кладёт экран суммы. Именно эта запись —
+ * единственный источник адреса возврата после того, как Телеграм перезапустил мини-приложение.
+ * Ключ и форма зашиты ЛИТЕРАЛАМИ: сторож, зовущий `saveTopUpPendingInfo`, проверял бы сам себя.
+ */
+function seedPendingInfo(returnTo: string | null) {
+  localStorage.setItem(
+    'topup_pending_payment',
+    JSON.stringify({
+      amount_kopeks: 6000,
+      method_id: 'platega',
+      method_name: 'Platega',
+      payment_id: '4242',
+      created_at: Date.now(),
+      return_to: returnTo,
+    }),
+  );
+}
+
+/** Ответ сервера «счёт оплачен» — только по нему экран вправе объявить успех. */
+function paidPayment(): PendingPayment {
+  return { ...pendingPayment(), status: 'succeeded', is_paid: true };
+}
+
+/** Ответ платёжной системы «счёт ещё не оплачен» — экран обязан остаться в ожидании. */
+function pendingPayment(): PendingPayment {
+  return {
+    id: 4242,
+    method: 'platega',
+    method_display: 'Platega',
+    identifier: '4242',
+    amount_kopeks: 6000,
+    amount_rubles: 60,
+    status: 'pending',
+    status_emoji: '⏳',
+    status_text: 'pending',
+    is_paid: false,
+    is_checkable: true,
+    created_at: new Date(0).toISOString(),
+    expires_at: null,
+    payment_url: null,
+  };
+}
+
+/** Довести экран до состояния, когда эффектам и запросам уже нечего ждать. */
+async function settle() {
+  for (let tick = 0; tick < 3; tick += 1) {
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+  }
+}
+
 function renderResult(search: string, seed?: (client: QueryClient) => void) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
@@ -94,6 +153,9 @@ describe('TopUpResult — возврат на кассу после пополн
   beforeEach(() => {
     vi.clearAllMocks();
     sessionStorage.clear();
+    // 🔴 Этап В-1: память о пополнении переехала в localStorage (обязана пережить перезапуск
+    // мини-приложения). Без этой строки запись протекала бы между тестами.
+    localStorage.clear();
   });
   afterEach(cleanup);
 
@@ -108,10 +170,17 @@ describe('TopUpResult — возврат на кассу после пополн
 
   // 🔴 Подпись обещает то, что произойдёт. «Перейти к подписке» для кассы — ложь ровно в ту
   // секунду, когда деньги уже взяты: подписки ещё нет, пополнение ничего не оформило.
-  it('на кассу зовёт кнопкой оформления, а не обещанием подписки', async () => {
+  // 🔴 Этап В-1 переписал ожидание (мина EI): Б-1 брал ключ `deviceFirst.review`, но им же
+  // подписана ГЛАВНАЯ кнопка самой кассы — человек нажимал «Перейти к оформлению» и видел ту
+  // же надпись второй раз. Ключ кассы зашит здесь ЛИТЕРАЛОМ намеренно: сторож обязан краснеть,
+  // если кто-то вернёт совпадение подписей, а не следить за переменной, которую тот же кто-то
+  // и поменяет.
+  it('на кассу зовёт СВОЕЙ подписью, а не той же, что у кнопки самой кассы', async () => {
     renderResult('?status=success&returnTo=' + encodeURIComponent(CHECKOUT_RETURN));
 
-    expect((await screen.findByRole('button')).textContent).toBe('deviceFirst.review');
+    const label = (await screen.findByRole('button')).textContent;
+    expect(label).toBe('balance.topUpResult.backToOrder');
+    expect(label).not.toBe('deviceFirst.review');
   });
 
   // 🔴 Граница исключения. Соседние экраны (продление, докупка, смена тарифа) кладут в returnTo
@@ -121,6 +190,10 @@ describe('TopUpResult — возврат на кассу после пополн
     renderResult('?status=success&returnTo=' + encodeURIComponent('/subscription/purchase'));
 
     const done = await screen.findByRole('button');
+    // 🔴 Этап В-1: и подпись обязана совпадать с назначением. Раньше здесь стоял ключ
+    // уведомлений `successNotification.goToSubscription` — в персидском и китайском он
+    // говорит «перейти к подписке», хотя кнопка ведёт на Главную. Ключ зашит ЛИТЕРАЛОМ.
+    expect(done.textContent).toBe('balance.topUpResult.goToHome');
     fireEvent.click(done);
 
     await waitFor(() => expect(screen.getByTestId('location').textContent).toBe('/'));
@@ -133,6 +206,307 @@ describe('TopUpResult — возврат на кассу после пополн
     fireEvent.click(done);
 
     await waitFor(() => expect(screen.getByTestId('location').textContent).toBe('/balance'));
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // 🔴 Этап В-1. Возврат из банка кнопкой провайдера: мини-приложение запускается ЗАНОВО,
+  // и адрес возврата в строке браузера отсутствует физически.
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  it('после перезапуска берёт адрес возврата из памяти, когда его нет в строке', async () => {
+    seedPendingInfo(CHECKOUT_RETURN);
+    vi.mocked(balanceApi.getPendingPayment).mockResolvedValue(paidPayment());
+    // Ровно та строка, которую соберёт кабинет по метке запуска `tup-platega-ok`:
+    // способ и статус есть, адреса возврата нет.
+    renderResult('?method=platega&status=success');
+
+    // 🔴 Ждём именно ЭКРАН УСПЕХА, а не «первую попавшуюся кнопку»: пока сервер молчит, на
+    // экране стоит ожидание — и у него тоже есть кнопка. Проверка «первой кнопки» проходила
+    // бы по кнопке ожидания, то есть доказывала бы не то.
+    await screen.findByText('balance.topUpResult.success');
+    const done = screen.getByRole('button');
+    expect(done.textContent).toBe('balance.topUpResult.backToOrder');
+    fireEvent.click(done);
+
+    await waitFor(() => expect(screen.getByTestId('location').textContent).toBe(CHECKOUT_RETURN));
+  });
+
+  // 🔴 Забор памяти. Запись в localStorage человек может подменить руками, поэтому она проходит
+  // ту же проверку, что и адрес из строки: чужой адрес не уводит с кассы никуда.
+  it('подменённый адрес в памяти не уводит наружу', async () => {
+    seedPendingInfo('https://evil.example/steal');
+    vi.mocked(balanceApi.getPendingPayment).mockResolvedValue(paidPayment());
+    renderResult('?method=platega&status=success');
+
+    // Дожидаемся успеха: у экрана ожидания выход ведёт туда же, на Главную, — проверка без
+    // этого ожидания прошла бы по совпадению, а не по забору.
+    await screen.findByText('balance.topUpResult.success');
+    fireEvent.click(screen.getByRole('button'));
+
+    await waitFor(() => expect(screen.getByTestId('location').textContent).toBe('/'));
+  });
+
+  // 🔴 Мина EB: у экрана отказа был ОДИН выход — на баланс. Тот, кто шёл доплатить за
+  // конкретную покупку, оставался без дороги обратно к своему живому заказу.
+  it('отказ оплаты даёт дверь назад к покупке, а не только на баланс', async () => {
+    renderResult('?status=failed&returnTo=' + encodeURIComponent(CHECKOUT_RETURN));
+
+    const back = await screen.findByText('balance.topUpResult.backToOrder');
+    fireEvent.click(back);
+
+    await waitFor(() => expect(screen.getByTestId('location').textContent).toBe(CHECKOUT_RETURN));
+  });
+
+  // 🔴 Граница той же правки: без метки кассы дверь назад НЕ появляется. У соседних экранов
+  // покупки корзина не сохраняется, и звать их обратно — обещать несбыточное.
+  it('без метки кассы у отказа остаётся ровно одна кнопка — прежняя', async () => {
+    renderResult('?status=failed&returnTo=' + encodeURIComponent('/subscription/purchase'));
+
+    const buttons = await screen.findAllByRole('button');
+    expect(buttons).toHaveLength(1);
+    expect(buttons[0].textContent).toBe('balance.topUpResult.tryAgain');
+  });
+
+  // 🔴 Мина EH: десять минут спиннера без единой кнопки. Уйти отсюда безопасно — деньги
+  // зачисляет уведомление платёжной системы, а не этот экран.
+  it('в ожидании есть выход, и он ведёт туда, что написано на кнопке', async () => {
+    seedPendingInfo(CHECKOUT_RETURN);
+    vi.mocked(balanceApi.getLatestPayment).mockResolvedValue(pendingPayment());
+    renderResult('?method=platega');
+
+    const leave = await screen.findByRole('button');
+    // 🔴 Мина EG: пока исход платежа неизвестен, уводим НЕ на кассу (она покажет несвежий
+    // баланс), а на Главную — и подпись обязана говорить именно это.
+    expect(leave.textContent).toBe('balance.topUpResult.goToHome');
+    fireEvent.click(leave);
+
+    await waitFor(() => expect(screen.getByTestId('location').textContent).toBe('/'));
+  });
+
+  // 🔴 Уход с экрана ожидания НЕ означает, что платёж закончился: человек мог уже нажать
+  // оплату в банке. Память о пополнении несёт единственный уцелевший адрес возврата на кассу —
+  // сотрём её здесь, и возврат кнопкой платёжной системы приземлит человека «на баланс»,
+  // то есть этап сломает сам себя.
+  it('уход из ожидания НЕ стирает адрес возврата', async () => {
+    seedPendingInfo(CHECKOUT_RETURN);
+    vi.mocked(balanceApi.getLatestPayment).mockResolvedValue(pendingPayment());
+    renderResult('?method=platega');
+
+    fireEvent.click(await screen.findByRole('button'));
+
+    await waitFor(() => expect(screen.getByTestId('location').textContent).toBe('/'));
+    const kept = localStorage.getItem('topup_pending_payment');
+    expect(kept).not.toBeNull();
+    expect(JSON.parse(kept!).return_to).toBe(CHECKOUT_RETURN);
+  });
+
+  // 🔴 Второй конец той же шкалы. Проверка «подпись = На главную» одна прошла бы и при
+  // зашитой намертво надписи: надо убедиться, что у обычного пополнения подпись ДРУГАЯ.
+  it('у обычного пополнения выход из ожидания подписан балансом и ведёт на баланс', async () => {
+    vi.mocked(balanceApi.getLatestPayment).mockResolvedValue(pendingPayment());
+    renderResult('?method=platega');
+
+    const leave = await screen.findByRole('button');
+    expect(leave.textContent).toBe('balance.topUpResult.goToBalance');
+    fireEvent.click(leave);
+
+    await waitFor(() => expect(screen.getByTestId('location').textContent).toBe('/balance'));
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // 🔴 Этап В-1, вторая волна. Кто на этом экране главный — сервер, а не адресная строка.
+  // До этапа возврат провайдера приземлялся во внешнем браузере и экран не показывался
+  // вовсе; В-1 сделал этот путь основным — значит слово провайдера стало решающим, и это
+  // надо было закрыть.
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  it('не объявляет успех по одной лишь метке в адресе, пока сервер молчит', async () => {
+    seedPendingInfo(CHECKOUT_RETURN);
+    vi.mocked(balanceApi.getPendingPayment).mockResolvedValue(pendingPayment());
+
+    renderResult('?method=platega&status=success');
+
+    // Экран остаётся в ожидании: заголовка успеха нет, есть заголовок проверки.
+    await waitFor(() => expect(balanceApi.getPendingPayment).toHaveBeenCalled());
+    await settle();
+    expect(screen.queryByText('balance.topUpResult.success')).toBeNull();
+    expect(screen.getByText('balance.topUpResult.awaitingPayment')).toBeTruthy();
+  });
+
+  // 🔴 Обратный случай: провайдер увёл на «отказ», а деньги всё же подтвердились. Раньше
+  // метка отказа выключала опрос НАСОВСЕМ, и человек, которому сказали «не прошло», платил
+  // второй раз. Теперь опрос продолжается и экран сам себя поправляет.
+  it('поправляет себя, если провайдер сказал «отказ», а сервер говорит «оплачено»', async () => {
+    seedPendingInfo(CHECKOUT_RETURN);
+    vi.mocked(balanceApi.getPendingPayment).mockResolvedValue(paidPayment());
+
+    renderResult('?method=platega&status=failed');
+
+    await screen.findByText('balance.topUpResult.success');
+    expect(screen.queryByText('balance.topUpResult.failed')).toBeNull();
+  });
+
+  // 🔴 Второй конец шкалы: когда спросить некого (ни записи в памяти, ни способа в адресе),
+  // метка провайдера остаётся единственным словом — и мы его принимаем, как и раньше.
+  it('без единого источника данных верит метке, как и до этапа', async () => {
+    renderResult('?status=success&returnTo=' + encodeURIComponent(CHECKOUT_RETURN));
+
+    await screen.findByText('balance.topUpResult.success');
+    expect(balanceApi.getPendingPayment).not.toHaveBeenCalled();
+    expect(balanceApi.getLatestPayment).not.toHaveBeenCalled();
+  });
+
+  // 🔴 Чужая ссылка `t.me/<бот>?startapp=tup-platega-ok` открывает мини-приложение сразу на
+  // экране исхода. Денег это не двигает, но раньше гасило память о ЖИВОМ платеже — то есть
+  // чужая ссылка стирала адрес возврата на кассу.
+  it('исход, о котором сказал только адрес, не стирает память о платеже', async () => {
+    seedPendingInfo(CHECKOUT_RETURN);
+    vi.mocked(balanceApi.getPendingPayment).mockResolvedValue(pendingPayment());
+
+    renderResult('?method=platega&status=failed');
+
+    await screen.findByText('balance.topUpResult.failed');
+    await settle();
+    const kept = localStorage.getItem('topup_pending_payment');
+    expect(kept).not.toBeNull();
+    expect(JSON.parse(kept!).return_to).toBe(CHECKOUT_RETURN);
+  });
+
+  // 🔴 Подтверждённый сервером исход память гасит — иначе экран остался бы с записью о
+  // законченном платеже. Второй конец шкалы к проверке выше.
+  it('подтверждённый сервером исход память гасит', async () => {
+    seedPendingInfo(CHECKOUT_RETURN);
+    vi.mocked(balanceApi.getPendingPayment).mockResolvedValue(paidPayment());
+
+    renderResult('?method=platega&status=success');
+
+    await screen.findByText('balance.topUpResult.success');
+    await waitFor(() => expect(localStorage.getItem('topup_pending_payment')).toBeNull());
+  });
+
+  // 🔴 «Попробовать снова» уводило на ОБЗОР баланса: ни повтора, ни выбора способа, хотя
+  // текст над кнопкой обещает ровно это. Ведёт на выбор способа и несёт адрес возврата,
+  // чтобы после удачной оплаты человек попал к своей покупке, а не «на баланс».
+  it('«Попробовать снова» ведёт к выбору способа и несёт адрес возврата', async () => {
+    renderResult('?status=failed&returnTo=' + encodeURIComponent(CHECKOUT_RETURN));
+
+    fireEvent.click(await screen.findByText('balance.topUpResult.tryAgain'));
+
+    await waitFor(() =>
+      expect(screen.getByTestId('location').textContent).toBe(
+        '/balance/top-up?returnTo=' + encodeURIComponent(CHECKOUT_RETURN),
+      ),
+    );
+  });
+
+  // 🔴 Сумма недостачи обязана уехать вместе с человеком: набирая её заново, он ошибётся
+  // в меньшую сторону и вернётся на кассу всё с тем же «не хватает».
+  it('«Попробовать снова» несёт и сумму, когда она известна', async () => {
+    seedPendingInfo(CHECKOUT_RETURN);
+    vi.mocked(balanceApi.getPendingPayment).mockResolvedValue({
+      ...pendingPayment(),
+      status: 'canceled',
+    });
+
+    renderResult('?method=platega&status=failed');
+
+    fireEvent.click(await screen.findByText('balance.topUpResult.tryAgain'));
+
+    await waitFor(() =>
+      expect(screen.getByTestId('location').textContent).toBe(
+        '/balance/top-up?returnTo=' + encodeURIComponent(CHECKOUT_RETURN) + '&amount=60',
+      ),
+    );
+  });
+
+  it('без адреса возврата «Попробовать снова» ведёт к выбору способа без хвоста', async () => {
+    renderResult('?status=failed');
+
+    fireEvent.click(await screen.findByText('balance.topUpResult.tryAgain'));
+
+    await waitFor(() => expect(screen.getByTestId('location').textContent).toBe('/balance/top-up'));
+  });
+
+  // 🔴 Сервер умеет отвечать НЕ про все способы оплаты: для части он отдаёт 404. Пока метка
+  // в адресе выключала опрос, это было незаметно; после В-1 такой человек застрял бы в
+  // спиннере на десять минут вместо мгновенного «Баланс пополнен». Слово провайдера обязано
+  // снова становиться единственным, когда сервер ответить не смог.
+  it('когда сервер не умеет ответить про этот платёж, слово провайдера снова в силе', async () => {
+    seedPendingInfo(CHECKOUT_RETURN);
+    vi.mocked(balanceApi.getPendingPayment).mockRejectedValue(new Error('404'));
+
+    renderResult('?method=platega&status=success');
+
+    // Запрос настроен на две повторные попытки с растущей паузой, поэтому ждём дольше
+    // обычного: сторож обязан дожидаться момента, когда сервер ОКОНЧАТЕЛЬНО не ответил,
+    // а не первой неудачи.
+    await screen.findByText('balance.topUpResult.success', undefined, { timeout: 15000 });
+    // И память при этом НЕ гасим: сервер ничего не подтверждал.
+    expect(localStorage.getItem('topup_pending_payment')).not.toBeNull();
+  }, 20000);
+
+  // 🔴 Второй конец шкалы: пока сервер ещё отвечает «ждём», слово адреса силы не имеет.
+  it('пока сервер отвечает, слово адреса силы не имеет', async () => {
+    seedPendingInfo(CHECKOUT_RETURN);
+    vi.mocked(balanceApi.getPendingPayment).mockResolvedValue(pendingPayment());
+
+    renderResult('?method=platega&status=success');
+
+    await waitFor(() => expect(balanceApi.getPendingPayment).toHaveBeenCalled());
+    await settle();
+    expect(screen.queryByText('balance.topUpResult.success')).toBeNull();
+  });
+
+  // 🔴 Телефон вибрировал «ошибкой» на платёж, который ПРОШЁЛ. Ветка самокоррекции появилась
+  // в этом же этапе: провайдер уводит на «отказ», сервер потом подтверждает оплату, экран
+  // переключается на успех — а замок хаптика был уже поставлен, и вибрация успеха молчала.
+  it('вибрирует успехом, когда экран сам себя поправил с отказа на оплату', async () => {
+    seedPendingInfo(CHECKOUT_RETURN);
+    vi.mocked(balanceApi.getPendingPayment).mockResolvedValue(paidPayment());
+
+    renderResult('?method=platega&status=failed');
+
+    await screen.findByText('balance.topUpResult.success');
+    await waitFor(() => expect(hapticNotification).toHaveBeenCalledWith('success'));
+  });
+
+  // 🔴 Второй конец шкалы: успех не вибрирует ДВАЖДЫ, а отказ, оставшийся отказом, вибрирует
+  // ошибкой ровно один раз. Проверка «успех был» одна прошла бы и у кода без замка вовсе.
+  it('на подтверждённом отказе вибрирует ошибкой один раз и успехом не вибрирует', async () => {
+    seedPendingInfo(CHECKOUT_RETURN);
+    vi.mocked(balanceApi.getPendingPayment).mockResolvedValue({
+      ...pendingPayment(),
+      status: 'canceled',
+    });
+
+    renderResult('?method=platega&status=failed');
+
+    await screen.findByText('balance.topUpResult.failed');
+    await settle();
+    expect(hapticNotification).toHaveBeenCalledWith('error');
+    expect(hapticNotification).not.toHaveBeenCalledWith('success');
+    expect(hapticNotification).toHaveBeenCalledTimes(1);
+  });
+
+  // 🔴 Экран «Дольше, чем обычно» был ФИЗИЧЕСКИ НЕДОСТИЖИМ: проверка десяти минут стояла НИЖЕ
+  // раннего выхода «ответа ещё нет», и пока сервер не ответил ни разу, срок не наступал никогда.
+  // Человек оставался в спиннере без конца и без кнопки «Повторить». Сторож промотывает
+  // столько времени, сколько проходит В ЖИЗНИ, — проверка на удобных 100 мс прошла бы и у
+  // сломанного кода.
+  it('после десяти минут молчания сервера показывает выход, а не вечный спиннер', async () => {
+    vi.useFakeTimers();
+    try {
+      vi.mocked(balanceApi.getLatestPayment).mockRejectedValue(new Error('нет ответа'));
+      renderResult('?method=platega');
+
+      // Одиннадцать минут: больше порога в десять, но без запаса «на всякий случай».
+      await vi.advanceTimersByTimeAsync(11 * 60 * 1000);
+
+      expect(screen.getByText('balance.topUpResult.timeout')).toBeTruthy();
+      expect(screen.getByText('common.retry')).toBeTruthy();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   // 🔴 Касса берёт баланс СВОИМ запросом. Без гашения этого кэша вернувшийся видит первым кадром

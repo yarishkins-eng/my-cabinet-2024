@@ -18,6 +18,7 @@ import { ToastProvider } from './components/Toast';
 import { TooltipProvider } from './components/primitives/Tooltip';
 import { isInTelegramWebApp, closeTelegramApp } from './hooks/useTelegramSDK';
 import { getFallbackParentPath } from './utils/navigation';
+import { TelegramStartParamRouter } from './components/TelegramStartParamRouter';
 import { subscriptionApi } from './api/subscription';
 import { useBlockingStore } from './store/blocking';
 
@@ -197,6 +198,7 @@ export function AppWithNavigator() {
 
   return (
     <BrowserRouter>
+      {isTelegram && <TelegramStartParamRouter />}
       {isTelegram && <TelegramBackButton />}
       <ErrorBoundary level="page">
         <PlatformProvider>

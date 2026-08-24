@@ -743,6 +743,8 @@
       "timeout": "处理时间较长",
       "timeoutDesc": "付款处理时间比平时长。您可以再次检查状态。",
       "goToBalance": "查看余额",
+      "goToHome": "返回首页",
+      "backToOrder": "返回购买",
       "tryAgain": "重试"
     },
     "top_up": "充值"
@@ -4840,7 +4842,7 @@
     "chooseMethodNotice": "请选择支付方式。",
     "reviewBeforeCharge": "请在扣款前核对总额。",
     "topUpShortage": "补足 {{amount}}",
-    "topUpShortageHint": "支付后回到这里，点击“从余额扣款”。",
+    "topUpShortageHint": "支付后返回 — 您的选择会保留，只需下单即可。",
     "continueAndOrder": "继续并订阅",
     "needTopup": "需要充值余额",
     "armedNotice": "订单已确认。付款后将自动完成，因为您已明确授权扣款。",

@@ -49,12 +49,19 @@ export default function Balance() {
     const isSuccess = isPaidStatus(normalised) || searchParams.get('success') === 'true';
     const isFailed = isFailedStatus(normalised);
 
+    // 🔴 Этап В-1: способ оплаты едет с человеком. Экран результата после этапа объявляет
+    // «оплачено» только со слов СЕРВЕРА — но спросить сервер он может лишь зная, о чём
+    // спрашивать. Без способа в адресе (и без свежей записи в памяти) он снова верил бы
+    // адресной строке, то есть здесь молча оставалась бы дыра, закрытая соседним экраном.
+    const method = searchParams.get('method');
+    const suffix = method ? `&method=${encodeURIComponent(method)}` : '';
+
     if (isSuccess) {
       paymentHandledRef.current = true;
-      navigate('/balance/top-up/result?status=success', { replace: true });
+      navigate(`/balance/top-up/result?status=success${suffix}`, { replace: true });
     } else if (isFailed) {
       paymentHandledRef.current = true;
-      navigate('/balance/top-up/result?status=failed', { replace: true });
+      navigate(`/balance/top-up/result?status=failed${suffix}`, { replace: true });
     }
   }, [searchParams, navigate]);
 

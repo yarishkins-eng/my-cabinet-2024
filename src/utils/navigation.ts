@@ -31,8 +31,21 @@ export function hasInAppHistory(): boolean {
  * derived path is not a real route the app's catch-all redirects to `/`,
  * so the user is never left stuck.
  */
+/**
+ * 🔴 Этап В-1. Экран результата пополнения стал ТОЧКОЙ ВХОДА: человек приземляется на него
+ * прямо из банка по диплинку, глубина истории — ноль. Общее правило «отрезать последний
+ * кусок адреса» дало бы `/balance/top-up` — приглашение выбрать способ и заплатить ещё раз,
+ * ровно тому, кто только что заплатил. Ведём на баланс: там видно фактическое состояние счёта.
+ */
+const FALLBACK_PARENT_OVERRIDES: Record<string, string> = {
+  '/balance/top-up/result': '/balance',
+};
+
 export function getFallbackParentPath(pathname: string): string {
-  const segments = pathname.replace(/\/+$/, '').split('/').filter(Boolean);
+  const normalised = pathname.replace(/\/+$/, '') || '/';
+  const override = FALLBACK_PARENT_OVERRIDES[normalised];
+  if (override) return override;
+  const segments = normalised.split('/').filter(Boolean);
   const parent = segments.slice(0, -1);
   return parent.length ? '/' + parent.join('/') : '/';
 }

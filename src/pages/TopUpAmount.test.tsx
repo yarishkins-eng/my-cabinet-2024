@@ -487,6 +487,39 @@ describe('TopUpAmount — короткий путь кассы', () => {
     expect(createTopUp).toHaveBeenCalledWith(45000, 'platega', '11');
   });
 
+  // 🔴 Этап В-1. Адрес возврата обязан лечь В ПАМЯТЬ, а не только остаться в строке браузера.
+  // Когда человек вернётся из банка кнопкой платёжной системы, Телеграм запустит мини-приложение
+  // ЗАНОВО: строки не будет, и память — единственное, что помнит, куда его вести. Без этого
+  // сторожа строку `return_to` можно было выбросить, не покрасив ни один тест.
+  it('кладёт адрес возврата в память, а не только в строку браузера', async () => {
+    localStorage.clear();
+    sessionStorage.clear();
+    renderScreen(`?amount=298&option=11&auto=1&returnTo=${encodeURIComponent(CHECKOUT_RETURN)}`);
+
+    await waitFor(() => expect(createTopUp).toHaveBeenCalled());
+    await settle();
+
+    // Перезапуск приложения: сессионное хранилище прежнего запуска не переживает.
+    sessionStorage.clear();
+    const stored = localStorage.getItem('topup_pending_payment');
+    expect(stored).not.toBeNull();
+    expect(JSON.parse(stored!).return_to).toBe(CHECKOUT_RETURN);
+  });
+
+  // 🔴 Второй конец шкалы: у обычного пополнения адреса возврата нет, и выдумывать его нельзя —
+  // иначе человека уводило бы на кассу, куда он не собирался.
+  it('у обычного пополнения адреса возврата в памяти нет', async () => {
+    localStorage.clear();
+    renderScreen('?amount=298&option=11&auto=1');
+
+    await waitFor(() => expect(createTopUp).toHaveBeenCalled());
+    await settle();
+
+    const stored = localStorage.getItem('topup_pending_payment');
+    expect(stored).not.toBeNull();
+    expect(JSON.parse(stored!).return_to).toBeNull();
+  });
+
   it('stays a manual screen when the checkout marker is absent', async () => {
     renderScreen('?amount=298&option=11');
 
