@@ -26,8 +26,12 @@ vi.mock('../store/auth', () => ({
     selector({ refreshUser }),
 }));
 
+// 🔴 Хаптик наблюдаем НАМЕРЕННО: он сообщает человеку исход платежа телом, а не глазами,
+// и врал ровно там, где экран сам себя поправляет. Прежний мок создавал новую заглушку на
+// каждый вызов — проверить по нему было нечего.
+const hapticNotification = vi.hoisted(() => vi.fn());
 vi.mock('@/platform', () => ({
-  useHaptic: () => ({ notification: vi.fn(), impact: vi.fn() }),
+  useHaptic: () => ({ notification: hapticNotification, impact: vi.fn() }),
 }));
 
 vi.mock('../hooks/useCurrency', () => ({
@@ -451,6 +455,37 @@ describe('TopUpResult — возврат на кассу после пополн
     await waitFor(() => expect(balanceApi.getPendingPayment).toHaveBeenCalled());
     await settle();
     expect(screen.queryByText('balance.topUpResult.success')).toBeNull();
+  });
+
+  // 🔴 Телефон вибрировал «ошибкой» на платёж, который ПРОШЁЛ. Ветка самокоррекции появилась
+  // в этом же этапе: провайдер уводит на «отказ», сервер потом подтверждает оплату, экран
+  // переключается на успех — а замок хаптика был уже поставлен, и вибрация успеха молчала.
+  it('вибрирует успехом, когда экран сам себя поправил с отказа на оплату', async () => {
+    seedPendingInfo(CHECKOUT_RETURN);
+    vi.mocked(balanceApi.getPendingPayment).mockResolvedValue(paidPayment());
+
+    renderResult('?method=platega&status=failed');
+
+    await screen.findByText('balance.topUpResult.success');
+    await waitFor(() => expect(hapticNotification).toHaveBeenCalledWith('success'));
+  });
+
+  // 🔴 Второй конец шкалы: успех не вибрирует ДВАЖДЫ, а отказ, оставшийся отказом, вибрирует
+  // ошибкой ровно один раз. Проверка «успех был» одна прошла бы и у кода без замка вовсе.
+  it('на подтверждённом отказе вибрирует ошибкой один раз и успехом не вибрирует', async () => {
+    seedPendingInfo(CHECKOUT_RETURN);
+    vi.mocked(balanceApi.getPendingPayment).mockResolvedValue({
+      ...pendingPayment(),
+      status: 'canceled',
+    });
+
+    renderResult('?method=platega&status=failed');
+
+    await screen.findByText('balance.topUpResult.failed');
+    await settle();
+    expect(hapticNotification).toHaveBeenCalledWith('error');
+    expect(hapticNotification).not.toHaveBeenCalledWith('success');
+    expect(hapticNotification).toHaveBeenCalledTimes(1);
   });
 
   // 🔴 Касса берёт баланс СВОИМ запросом. Без гашения этого кэша вернувшийся видит первым кадром
