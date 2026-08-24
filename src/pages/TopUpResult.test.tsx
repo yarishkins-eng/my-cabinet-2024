@@ -186,6 +186,10 @@ describe('TopUpResult — возврат на кассу после пополн
     renderResult('?status=success&returnTo=' + encodeURIComponent('/subscription/purchase'));
 
     const done = await screen.findByRole('button');
+    // 🔴 Этап В-1: и подпись обязана совпадать с назначением. Раньше здесь стоял ключ
+    // уведомлений `successNotification.goToSubscription` — в персидском и китайском он
+    // говорит «перейти к подписке», хотя кнопка ведёт на Главную. Ключ зашит ЛИТЕРАЛОМ.
+    expect(done.textContent).toBe('balance.topUpResult.goToHome');
     fireEvent.click(done);
 
     await waitFor(() => expect(screen.getByTestId('location').textContent).toBe('/'));
