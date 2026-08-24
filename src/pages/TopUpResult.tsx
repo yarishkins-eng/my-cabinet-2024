@@ -114,8 +114,14 @@ function SuccessState({
   const handleDone = useCallback(() => {
     // 🔴 Этап Б-1: касса device-first (метка `from=checkout`) возвращает человека НА СЕБЯ —
     // ей нечему исполниться самой, корзины у неё нет.
-    // Пришли из покупки/продления (returnTo задан) → корзина уже авто-исполнилась на сервере,
-    // ведём на Главную, где видна активная подписка. Иначе обычное пополнение → на баланс.
+    // Пришли из покупки/продления БЕЗ метки кассы (returnTo задан) → на Главную.
+    // ⚠️ Этап В-1 поправил здесь ФОРМУЛИРОВКУ, не поведение. Прежняя гласила «корзина уже
+    // авто-исполнилась на сервере» — и противоречила соседнему файлу, который импортирует этот
+    // же экран: `safeRedirect.ts` прямо пишет, что у докупки устройств и трафика корзина
+    // сохраняется без метки намерения и после пополнения НЕ исполняется. Верно второе.
+    // Значит Главная здесь — не «там уже всё готово», а «там видно фактическое состояние»;
+    // довести такую покупку — отдельный дефект и отдельная работа, и маскировать его подменой
+    // адреса возврата нельзя (это же запрещает `safeRedirect.ts`).
     navigate(checkoutReturn ?? (returnTo ? '/' : '/balance'), { replace: true });
   }, [navigate, returnTo, checkoutReturn]);
 
@@ -180,10 +186,17 @@ function FailedState({
   // собой: `TopUpMethodSelect` пробрасывает его дальше, и после удачной оплаты человек
   // вернётся к своей покупке, а не «на баланс».
   const handleTryAgain = useCallback(() => {
+    const params = new URLSearchParams();
     const safeReturn = returnTo ? getSafeRedirectPath(returnTo) : '/';
-    const query = safeReturn === '/' ? '' : `?returnTo=${encodeURIComponent(safeReturn)}`;
-    navigate(`/balance/top-up${query}`, { replace: true });
-  }, [navigate, returnTo]);
+    if (safeReturn !== '/') params.set('returnTo', safeReturn);
+    // 🔴 Сумма едет с человеком. Без неё тот, кто шёл доплатить конкретную недостачу, набирает
+    // её заново — и, ошибившись в меньшую сторону, возвращается на кассу всё с тем же
+    // «не хватает». `TopUpMethodSelect` умеет пробрасывать `amount` дальше; в адресе он в
+    // рублях, как его кладёт сама касса.
+    if (amountKopeks != null && amountKopeks > 0) params.set('amount', String(amountKopeks / 100));
+    const query = params.toString();
+    navigate(`/balance/top-up${query ? `?${query}` : ''}`, { replace: true });
+  }, [navigate, returnTo, amountKopeks]);
 
   const handleBackToOrder = useCallback(() => {
     navigate(checkoutReturn!, { replace: true });
@@ -303,7 +316,7 @@ export default function TopUpResult() {
   const haptic = useHaptic();
   const pollStart = useRef(Date.now());
   const [pollTimedOut, setPollTimedOut] = useState(false);
-  const hapticFiredRef = useRef(false);
+  const hapticFiredRef = useRef<'success' | 'error' | null>(null);
   const cleanedUpRef = useRef(false);
 
   // Load saved payment info from sessionStorage (once on mount)
@@ -333,20 +346,29 @@ export default function TopUpResult() {
   const canPollByMethod = !canPollById && !!methodFromUrl;
 
   // Poll payment status by specific ID (primary path — sessionStorage available)
-  const { data: paymentStatus, refetch } = useQuery({
+  const {
+    data: paymentStatus,
+    refetch,
+    isError: byIdFailed,
+  } = useQuery({
     queryKey: ['topup-status', pendingInfo?.method_id, parsedPaymentId],
     queryFn: () => balanceApi.getPendingPayment(pendingInfo!.method_id, parsedPaymentId),
     enabled: canPollById && !pollTimedOut,
     refetchInterval: (query) => {
+      // 🔴 Этап В-1: проверка срока поднята НАД ранним выходом. Она стояла под ним, и пока
+      // сервер не ответил ни разу, `payment` пуст — то есть десять минут не наступали НИКОГДА,
+      // и экран таймаута с кнопкой «Повторить» был недостижим. До этапа это почти не всплывало:
+      // метка исхода в адресе вообще выключала опрос. Теперь опрос идёт всегда, когда есть кого
+      // спросить, и без этой перестановки человек остался бы в спиннере без конца.
+      if (Date.now() - pollStart.current > MAX_POLL_MS) {
+        setPollTimedOut(true);
+        return false;
+      }
+
       const payment = query.state.data;
       if (!payment) return POLL_INTERVAL_MS;
 
       if (payment.is_paid || isPaidStatus(payment.status) || isFailedStatus(payment.status)) {
-        return false;
-      }
-
-      if (Date.now() - pollStart.current > MAX_POLL_MS) {
-        setPollTimedOut(true);
         return false;
       }
 
@@ -356,20 +378,29 @@ export default function TopUpResult() {
   });
 
   // Poll payment status by method latest (fallback — external browser, no sessionStorage)
-  const { data: latestPayment, refetch: refetchLatest } = useQuery({
+  const {
+    data: latestPayment,
+    refetch: refetchLatest,
+    isError: byMethodFailed,
+  } = useQuery({
     queryKey: ['topup-status-latest', methodFromUrl],
     queryFn: () => balanceApi.getLatestPayment(methodFromUrl!),
     enabled: canPollByMethod && !pollTimedOut,
     refetchInterval: (query) => {
+      // 🔴 Этап В-1: проверка срока поднята НАД ранним выходом. Она стояла под ним, и пока
+      // сервер не ответил ни разу, `payment` пуст — то есть десять минут не наступали НИКОГДА,
+      // и экран таймаута с кнопкой «Повторить» был недостижим. До этапа это почти не всплывало:
+      // метка исхода в адресе вообще выключала опрос. Теперь опрос идёт всегда, когда есть кого
+      // спросить, и без этой перестановки человек остался бы в спиннере без конца.
+      if (Date.now() - pollStart.current > MAX_POLL_MS) {
+        setPollTimedOut(true);
+        return false;
+      }
+
       const payment = query.state.data;
       if (!payment) return POLL_INTERVAL_MS;
 
       if (payment.is_paid || isPaidStatus(payment.status) || isFailedStatus(payment.status)) {
-        return false;
-      }
-
-      if (Date.now() - pollStart.current > MAX_POLL_MS) {
-        setPollTimedOut(true);
         return false;
       }
 
@@ -447,7 +478,14 @@ export default function TopUpResult() {
     effectivePayment && (effectivePayment.is_paid || isPaidStatus(effectivePayment.status)),
   );
   const serverSaysFailed = Boolean(effectivePayment && isFailedStatus(effectivePayment.status));
-  const canAskServer = canPollById || canPollByMethod;
+  // 🔴 «Спросить сервер» и «сервер умеет ответить» — РАЗНЫЕ вещи, и первая версия правки их
+  // путала. Статусный маршрут знает не все способы оплаты: для части из них он отдаёт 404
+  // (`payment_verification_service.get_payment_record` их просто не разбирает). Человек,
+  // заплативший таким способом, попадал бы в спиннер на десять минут вместо мгновенного
+  // «Баланс пополнен» — то есть моя же починка ломала бы соседей. Если сервер ответить не
+  // смог, слово провайдера снова становится единственным, как было до этапа.
+  const serverCannotAnswer = canPollById ? byIdFailed : byMethodFailed;
+  const canAskServer = (canPollById || canPollByMethod) && !serverCannotAnswer;
 
   const resolvedPaid = serverSaysPaid || (!canAskServer && isRedirectSuccess);
   const resolvedFailed = !resolvedPaid && (serverSaysFailed || isRedirectFailed);
@@ -456,9 +494,13 @@ export default function TopUpResult() {
   //
   // Исход, пришедший лишь из адреса, — это слово, сказанное снаружи. После В-1 такой адрес
   // умеет собрать кто угодно: `t.me/<бот>?startapp=tup-platega-ok` откроет мини-приложение
-  // сразу на экране «Баланс пополнен». Денег это не двигает (зачисляет вебхук, а не экран),
-  // но гашение памяти двигало бы: у человека, чей платёж В ЭТУ МИНУТУ в полёте, стёрся бы
-  // адрес возврата на кассу — то есть чужая ссылка ломала бы ровно то, что чинит этот этап.
+  // прямо на этом экране. ⚠️ Обычно успеха он там не увидит: метка несёт способ, значит
+  // сервера есть о чём спросить, и решает сервер. Но НЕ всегда — если сервер про этот платёж
+  // ответить не смог (его нет, он чужой, он старше часа), слово адреса снова становится
+  // единственным, и экран напишет «Баланс пополнен». Обещать здесь больше, чем есть, нельзя:
+  // этот комментарий уже дважды протухал от следующей правки в том же этапе.
+  // Опасно было другое: гашение памяти. У человека, чей платёж В ЭТУ МИНУТУ в полёте, чужая
+  // ссылка стирала бы адрес возврата на кассу — то есть ломала бы ровно то, что чинит этап.
   // Не стереть безопасно: запись живёт не дольше 30 минут и перезаписывается следующим
   // пополнением. Стереть по чужому слову — нет.
   //
@@ -493,13 +535,16 @@ export default function TopUpResult() {
   }, [resolvedPaid, resolvedFailed, serverSaysPaid, serverSaysFailed, queryClient, refreshUser]);
 
   // Haptic feedback on status resolution (fire once)
+  // 🔴 Этап В-1: замок хранит, ЧТО именно уже отвиброировали. Раньше это был просто «уже»,
+  // и телефон вибрировал «ошибкой» на отказ из адреса, а на пришедшее следом подтверждение
+  // сервера («оплачено») молчал — то есть сообщал человеку ровно обратное произошедшему.
+  // Ветка самокоррекции появилась в этом же этапе, значит и дефект наш.
   useEffect(() => {
-    if (hapticFiredRef.current) return;
-    if (resolvedPaid) {
-      hapticFiredRef.current = true;
+    if (resolvedPaid && hapticFiredRef.current !== 'success') {
+      hapticFiredRef.current = 'success';
       haptic.notification('success');
-    } else if (resolvedFailed) {
-      hapticFiredRef.current = true;
+    } else if (resolvedFailed && hapticFiredRef.current === null) {
+      hapticFiredRef.current = 'error';
       haptic.notification('error');
     }
   }, [resolvedPaid, resolvedFailed, haptic]);

@@ -190,6 +190,13 @@ export function clearStaleSessionIfNeeded(freshInitData: string | null): void {
       sessionStorage.removeItem(TOKEN_KEYS.USER);
       localStorage.removeItem(TOKEN_KEYS.REFRESH);
       localStorage.removeItem('cabinet-auth');
+      // 🔴 Этап В-1. Память о начатом пополнении переехала в localStorage — она обязана
+      // пережить перезапуск мини-приложения, но НЕ обязана переживать смену человека.
+      // На общем телефоне второй аккаунт увидел бы чужую сумму и пошёл бы по чужому
+      // адресу возврата на кассу. Ключ зашит литералом: `topUpStorage` его не экспортирует,
+      // а тянуть сюда импорт ради строки — связать вход с кассой без нужды.
+      localStorage.removeItem('topup_pending_payment');
+      sessionStorage.removeItem('topup_pending_payment');
     }
 
     if (currentTgUserId) {

@@ -1,5 +1,10 @@
 const STORAGE_KEY = 'topup_pending_payment';
-const MAX_AGE_MS = 30 * 60 * 1000; // 30 minutes
+// 🔴 Этап В-1: было 30 минут — КОРОЧЕ, чем живёт сам счёт. Окно оплаты по СБП замерено этим
+// же проектом как 30–41 минута (`DeviceFirstConfigurator.tsx`), а серверный маршрут «последний
+// платёж» смотрит на час назад (`balance.py`, `/pending-payments/{method}/latest`). Человек,
+// заплативший на 35-й минуте — то есть В РАЗРЕШЁННОЕ провайдером время, — терял вместе с
+// записью адрес возврата на кассу и приземлялся «на баланс». Ровняем на час, по серверу.
+const MAX_AGE_MS = 60 * 60 * 1000; // 1 hour
 
 export interface TopUpPendingInfo {
   amount_kopeks: number;

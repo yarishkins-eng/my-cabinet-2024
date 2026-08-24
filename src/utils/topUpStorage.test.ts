@@ -65,8 +65,21 @@ describe('topUpStorage — память о начатом пополнении',
     expect(loaded?.return_to).toBeNull();
   });
 
-  it('протухшую запись не отдаёт: счёт живёт не дольше получаса', () => {
-    const stale = { ...info(CHECKOUT_RETURN), created_at: Date.now() - 31 * 60 * 1000 };
+  // 🔴 Этап В-1 поднял срок с получаса до часа, и сторож это поймал — он закреплял старое
+  // число. Причина смены: окно оплаты по СБП замерено проектом как 30–41 минута, а серверный
+  // маршрут «последний платёж» смотрит на час назад. Память, живущая меньше платёжного окна,
+  // теряет адрес возврата у человека, заплатившего в РАЗРЕШЁННОЕ провайдером время.
+  // Проверяются ОБА конца шкалы: короче часа — отдаём, дольше — нет. Проверка одного конца
+  // прошла бы и у кода, который не гасит записи никогда.
+  it('запись, сделанную 55 минут назад, ещё отдаёт: счёт может быть жив', () => {
+    const fresh = { ...info(CHECKOUT_RETURN), created_at: Date.now() - 55 * 60 * 1000 };
+    localStorage.setItem(KEY, JSON.stringify(fresh));
+
+    expect(loadTopUpPendingInfo()?.return_to).toBe(CHECKOUT_RETURN);
+  });
+
+  it('протухшую запись не отдаёт: дольше часа счёт не живёт', () => {
+    const stale = { ...info(CHECKOUT_RETURN), created_at: Date.now() - 61 * 60 * 1000 };
     localStorage.setItem(KEY, JSON.stringify(stale));
 
     expect(loadTopUpPendingInfo()).toBeNull();

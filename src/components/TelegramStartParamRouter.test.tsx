@@ -77,6 +77,43 @@ describe('resolveStartParamPath — разбор метки запуска', () 
     );
   });
 
+  // ─────────────────────────────────────────────────────────────────────────────
+  // 🔴 Вторая метка: возврат с ПРЯМОЙ оплаты картой. Заведена по решению владельца 24.08 —
+  // до неё этап чинил дверь только тому, у кого на балансе есть деньги (145 из 285).
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  // Номер заказа — настоящий `uuid4`, с дефисами: ровно на нём ломалась бы метка, собранная
+  // через тот же разделитель, что у пополнения.
+  const ORDER = '550e8400-e29b-41d4-a716-446655440000';
+
+  it('успешная оплата картой возвращает человека НА ЕГО ЗАКАЗ', () => {
+    expect(resolveStartParamPath(`co_${ORDER}_ok`)).toBe(
+      `/subscription/purchase?checkout=${ORDER}`,
+    );
+  });
+
+  it('неудачная оплата картой возвращает туда же и несёт исход', () => {
+    expect(resolveStartParamPath(`co_${ORDER}_fail`)).toBe(
+      `/subscription/purchase?checkout=${ORDER}&payment=failed`,
+    );
+  });
+
+  // 🔴 Две метки не должны перехватывать друг друга: разделители у них разные намеренно.
+  it('метки двух дорог не путаются между собой', () => {
+    expect(resolveStartParamPath(`tup_platega_ok`)).toBeNull();
+    expect(resolveStartParamPath(`co-${ORDER}-ok`)).toBeNull();
+  });
+
+  it.each([
+    ['без исхода', `co_${ORDER}`],
+    ['неизвестный исход', `co_${ORDER}_maybe`],
+    ['номер с подчёркиванием', 'co_550e8400_e29b_ok'],
+    ['попытка подставить адрес', `co_${ORDER}_ok/../../evil`],
+    ['пустой номер', 'co__ok'],
+  ])('чужую или кривую метку заказа не трогает: %s', (_name, raw) => {
+    expect(resolveStartParamPath(raw)).toBeNull();
+  });
+
   // 🔴 Метка приезжает СНАРУЖИ. Всё, что не наша грамматика, обязано остаться чужим: метки
   // заводят и другие механизмы, и молча угонять их приземление нельзя.
   it.each([
@@ -99,7 +136,10 @@ describe('resolveStartParamPath — разбор метки запуска', () 
 });
 
 describe('TelegramStartParamRouter — приземление после возврата из банка', () => {
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => {
+    vi.clearAllMocks();
+    sessionStorage.clear();
+  });
   afterEach(cleanup);
 
   it('по метке возврата уводит на экран результата', async () => {
@@ -146,6 +186,49 @@ describe('TelegramStartParamRouter — приземление после воз�
     await settle();
 
     expect(screen.getByTestId('location').textContent).toBe('/referral');
+  });
+
+  // 🔴 Метка не гаснет после прочтения: SDK держит параметры запуска в sessionStorage и
+  // достаёт их снова после ПЕРЕЗАГРУЗКИ страницы. А перезагрузка здесь бывает сама собой:
+  // `lazyWithRetry` зовёт `window.location.reload()`, когда после выкладки не догрузился
+  // кусок кода. Без второго замка человека выдернуло бы из корзины обратно на экран
+  // результата — и `replace` стёр бы корзину из истории.
+  it('после перезагрузки страницы НЕ уводит второй раз', async () => {
+    retrieveLaunchParams.mockReturnValue({ tgWebAppStartParam: 'tup-platega-ok' });
+
+    const first = renderRouter();
+    await waitFor(() =>
+      expect(screen.getByTestId('location').textContent).toBe(
+        '/balance/top-up/result?method=platega&status=success',
+      ),
+    );
+    // Перезагрузка: живой компонент умирает, sessionStorage переживает — как в жизни.
+    first.unmount();
+
+    renderRouter();
+    await waitFor(() => expect(retrieveLaunchParams).toHaveBeenCalledTimes(2));
+    await settle();
+    expect(screen.getByTestId('location').textContent).toBe('/');
+  });
+
+  // 🔴 Второй конец шкалы: замок держит ИМЕННО прочитанную метку. Новое пополнение в том же
+  // запуске обязано приземлиться — иначе замок превратился бы в глушилку.
+  it('НОВУЮ метку в том же запуске отрабатывает', async () => {
+    retrieveLaunchParams.mockReturnValue({ tgWebAppStartParam: 'tup-platega-ok' });
+    const first = renderRouter();
+    await waitFor(() =>
+      expect(screen.getByTestId('location').textContent).toContain('status=success'),
+    );
+    first.unmount();
+
+    retrieveLaunchParams.mockReturnValue({ tgWebAppStartParam: 'tup-platega-fail' });
+    renderRouter();
+
+    await waitFor(() =>
+      expect(screen.getByTestId('location').textContent).toBe(
+        '/balance/top-up/result?method=platega&status=failed',
+      ),
+    );
   });
 
   it('чужую метку не перехватывает', async () => {

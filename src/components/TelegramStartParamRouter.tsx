@@ -12,13 +12,21 @@ import { resolveStartParamPath } from '../utils/telegramStartParam';
  * доезжает. Без этого возврат приземлялся бы на Главную: деньги на балансе, а покупка, ради
  * которой человек уходил платить, не видна.
  *
- * Отрабатывает РОВНО ОДИН раз за запуск (`handledRef`): метка живёт в параметрах запуска всю
- * сессию, и без замка повторное срабатывание эффекта возвращало бы человека на экран
- * результата с того места, куда он успел уйти сам.
+ * Отрабатывает РОВНО ОДИН раз за запуск. Замка два, и это не перестраховка:
+ * · `handledRef` — от повторного срабатывания эффекта в живом компоненте;
+ * · отметка в `sessionStorage` — от ПЕРЕЗАГРУЗКИ страницы. Метка не гаснет после прочтения:
+ *   SDK кладёт параметры запуска в тот же `sessionStorage` и достаёт их снова. А перезагрузка
+ *   в этом приложении бывает сама собой — `lazyWithRetry` вызывает `window.location.reload()`,
+ *   когда после выкладки не догрузился кусок кода, то есть ровно в окно выкладки этого этапа.
+ *   Без второго замка человека выдернуло бы из его же корзины обратно на экран результата,
+ *   да ещё с `replace`, стирающим корзину из истории.
+ *   `sessionStorage` выбран намеренно: он живёт ровно столько, сколько сам запуск.
  *
  * Живёт отдельным файлом, а не внутри `AppWithNavigator`, чтобы его можно было проверить
  * сторожем, не поднимая всё приложение.
  */
+const HANDLED_KEY = 'tg_start_param_handled';
+
 export function TelegramStartParamRouter() {
   const navigate = useNavigate();
   const handledRef = useRef(false);
@@ -34,7 +42,16 @@ export function TelegramStartParamRouter() {
       return;
     }
     const target = resolveStartParamPath(raw);
-    if (target) navigate(target, { replace: true });
+    if (!target) return;
+    try {
+      // Отмечаем ИМЕННО эту метку: следующая (другое пополнение в том же запуске) обязана
+      // сработать, а перечитывание этой — нет.
+      if (sessionStorage.getItem(HANDLED_KEY) === raw) return;
+      sessionStorage.setItem(HANDLED_KEY, raw!);
+    } catch {
+      // Хранилище может быть недоступно — тогда работаем как раньше, с одним замком.
+    }
+    navigate(target, { replace: true });
   }, [navigate]);
 
   return null;

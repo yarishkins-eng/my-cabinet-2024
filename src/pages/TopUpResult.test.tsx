@@ -395,12 +395,62 @@ describe('TopUpResult — возврат на кассу после пополн
     );
   });
 
+  // 🔴 Сумма недостачи обязана уехать вместе с человеком: набирая её заново, он ошибётся
+  // в меньшую сторону и вернётся на кассу всё с тем же «не хватает».
+  it('«Попробовать снова» несёт и сумму, когда она известна', async () => {
+    seedPendingInfo(CHECKOUT_RETURN);
+    vi.mocked(balanceApi.getPendingPayment).mockResolvedValue({
+      ...pendingPayment(),
+      status: 'canceled',
+    });
+
+    renderResult('?method=platega&status=failed');
+
+    fireEvent.click(await screen.findByText('balance.topUpResult.tryAgain'));
+
+    await waitFor(() =>
+      expect(screen.getByTestId('location').textContent).toBe(
+        '/balance/top-up?returnTo=' + encodeURIComponent(CHECKOUT_RETURN) + '&amount=60',
+      ),
+    );
+  });
+
   it('без адреса возврата «Попробовать снова» ведёт к выбору способа без хвоста', async () => {
     renderResult('?status=failed');
 
     fireEvent.click(await screen.findByText('balance.topUpResult.tryAgain'));
 
     await waitFor(() => expect(screen.getByTestId('location').textContent).toBe('/balance/top-up'));
+  });
+
+  // 🔴 Сервер умеет отвечать НЕ про все способы оплаты: для части он отдаёт 404. Пока метка
+  // в адресе выключала опрос, это было незаметно; после В-1 такой человек застрял бы в
+  // спиннере на десять минут вместо мгновенного «Баланс пополнен». Слово провайдера обязано
+  // снова становиться единственным, когда сервер ответить не смог.
+  it('когда сервер не умеет ответить про этот платёж, слово провайдера снова в силе', async () => {
+    seedPendingInfo(CHECKOUT_RETURN);
+    vi.mocked(balanceApi.getPendingPayment).mockRejectedValue(new Error('404'));
+
+    renderResult('?method=platega&status=success');
+
+    // Запрос настроен на две повторные попытки с растущей паузой, поэтому ждём дольше
+    // обычного: сторож обязан дожидаться момента, когда сервер ОКОНЧАТЕЛЬНО не ответил,
+    // а не первой неудачи.
+    await screen.findByText('balance.topUpResult.success', undefined, { timeout: 15000 });
+    // И память при этом НЕ гасим: сервер ничего не подтверждал.
+    expect(localStorage.getItem('topup_pending_payment')).not.toBeNull();
+  }, 20000);
+
+  // 🔴 Второй конец шкалы: пока сервер ещё отвечает «ждём», слово адреса силы не имеет.
+  it('пока сервер отвечает, слово адреса силы не имеет', async () => {
+    seedPendingInfo(CHECKOUT_RETURN);
+    vi.mocked(balanceApi.getPendingPayment).mockResolvedValue(pendingPayment());
+
+    renderResult('?method=platega&status=success');
+
+    await waitFor(() => expect(balanceApi.getPendingPayment).toHaveBeenCalled());
+    await settle();
+    expect(screen.queryByText('balance.topUpResult.success')).toBeNull();
   });
 
   // 🔴 Касса берёт баланс СВОИМ запросом. Без гашения этого кэша вернувшийся видит первым кадром
