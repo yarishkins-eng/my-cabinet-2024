@@ -1711,10 +1711,14 @@ export function DeviceFirstConfigurator({
           <h3 className="text-lg font-bold text-dark-50">{t(directTitleKey)}</h3>
           <Summary checkout={checkout} formatPrice={formatPrice} />
           <p className="text-sm text-dark-400">{t(directTextKey)}</p>
-          {/* 🔴 Мина AQ. Показываем ТОЛЬКО пока заказ не закрыт: как только он станет
+          {/* 🔴 Мина AQ. Сообщение живёт ТОЛЬКО пока заказ не закрыт: как только он станет
               `cancelled`, слово берёт объяснение закрытого счёта, и два голоса про одно
-              состояние были бы ровно тем, что запрещает пункт 4.2б. */}
-          {paymentDeclined && checkout.ui_state === 'awaiting_payment' && (
+              состояние были бы ровно тем, что запрещает пункт 4.2б.
+              ⚠️ Забор для этого стоит СНАРУЖИ — весь этот блок висит на
+              `checkout?.ui_state === 'awaiting_payment'`. Здесь стояла его копия; мутация
+              показала, что она ничего не держит, и копия убрана: условие, которое выглядит
+              защитой, но не защищает, хуже отсутствия условия. */}
+          {paymentDeclined && (
             <div role="status" className="rounded-xl bg-error-500/10 p-3">
               <p className="text-sm font-semibold text-error-400">
                 {t('deviceFirst.providerDeclinedNoticeTitle')}

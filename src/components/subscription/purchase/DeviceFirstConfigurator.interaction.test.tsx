@@ -1470,24 +1470,29 @@ describe('DeviceFirstConfigurator interaction safety', () => {
       period_days: 90,
       selected_device_limit: 6,
     };
-    // Первое чтение — счёт ещё «ждёт оплаты»; перечитывание после отказа сервера приносит
-    // ту же строку уже закрытой провайдером. Ровно так ведёт себя боевой бэкенд.
-    vi.mocked(deviceFirstApi.get)
-      .mockResolvedValueOnce(stillOpen)
-      .mockResolvedValue({
-        ...stillOpen,
-        ui_state: 'cancelled',
-        lifecycle_state: 'cancelled',
-        terminal_reason: 'provider_terminal:canceled',
-        money_state: 'unknown',
-      });
+    // 🔴 ФИКСТУРА ПЕРЕПИСАНА после мутационного прогона: первая была `mockResolvedValueOnce`,
+    // и строка успевала прийти закрытой САМА, вторым чтением, ещё до нажатия. Сторож проходил
+    // и со снятой защитой — то есть проверял совпадение, а не работу. Теперь строка закрывается
+    // РОВНО тогда, когда сервер отказал: до этого момента любое чтение даёт «ждёт оплаты».
+    let resumeRefused = false;
+    const closedRow: DeviceFirstCheckout = {
+      ...stillOpen,
+      ui_state: 'cancelled',
+      lifecycle_state: 'cancelled',
+      terminal_reason: 'provider_terminal:canceled',
+      money_state: 'unknown',
+    };
+    vi.mocked(deviceFirstApi.get).mockImplementation(async () =>
+      resumeRefused ? closedRow : stillOpen,
+    );
     vi.mocked(deviceFirstApi.getPendingPayment).mockResolvedValue({
       redirect_url: null,
       status: 'pending',
       resume_allowed: true,
     });
-    vi.mocked(deviceFirstApi.resumeInvoice).mockRejectedValue({
-      response: { data: { detail: { code: 'invoice_terminal' } } },
+    vi.mocked(deviceFirstApi.resumeInvoice).mockImplementation(async () => {
+      resumeRefused = true;
+      throw { response: { data: { detail: { code: 'invoice_terminal' } } } };
     });
 
     renderConfigurator({
@@ -1495,7 +1500,11 @@ describe('DeviceFirstConfigurator interaction safety', () => {
       initialPath: '/subscription/purchase?checkout=checkout-owned',
     });
 
-    fireEvent.click(await screen.findByRole('button', { name: 'deviceFirst.resumeInvoice' }));
+    const resumeButton = await screen.findByRole('button', { name: 'deviceFirst.resumeInvoice' });
+    // 🔴 Улика: ДО нажатия объяснения на экране нет. Без неё сторож не отличал бы свою правку
+    // от строки, пришедшей закрытой сама по себе.
+    expect(screen.queryByText('deviceFirst.providerClosedText')).toBeNull();
+    fireEvent.click(resumeButton);
 
     // 1. Он остался и читает объяснение — то же, что читает пришедший опросом.
     expect(await screen.findByText('deviceFirst.providerClosedText')).toBeTruthy();
