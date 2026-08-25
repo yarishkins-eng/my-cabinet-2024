@@ -112,6 +112,8 @@ function SuccessState({
   const checkoutReturn = resolveCheckoutReturn(returnTo);
 
   const handleDone = useCallback(() => {
+    // Уходим с известным исходом — вот теперь запись больше не нужна.
+    clearTopUpPendingInfo();
     // 🔴 Этап Б-1: касса device-first (метка `from=checkout`) возвращает человека НА СЕБЯ —
     // ей нечему исполниться самой, корзины у неё нет.
     // Пришли из покупки/продления БЕЗ метки кассы (returnTo задан) → на Главную.
@@ -186,6 +188,7 @@ function FailedState({
   // собой: `TopUpMethodSelect` пробрасывает его дальше, и после удачной оплаты человек
   // вернётся к своей покупке, а не «на баланс».
   const handleTryAgain = useCallback(() => {
+    clearTopUpPendingInfo();
     const params = new URLSearchParams();
     const safeReturn = returnTo ? getSafeRedirectPath(returnTo) : '/';
     if (safeReturn !== '/') params.set('returnTo', safeReturn);
@@ -199,6 +202,7 @@ function FailedState({
   }, [navigate, returnTo, amountKopeks]);
 
   const handleBackToOrder = useCallback(() => {
+    clearTopUpPendingInfo();
     navigate(checkoutReturn!, { replace: true });
   }, [navigate, checkoutReturn]);
 
@@ -510,12 +514,21 @@ export default function TopUpResult() {
   // написал вторым способом, и сторож её поймал: сервер отвечал «ещё не оплачен», а экран
   // считал это подтверждением отказа и стирал запись.
 
-  // Clean up storage and invalidate queries when payment resolves
+  // 🔴 ПОЙМАНО ЖИВЫМ ПРОХОДОМ ВЛАДЕЛЬЦА 24.08.2026, 20:38 — и не нашли ни семь линз ревью,
+  // ни 49 мутаций. На экране «Баланс пополнен» кнопка САМА менялась с «Вернуться к покупке»
+  // на «Перейти к балансу»: человек, дошедший до конца, терял дорогу к своей покупке, стоя
+  // на месте. Причина: экран перемонтировался, а память к этому моменту уже стёр эффект
+  // исхода. Сумма оставалась (её знает сервер), адрес возврата — нет.
+  //
+  // Поэтому память гасится не по ФАКТУ исхода, а когда человек УХОДИТ с экрана: пока он тут,
+  // запись ему ещё нужна. Сама по себе она живёт не дольше часа и перезаписывается следующим
+  // пополнением, так что задержаться ей негде.
+
+  // Invalidate queries when payment resolves
   useEffect(() => {
     if (cleanedUpRef.current) return;
     if (resolvedPaid) {
       cleanedUpRef.current = true;
-      if (serverSaysPaid) clearTopUpPendingInfo();
       queryClient.invalidateQueries({ queryKey: ['balance'] });
       queryClient.invalidateQueries({ queryKey: ['transactions'] });
       queryClient.invalidateQueries({
@@ -528,13 +541,10 @@ export default function TopUpResult() {
       // ради чего уходил платить.
       queryClient.invalidateQueries({ queryKey: ['device-first-options'] });
       refreshUser();
-    } else if (resolvedFailed && serverSaysFailed) {
-      // Отказ, о котором сказал только адрес, память не гасит: платёж может быть ещё жив,
-      // а вместе с записью ушёл бы адрес возврата на кассу.
+    } else if (resolvedFailed) {
       cleanedUpRef.current = true;
-      clearTopUpPendingInfo();
     }
-  }, [resolvedPaid, resolvedFailed, serverSaysPaid, serverSaysFailed, queryClient, refreshUser]);
+  }, [resolvedPaid, resolvedFailed, queryClient, refreshUser]);
 
   // Haptic feedback on status resolution (fire once)
   // 🔴 Этап В-1: замок хранит, ЧТО именно уже отвиброировали. Раньше это был просто «уже»,
