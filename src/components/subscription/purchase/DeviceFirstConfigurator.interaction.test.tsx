@@ -1542,6 +1542,10 @@ describe('DeviceFirstConfigurator interaction safety', () => {
     ).toBeTruthy();
     expect(screen.queryByText('deviceFirst.refreshText')).toBeNull();
     expect(screen.queryByText('deviceFirst.refreshTitle')).toBeNull();
+    // 🔴 Волна 2: текст просит «напишите в поддержку», значит выход в поддержку обязан быть на
+    // экране. Раньше единственная кнопка называлась «Начать новый расчёт» и стирала
+    // `?checkout=` — последнюю ссылку на заказ, за который человек мог заплатить.
+    expect(screen.getByRole('button', { name: 'deviceFirst.contactSupport' })).toBeTruthy();
   }, 15000);
 
   it('мина AQ: банк отказал, а заказ ещё не закрыт — экран говорит об отказе и снимает метку', async () => {
@@ -1567,6 +1571,34 @@ describe('DeviceFirstConfigurator interaction safety', () => {
       expect(screen.getByTestId('location').textContent).toBe(
         '/subscription/purchase?checkout=checkout-owned',
       ),
+    );
+  });
+
+  it('мина EW: пошёл платить снова — плашка отказа гаснет, а не висит поверх оплаты', async () => {
+    // 🔴 Наша мина, нашли три проверки волны 2. Плашка — это НОВОСТЬ от платёжной системы, а не
+    // свойство заказа. Состояние ставилось один раз и не сбрасывалось ничем, а компонент между
+    // заказами не размонтируется. Худший вход именно этот: человек жмёт «Перейти к оплате» и
+    // платит успешно, а над работающей кнопкой у него написано «Оплата не прошла».
+    vi.mocked(deviceFirstApi.get).mockResolvedValue(directInvoice());
+    vi.mocked(deviceFirstApi.getPendingPayment).mockResolvedValue({
+      redirect_url: 'https://app.platega.io/pay/11',
+      status: 'pending',
+      resume_allowed: false,
+    });
+
+    renderConfigurator({
+      initialPath: '/subscription/purchase?checkout=checkout-owned&payment=failed',
+    });
+
+    expect(await screen.findByText('deviceFirst.providerDeclinedNotice')).toBeTruthy();
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'deviceFirst.continueExistingInvoice' }),
+    );
+
+    // Улика, что уход действительно состоялся, а не просто «плашки нет».
+    expect(openLink).toHaveBeenCalledWith('https://app.platega.io/pay/11');
+    await waitFor(() =>
+      expect(screen.queryByText('deviceFirst.providerDeclinedNotice')).toBeNull(),
     );
   });
 
