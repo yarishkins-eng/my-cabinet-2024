@@ -539,6 +539,13 @@ export function DeviceFirstConfigurator({
       // The server archived a provider-verified cancelled/expired invoice.
       // It has no active money path, so return straight to a fresh choice
       // instead of trapping the customer on a technical error screen.
+      // 🔴 Мина X, третий выход. Здесь `rememberSelection` не звался — и это ЕДИНСТВЕННЫЙ
+      // путь на экране, где выброс терял выбор человека. Он достижим ровно у той когорты,
+      // ради которой затеян этап AR: человек приземлился по `?checkout=` (локальные срок и
+      // число устройств — умолчания), нажал «оплатить», а счёт провайдер уже закрыл. Без этой
+      // строки он оформлял 6 устройств на 90 дней, а возвращался к 2 на 30 — молча.
+      // Соседние выходы (`startNewQuote`, отмена, отказ от корзины) помнят выбор давно.
+      rememberSelection(checkout);
       returnToConfiguration();
       return;
     }

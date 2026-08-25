@@ -1402,6 +1402,65 @@ describe('DeviceFirstConfigurator interaction safety', () => {
     expect(deviceFirstApi.payDirect).toHaveBeenCalledTimes(1);
   });
 
+  it('счёт уже закрыт провайдером — выброс не теряет выбор человека', async () => {
+    // 🔴 Мина X, третий выход, найден атакой на замысел до кода. `recoverAmbiguousCheckout`
+    // при коде `invoice_terminal` уводил на экран выбора, не позвав `rememberSelection`.
+    // Вход, на котором две ветки дают РАЗНЫЙ результат, ровно один и он же боевой: человек
+    // приземлился по `?checkout=` (локальные срок и устройства — умолчания 30/2, его выбор
+    // живёт только в строке заказа), нажал «возобновить счёт», а провайдер счёт уже закрыл.
+    const wide: DeviceFirstOptions = {
+      ...options,
+      period_options: [30, 90],
+      device_options: [2, 6],
+      price_matrix: [
+        options.price_matrix![0],
+        {
+          period_days: 90,
+          prices: [
+            {
+              device_limit: 6,
+              price_kopeks: 99000,
+              breakdown: options.price_matrix![0].prices[0].breakdown,
+            },
+          ],
+        },
+      ],
+    };
+    vi.mocked(deviceFirstApi.get).mockResolvedValue({
+      ...directInvoice(),
+      period_days: 90,
+      selected_device_limit: 6,
+    });
+    vi.mocked(deviceFirstApi.getPendingPayment).mockResolvedValue({
+      redirect_url: null,
+      status: 'pending',
+      resume_allowed: true,
+    });
+    vi.mocked(deviceFirstApi.resumeInvoice).mockRejectedValue({
+      response: { data: { detail: { code: 'invoice_terminal' } } },
+    });
+
+    renderConfigurator({
+      options: wide,
+      initialPath: '/subscription/purchase?checkout=checkout-owned',
+    });
+
+    fireEvent.click(await screen.findByRole('button', { name: 'deviceFirst.resumeInvoice' }));
+
+    // Экран выбора — и на нём ЕГО конфигурация, а не умолчания 30/2.
+    await waitFor(() =>
+      expect(
+        screen
+          .getByText('deviceFirst.deviceCount:6')
+          .closest('button')
+          ?.getAttribute('aria-checked'),
+      ).toBe('true'),
+    );
+    expect(
+      screen.getByText('deviceFirst.deviceCount:2').closest('button')?.getAttribute('aria-checked'),
+    ).toBe('false');
+  });
+
   it('пока заказ грузится, экран НЕ утверждает, что оплата учтена', async () => {
     // 🔴 Мина AR, вторая половина. Здесь экран писал «Настраиваем VPN. Оплата учтена» — про
     // деньги, о которых он в этот момент не знает ничего: строка заказа ещё не пришла.
