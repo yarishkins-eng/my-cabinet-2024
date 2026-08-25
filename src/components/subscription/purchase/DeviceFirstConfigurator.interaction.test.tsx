@@ -514,8 +514,16 @@ describe('DeviceFirstConfigurator interaction safety', () => {
       expect(openLink).toHaveBeenCalledWith('https://app.platega.io/pay/4');
       expect(unhandled).toEqual([]);
       // Экран жив, и забрать ссылку руками по-прежнему можно.
+      // ⚠️ Запас по времени добавлен 26.08.2026: файл потяжелел на девять новых сторожей, и под
+      // полной нагрузкой набора этот `findByRole` один раз не уложился в дефолтную секунду при
+      // исправном коде. Вывод выглядел зелёным, а `npm test` вышел с кодом 1 — ровно та грабля,
+      // на которой проект обжигался дважды. Свойство теста не изменилось.
       expect(
-        await screen.findByRole('button', { name: 'deviceFirst.copyPaymentLink' }),
+        await screen.findByRole(
+          'button',
+          { name: 'deviceFirst.copyPaymentLink' },
+          { timeout: 5000 },
+        ),
       ).toBeTruthy();
     } finally {
       window.removeEventListener('error', catchUnhandled);
@@ -1600,6 +1608,54 @@ describe('DeviceFirstConfigurator interaction safety', () => {
     await waitFor(() =>
       expect(screen.queryByText('deviceFirst.providerDeclinedNotice')).toBeNull(),
     );
+  });
+
+  it('счёт закрыт на ОПЛАТЕ, а не на возобновлении — человек читает про закрытый счёт', async () => {
+    // 🔴 Волна 2: главный платёжный путь идёт через слитую мутацию, у которой локальной строки
+    // заказа НЕТ по построению. Там перечитывать нечего, и человеку оставалась ошибка — а у
+    // кода `invoice_terminal` не было своего текста, и он падал в безликое «Не удалось
+    // выполнить действие. Попробуйте ещё раз», то есть звал повторить ровно то, откуда его
+    // только что отбили. Текст взят слово в слово из бота.
+    vi.mocked(deviceFirstApi.payDirect).mockRejectedValue({
+      response: { data: { detail: { code: 'invoice_terminal' } } },
+    });
+    renderConfigurator();
+
+    fireEvent.click(screen.getByRole('button', { name: 'deviceFirst.review' }));
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'deviceFirst.paymentMethodAmount:450 ₽' }),
+    );
+
+    expect(await screen.findByText('deviceFirst.errorInvoiceTerminal')).toBeTruthy();
+    // Улика: безликого «попробуйте ещё раз» больше нет.
+    expect(screen.queryByText('deviceFirst.error')).toBeNull();
+  });
+
+  it('заказ протух — техническую защиту «не оплачивайте повторно» НЕ гасим', async () => {
+    // 🔴 Волна 2 нашла, что моё гашение ошибки было слишком широким: на `expired`/`failed`/
+    // `conflict` своего объяснения у экрана нет, он падает в запасной текст «деньги без
+    // подтверждения не списаны», и единственным носителем защиты была как раз ошибка.
+    // Гасить её можно ТОЛЬКО там, где этап поставил замену, — на закрытом провайдером счёте.
+    const invoice = directInvoice();
+    let expiredNow = false;
+    vi.mocked(deviceFirstApi.get).mockImplementation(async () =>
+      expiredNow ? { ...invoice, ui_state: 'expired', lifecycle_state: 'expired' } : invoice,
+    );
+    vi.mocked(deviceFirstApi.getPendingPayment).mockResolvedValue({
+      redirect_url: null,
+      status: 'pending',
+      resume_allowed: true,
+    });
+    vi.mocked(deviceFirstApi.resumeInvoice).mockImplementation(async () => {
+      expiredNow = true;
+      throw { response: { data: { detail: { code: 'external_invoice_active' } } } };
+    });
+
+    renderConfigurator({ initialPath: '/subscription/purchase?checkout=checkout-owned' });
+    fireEvent.click(await screen.findByRole('button', { name: 'deviceFirst.resumeInvoice' }));
+
+    // Ошибка поставлена и обязана пережить переход в терминальное состояние без объяснения.
+    expect(await screen.findByText('deviceFirst.errorPaymentChecking')).toBeTruthy();
   });
 
   it('мина AQ: если заказ уже закрыт, про отказ говорит объяснение, а не второй голос', async () => {
