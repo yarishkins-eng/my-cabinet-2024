@@ -149,6 +149,27 @@ export function DeviceFirstConfigurator({
     nextParams.delete('from');
     setSearchParams(nextParams, { replace: true });
   }, [fixtureCheckout, searchParams, setSearchParams]);
+  // 🔴 Мина AQ. Платёжная система возвращает отказавшего с меткой `payment=failed`
+  // (`utils/telegramStartParam.ts` превращает `co_<id>_fail` в этот параметр). До сих пор его
+  // на этом маршруте не читал НИКТО — параметр доезжал и пропадал впустую.
+  // Зачем он нужен, если заказ и так закроется: закрывает его не возврат человека, а вебхук
+  // или сверка. Пока они не сработали, строка остаётся `awaiting_payment`, и человек видит
+  // живую кнопку «Перейти к оплате» и НИ СЛОВА о том, что банк только что отказал.
+  // ⛔ Метку снимаем с адреса сразу и держим в ref: иначе она переживёт перезагрузку и будет
+  // объявлять отказ по заказу, который человек к тому времени уже оплатил.
+  const paymentDeclinedRef = useRef(false);
+  const [paymentDeclined, setPaymentDeclined] = useState(false);
+  useEffect(() => {
+    if (fixtureCheckout !== undefined) return;
+    if (paymentDeclinedRef.current) return;
+    if (searchParams.get('payment') !== 'failed') return;
+    paymentDeclinedRef.current = true;
+    setPaymentDeclined(true);
+    const nextParams = new URLSearchParams(searchParams);
+    nextParams.delete('payment');
+    setSearchParams(nextParams, { replace: true });
+  }, [fixtureCheckout, searchParams, setSearchParams]);
+
   const acceptCheckout = useCallback(
     (next: DeviceFirstCheckout) => {
       if (isShowcaseDraft(next)) {
@@ -1690,6 +1711,19 @@ export function DeviceFirstConfigurator({
           <h3 className="text-lg font-bold text-dark-50">{t(directTitleKey)}</h3>
           <Summary checkout={checkout} formatPrice={formatPrice} />
           <p className="text-sm text-dark-400">{t(directTextKey)}</p>
+          {/* 🔴 Мина AQ. Показываем ТОЛЬКО пока заказ не закрыт: как только он станет
+              `cancelled`, слово берёт объяснение закрытого счёта, и два голоса про одно
+              состояние были бы ровно тем, что запрещает пункт 4.2б. */}
+          {paymentDeclined && checkout.ui_state === 'awaiting_payment' && (
+            <div role="status" className="rounded-xl bg-error-500/10 p-3">
+              <p className="text-sm font-semibold text-error-400">
+                {t('deviceFirst.providerDeclinedNoticeTitle')}
+              </p>
+              <p className="mt-1 text-sm text-dark-300">
+                {t('deviceFirst.providerDeclinedNotice')}
+              </p>
+            </div>
+          )}
           {checkout.settlement_mode === 'direct_purchase_v2' &&
             invoiceRedirectUrl &&
             invoiceDeadline && (

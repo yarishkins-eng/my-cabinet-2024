@@ -5343,6 +5343,8 @@
     "restoringOrderText": "We are checking its status.",
     "restoringErrorTitle": "Could not open the order",
     "restoringErrorText": "The connection seems to be down. Please try again. If you have already paid, do not create a new order — contact support.",
+    "providerDeclinedNoticeTitle": "Payment didn't go through",
+    "providerDeclinedNotice": "The payment provider reported that the payment did not go through. The invoice for this order is still open — you can try again.",
     "operatorClosedTitle": "Order closed by support",
     "operatorClosedNoMoneyText": "Support closed this order, so it will not become a subscription. Nothing was charged for it. You can place a new order right now.",
     "operatorClosedMoneyText": "Support closed this order, so it will not become a subscription. If a payment went through, support will return the amount to your balance. Check your balance before placing a new order — it will be paid from there.",

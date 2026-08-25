@@ -1535,6 +1535,51 @@ describe('DeviceFirstConfigurator interaction safety', () => {
     expect(screen.queryByText('deviceFirst.refreshTitle')).toBeNull();
   }, 15000);
 
+  it('мина AQ: банк отказал, а заказ ещё не закрыт — экран говорит об отказе и снимает метку', async () => {
+    // 🔴 Заказ закрывает не возврат человека, а вебхук или сверка. Пока они не сработали,
+    // строка остаётся `awaiting_payment`, и человек видел живую кнопку «Перейти к оплате»
+    // и ни слова о том, что банк только что отказал. Метку `payment=failed` на этом маршруте
+    // до сих пор не читал никто.
+    vi.mocked(deviceFirstApi.get).mockResolvedValue(directInvoice());
+    vi.mocked(deviceFirstApi.getPendingPayment).mockResolvedValue({
+      redirect_url: 'https://app.platega.io/pay/9',
+      status: 'pending',
+      resume_allowed: false,
+    });
+
+    renderConfigurator({
+      initialPath: '/subscription/purchase?checkout=checkout-owned&payment=failed',
+    });
+
+    expect(await screen.findByText('deviceFirst.providerDeclinedNotice')).toBeTruthy();
+    // 🔴 Улика: метка снята с адреса сразу. Иначе она пережила бы перезагрузку и объявляла бы
+    // отказ по заказу, который человек к тому времени уже оплатил.
+    await waitFor(() =>
+      expect(screen.getByTestId('location').textContent).toBe(
+        '/subscription/purchase?checkout=checkout-owned',
+      ),
+    );
+  });
+
+  it('мина AQ: если заказ уже закрыт, про отказ говорит объяснение, а не второй голос', async () => {
+    // Два текста про одно состояние — ровно то, что запрещает пункт 4.2б. Как только строка
+    // пришла закрытой, сообщение об отказе замолкает.
+    vi.mocked(deviceFirstApi.get).mockResolvedValue({
+      ...directInvoice(),
+      ui_state: 'cancelled',
+      lifecycle_state: 'cancelled',
+      terminal_reason: 'provider_terminal:canceled',
+      money_state: 'unknown',
+    });
+
+    renderConfigurator({
+      initialPath: '/subscription/purchase?checkout=checkout-owned&payment=failed',
+    });
+
+    expect(await screen.findByText('deviceFirst.providerClosedText')).toBeTruthy();
+    expect(screen.queryByText('deviceFirst.providerDeclinedNotice')).toBeNull();
+  });
+
   it('пока заказ грузится, экран НЕ утверждает, что оплата учтена', async () => {
     // 🔴 Мина AR, вторая половина. Здесь экран писал «Настраиваем VPN. Оплата учтена» — про
     // деньги, о которых он в этот момент не знает ничего: строка заказа ещё не пришла.
