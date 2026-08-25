@@ -1653,9 +1653,17 @@ describe('DeviceFirstConfigurator interaction safety', () => {
 
     renderConfigurator({ initialPath: '/subscription/purchase?checkout=checkout-owned' });
     fireEvent.click(await screen.findByRole('button', { name: 'deviceFirst.resumeInvoice' }));
-
-    // Ошибка поставлена и обязана пережить переход в терминальное состояние без объяснения.
     expect(await screen.findByText('deviceFirst.errorPaymentChecking')).toBeTruthy();
+
+    // 🔴 Улика, без которой сторож проверял бы совпадение: переход надо ВЫЗВАТЬ. Сама по себе
+    // строка в тесте никуда не перейдёт — отказ `external_invoice_active` перечитывания не
+    // запускает. Жмём «Обновить статус», и только теперь заказ приходит протухшим.
+    fireEvent.click(screen.getByRole('button', { name: 'deviceFirst.refreshStatus' }));
+    await waitFor(() => expect(screen.getByText('deviceFirst.refreshText')).toBeTruthy());
+
+    // Своего объяснения у `expired` нет, экран падает в запасной текст «деньги без
+    // подтверждения не списаны» — и защита «не оплачивайте повторно» обязана уцелеть.
+    expect(screen.getByText('deviceFirst.errorPaymentChecking')).toBeTruthy();
   });
 
   it('мина AQ: если заказ уже закрыт, про отказ говорит объяснение, а не второй голос', async () => {
