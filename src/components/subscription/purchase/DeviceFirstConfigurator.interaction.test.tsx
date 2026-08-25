@@ -426,10 +426,15 @@ describe('DeviceFirstConfigurator interaction safety', () => {
     await waitFor(() => expect(screen.queryByText(/deviceFirst\.unavailable/)).toBeNull());
   });
 
-  it('keeps the selection the person made when the provider cancels the invoice', async () => {
-    // 🔴 Провайдер закрыл счёт → нас молча уводит на экран выбора. Раньше выбор человека
-    // при этом терялся: он оформлял 6 устройств на 90 дней, а видел первый попавшийся
-    // вариант и мог не заметить, что покупает другое.
+  it('провайдер закрыл счёт — человек читает объяснение и уходит САМ, не потеряв выбор', async () => {
+    // 🔴 ПЕРЕПИСАН 25.08.2026 (этап AR). Прежний сторож назывался «keeps the selection the person
+    // made when the provider cancels the invoice» и закреплял МОЛЧАЛИВЫЙ авто-возврат: он
+    // проверял, что человека уже унесло на экран выбора, и радовался, что выбор уцелел.
+    // Молчание и было бедой: 22 из 31 отменённого заказа на боевом закрыты провайдером, и ни
+    // одному человеку экран не сказал ни слова. Теперь свойство другое и оно шире:
+    //   1) человек ОСТАЁТСЯ на экране закрытого заказа и читает, что произошло;
+    //   2) уходит своим нажатием;
+    //   3) и только после этого видит экран выбора — со СВОЕЙ конфигурацией.
     const wide: DeviceFirstOptions = {
       ...options,
       period_options: [30, 90],
@@ -454,6 +459,11 @@ describe('DeviceFirstConfigurator interaction safety', () => {
       period_days: 90,
       selected_device_limit: 6,
       terminal_reason: 'provider_terminal:canceled',
+      // 🔴 Ровно то, что отдаёт боевой сервер: `provider_terminal:*` не входит в
+      // `_NO_MONEY_TERMINAL_REASONS`, поэтому `money_state` здесь ВСЕГДА `unknown`
+      // (замер боевой базы 25.08.2026: у всех 22 таких заказов). Если бы ветка была
+      // написана с гардом по `no_money`, этот сторож покраснел бы — и правильно.
+      money_state: 'unknown',
     };
     vi.mocked(deviceFirstApi.get).mockResolvedValue(cancelledRow);
 
@@ -462,7 +472,16 @@ describe('DeviceFirstConfigurator interaction safety', () => {
       initialPath: '/subscription/purchase?checkout=checkout-owned',
     });
 
-    // Экран выбора вернулся — и на нём стоит ЕГО конфигурация, а не первая попавшаяся.
+    // 1. Экран НЕ отмотался: человек видит объяснение про закрытый счёт.
+    expect(await screen.findByText('deviceFirst.providerClosedTitle')).toBeTruthy();
+    expect(screen.getByText('deviceFirst.providerClosedText')).toBeTruthy();
+    // 🔴 Улика того, что мы именно на экране заказа, а не на выборе: карточек устройств тут нет.
+    expect(screen.queryByText('deviceFirst.deviceCount:6')).toBeNull();
+
+    // 2. Уходит он сам.
+    fireEvent.click(screen.getByRole('button', { name: 'deviceFirst.startNew' }));
+
+    // 3. Экран выбора — и на нём стоит ЕГО конфигурация, а не первая попавшаяся.
     await waitFor(() =>
       expect(
         screen

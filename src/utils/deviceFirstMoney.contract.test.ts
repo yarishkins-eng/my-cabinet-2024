@@ -87,6 +87,34 @@ describe('вердикт о деньгах доведён до всех экра
     expect(locale('en').deviceFirst.abandonedCartText.toLowerCase()).toContain('do not use it');
   });
 
+  it('мина AR: ключи закрытого провайдером счёта есть во всех четырёх языках', () => {
+    for (const language of ['ru', 'en', 'zh', 'fa']) {
+      for (const key of ['providerClosedTitle', 'providerClosedText']) {
+        expect(locale(language).deviceFirst[key], `${language}.${key}`).toBeTruthy();
+      }
+    }
+  });
+
+  it('мина AR: про закрытый провайдером счёт предупреждают, но НИЧЕГО не утверждают про деньги', () => {
+    // 🔴 Сторожим СВОЙСТВО, а не буквы конкретной поломки. Свойств два, и они противоположны:
+    //   (1) текст обязан предупредить, что старая ссылка ещё принимает деньги, — иначе он
+    //       не защищает и не отличается от прежнего молчания;
+    //   (2) текст НЕ смеет сказать «деньги не списаны». Сервер на эту причину отвечает
+    //       `unknown`, то есть НЕ ЗНАЕТ. Ровно эту ошибку разбирал пункт 4.2б, и соседний ключ
+    //       `abandonedCartText` начинается со слов «Деньги не списаны» — то есть под рукой
+    //       лежал готовый текст, который здесь был бы враньём. Это и стережём.
+    const ru = locale('ru').deviceFirst.providerClosedText;
+    expect(ru).toContain('Не платите по ней');
+    expect(ru).toContain('баланс');
+    expect(ru).toContain('не оформится');
+    expect(ru).not.toContain('не списан');
+    expect(ru).not.toContain('Деньги не списаны');
+    const en = locale('en').deviceFirst.providerClosedText.toLowerCase();
+    expect(en).toContain('do not use it');
+    expect(en).toContain('balance');
+    expect(en).not.toContain('no money was charged');
+  });
+
   it('мина F: поздней оплате не говорят «деньги не списаны»', () => {
     // Единственный случай, когда деньги есть. До этой ветки экран показывал ему общий
     // «цена изменилась, деньги без подтверждения не списаны» — неправда дважды.
