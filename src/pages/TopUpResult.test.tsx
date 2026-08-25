@@ -372,15 +372,23 @@ describe('TopUpResult — возврат на кассу после пополн
     expect(JSON.parse(kept!).return_to).toBe(CHECKOUT_RETURN);
   });
 
-  // 🔴 Подтверждённый сервером исход память гасит — иначе экран остался бы с записью о
-  // законченном платеже. Второй конец шкалы к проверке выше.
-  it('подтверждённый сервером исход память гасит', async () => {
+  // 🔴 ПЕРЕПИСАН 24.08.2026 после живого прохода владельца. Прежний сторож требовал гасить
+  // память по ФАКТУ исхода — и закреплял ровно тот дефект, который владелец увидел: пока
+  // человек ещё стоит на экране, запись ему нужна, а стёртая подменяла подпись кнопки.
+  // Теперь память гасится, когда человек УХОДИТ с известным исходом.
+  it('память гасится при уходе с экрана, а не по факту исхода', async () => {
     seedPendingInfo(CHECKOUT_RETURN);
     vi.mocked(balanceApi.getPendingPayment).mockResolvedValue(paidPayment());
 
     renderResult('?method=platega&status=success');
-
     await screen.findByText('balance.topUpResult.success');
+    await settle();
+
+    // Пока человек на экране — запись на месте.
+    expect(localStorage.getItem('topup_pending_payment')).not.toBeNull();
+
+    // Ушёл — запись убрана.
+    fireEvent.click(screen.getByRole('button'));
     await waitFor(() => expect(localStorage.getItem('topup_pending_payment')).toBeNull());
   });
 
@@ -507,6 +515,27 @@ describe('TopUpResult — возврат на кассу после пополн
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  // 🔴 ПОЙМАНО ЖИВЫМ ПРОХОДОМ ВЛАДЕЛЬЦА 24.08.2026, 20:38. На экране «Баланс пополнен» кнопка
+  // САМА поменялась с «Вернуться к покупке» на «Перейти к балансу» — то есть человек, дошедший
+  // до конца, потерял дорогу к своей покупке, стоя на месте. Причина: экран перемонтировался,
+  // а память о пополнении к этому моменту уже была стёрта эффектом исхода. Сумма при этом
+  // осталась (её отдаёт сервер), а адрес возврата сервер не знает — отсюда и подмена подписи.
+  it('переживает перемонтирование: адрес возврата не теряется после подтверждения оплаты', async () => {
+    seedPendingInfo(CHECKOUT_RETURN);
+    vi.mocked(balanceApi.getPendingPayment).mockResolvedValue(paidPayment());
+
+    const first = renderResult('?method=platega&status=success');
+    await screen.findByText('balance.topUpResult.success');
+    expect(screen.getByRole('button').textContent).toBe('balance.topUpResult.backToOrder');
+    await settle();
+    first.unmount();
+
+    // Второе монтирование — то же самое, что видел владелец на седьмом скриншоте.
+    renderResult('?method=platega&status=success');
+    await screen.findByText('balance.topUpResult.success');
+    expect(screen.getByRole('button').textContent).toBe('balance.topUpResult.backToOrder');
   });
 
   // 🔴 Касса берёт баланс СВОИМ запросом. Без гашения этого кэша вернувшийся видит первым кадром
