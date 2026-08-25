@@ -1402,6 +1402,21 @@ describe('DeviceFirstConfigurator interaction safety', () => {
     expect(deviceFirstApi.payDirect).toHaveBeenCalledTimes(1);
   });
 
+  it('пока заказ грузится, экран НЕ утверждает, что оплата учтена', async () => {
+    // 🔴 Мина AR, вторая половина. Здесь экран писал «Настраиваем VPN. Оплата учтена» — про
+    // деньги, о которых он в этот момент не знает ничего: строка заказа ещё не пришла.
+    // Врало это не только тому, кому отказал банк: на этот же экран приводят карточка
+    // «незавершённый заказ» с Главной и кнопка из бота.
+    // Сторож держит момент ЗАГРУЗКИ: запрос заказа не разрешается никогда.
+    vi.mocked(deviceFirstApi.get).mockReturnValue(new Promise(() => {}));
+    renderConfigurator({ initialPath: '/subscription/purchase?checkout=checkout-owned' });
+
+    expect(await screen.findByText('deviceFirst.restoringOrderText')).toBeTruthy();
+    // 🔴 Улика: обещания оплаты на экране нет ни в каком виде.
+    expect(screen.queryByText('deviceFirst.processingText')).toBeNull();
+    expect(screen.queryByText('deviceFirst.processing')).toBeNull();
+  });
+
   it('restores a returned checkout without needing purchase options and resumes it by id', async () => {
     vi.mocked(deviceFirstApi.get).mockResolvedValue(checkout('provisioning'));
     renderConfigurator({ initialPath: '/subscription/purchase?checkout=checkout-owned' });

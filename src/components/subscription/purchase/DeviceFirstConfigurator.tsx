@@ -1240,8 +1240,18 @@ export function DeviceFirstConfigurator({
         )}
       </div>
 
+      {/* 🔴 Мина AR, вторая половина. Здесь стояло «Настраиваем VPN. Оплата учтена» — то есть
+          экран утверждал ПОЛУЧЕНИЕ ДЕНЕГ в тот самый момент, когда он ещё только грузит строку
+          заказа и не знает про них ничего. Это ровно ошибка пункта 4.2б, и она врала не только
+          отказавшему: сюда же приводят карточка «незавершённый заказ» с Главной и кнопка из
+          бота. Теперь текст говорит то, что происходит на самом деле, и не обещает ничего.
+          ⛔ Соседний экран `processing`/`provisioning` ниже НЕ тронут: там сервер уже подтвердил
+          оплату, и «Оплата учтена» — правда. */}
       {!checkout && initialCheckoutId && restoredCheckout.isLoading && (
-        <StateMessage title={t('deviceFirst.processing')} text={t('deviceFirst.processingText')} />
+        <StateMessage
+          title={t('deviceFirst.restoringOrderTitle')}
+          text={t('deviceFirst.restoringOrderText')}
+        />
       )}
       {!checkout && initialCheckoutId && restoredCheckout.isError && (
         <div className="space-y-4">

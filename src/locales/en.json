@@ -5339,6 +5339,8 @@
     "abandonedCartText": "No money was charged. The payment link may still work — do not use it: if the payment is confirmed later, the amount is credited to your balance once, and this order will not become a subscription. You can place a new order right now.",
     "providerClosedTitle": "The previous invoice is closed",
     "providerClosedText": "The old payment link may still work. Do not use it: the amount would simply land on your balance, and this order still won't become a subscription. Choose a period and devices for a new order.",
+    "restoringOrderTitle": "Opening your order",
+    "restoringOrderText": "One moment — checking where it stands.",
     "operatorClosedTitle": "Order closed by support",
     "operatorClosedNoMoneyText": "Support closed this order, so it will not become a subscription. Nothing was charged for it. You can place a new order right now.",
     "operatorClosedMoneyText": "Support closed this order, so it will not become a subscription. If a payment went through, support will return the amount to your balance. Check your balance before placing a new order — it will be paid from there.",
