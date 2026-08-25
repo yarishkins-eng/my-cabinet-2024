@@ -669,8 +669,13 @@ describe('DeviceFirstConfigurator interaction safety', () => {
 
   it('shows the payment CTA even when the pending-payment read fails outright', async () => {
     // 🔴 Вторая половина пункта, без которой первая калечит экран. Кнопка оплаты рисовалась
-    // ТОЛЬКО из отдельного запроса `getPendingPayment`, а он живёт с `retry: false` и
-    // штатно отвечает `redirect_url: null`. Пока мы уходили сами, это было незаметно.
+    // ТОЛЬКО из отдельного запроса `getPendingPayment`, который штатно отвечает
+    // `redirect_url: null`. Пока мы уходили сами, это было незаметно.
+    // ⚠️ Обоснование поправлено 25.08.2026 (этап AR, мина AN): прежде здесь стояло «а он живёт
+    // с `retry: false`». Больше не живёт — молчание сети теперь переспрашивается дважды
+    // (ответ сервера ниже 500 по-прежнему окончателен). Свойство самого сторожа от этого не
+    // изменилось: адрес пришёл вместе со счётом, поэтому кнопка обязана быть даже когда
+    // запрос падает совсем. Уберут запоминание адреса — покраснеет.
     // Перестав уходить, мы бы оставили человека на экране БЕЗ ЕДИНОГО способа заплатить.
     // Здесь запрос падает совсем — кнопка обязана быть, потому что адрес пришёл вместе со
     // счётом. Уберут запоминание адреса — покраснеет.
@@ -1401,6 +1406,35 @@ describe('DeviceFirstConfigurator interaction safety', () => {
     expect(screen.queryByRole('button', { name: 'deviceFirst.changeOptions' })).toBeNull();
     expect(deviceFirstApi.payDirect).toHaveBeenCalledTimes(1);
   });
+
+  it('мина AN: молчание сети переспрашиваем, ответ «адреса нет» — НЕТ', async () => {
+    // 🔴 Две половины одной защиты, и обе обязаны быть проверены ОДНИМ входом каждая,
+    // иначе сторож стережёт совпадение:
+    //   сеть промолчала → окончательного ответа не было → переспрашиваем;
+    //   сервер ОТВЕТИЛ 404 → адреса нет, и это защита от повторной оплаты → не трогаем.
+    // Улика того, что момент действительно прошёл, — число попыток в первом сценарии:
+    // пока оно не дошло до трёх, время повторов ещё не истекло, и «ровно одна попытка»
+    // во втором сценарии ничего бы не доказывала.
+    const invoice = directInvoice();
+    vi.mocked(deviceFirstApi.get).mockResolvedValue(invoice);
+
+    vi.mocked(deviceFirstApi.getPendingPayment).mockRejectedValue(new Error('network is down'));
+    renderConfigurator({ initialPath: '/subscription/purchase?checkout=checkout-owned' });
+    await waitFor(() => expect(deviceFirstApi.getPendingPayment).toHaveBeenCalledTimes(3), {
+      timeout: 4000,
+    });
+
+    cleanup();
+    vi.mocked(deviceFirstApi.getPendingPayment).mockClear();
+    vi.mocked(deviceFirstApi.getPendingPayment).mockRejectedValue({
+      response: { status: 404, data: { detail: { code: 'pending_payment_not_found' } } },
+    });
+    renderConfigurator({ initialPath: '/subscription/purchase?checkout=checkout-owned' });
+    await waitFor(() => expect(deviceFirstApi.getPendingPayment).toHaveBeenCalled());
+    // Ждём заведомо дольше, чем заняли три попытки выше.
+    await new Promise((resolve) => setTimeout(resolve, 1200));
+    expect(deviceFirstApi.getPendingPayment).toHaveBeenCalledTimes(1);
+  }, 10000);
 
   it('счёт уже закрыт провайдером — выброс не теряет выбор человека', async () => {
     // 🔴 Мина X, третий выход, найден атакой на замысел до кода. `recoverAmbiguousCheckout`

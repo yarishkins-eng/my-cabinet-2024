@@ -827,7 +827,19 @@ export function DeviceFirstConfigurator({
       fixtureCheckout === undefined &&
       checkout?.settlement_mode === 'direct_purchase_v2' &&
       checkout.ui_state === 'awaiting_payment',
-    retry: false,
+    // 🔴 Мина AN. Было `retry: false`, и ОДНА осечка сети выглядела как окончательный ответ
+    // «платить нечем»: адрес оплаты берётся ТОЛЬКО из ответа этого запроса, и кнопка исчезала.
+    // ⛔ Но переспрашивать можно ТОЛЬКО молчание сети. Если сервер ОТВЕТИЛ, что адреса нет
+    // (4xx, `pending_payment_not_found`), это не осечка, а защита от повторной оплаты —
+    // её нельзя ни переспрашивать, ни пережидать спиннером на денежном экране. Различаем
+    // ровно тем же признаком, что и слой запросов (`api/deviceFirst.ts`, `postPayIntent`):
+    // есть ответ сервера ниже 500 — окончательно, нет ответа или 5xx — можно переспросить.
+    // Задержка короткая нарочно: пока идут повторы, человеку нечем платить.
+    retry: (failureCount, error) => {
+      const status = (error as { response?: { status?: number } })?.response?.status;
+      return failureCount < 2 && (status === undefined || status >= 500);
+    },
+    retryDelay: 300,
   });
   // Пункт 4.11а: единственный источник кнопки оплаты — ответ сервера. Свежий адрес попадает
   // сюда записью в кэш из `rememberInvoiceRedirect`, а не отдельной веткой в обход сервера.
