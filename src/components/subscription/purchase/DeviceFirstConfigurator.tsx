@@ -417,7 +417,15 @@ export function DeviceFirstConfigurator({
     },
   });
   useEffect(() => {
-    if (statusQuery.data) setCheckout(statusQuery.data);
+    if (!statusQuery.data) return;
+    setCheckout(statusQuery.data);
+    // 🔴 Опрос пишет строку МИМО `acceptCheckout`, поэтому единственным, кто чистил
+    // `actionError` на переходе `awaiting_payment → cancelled`, был снятый этапом
+    // авто-возврат. Без этой строки поверх объяснения «Предыдущий счёт закрыт» вставала
+    // прежняя техническая ошибка («не оплачивайте повторно; обновите статус»), и экран
+    // давал два противоположных указания разом. Гасим ровно на терминальном переходе:
+    // ошибка относилась к счёту, которого больше нет.
+    if (statusQuery.data.ui_state !== 'awaiting_payment') setActionError(null);
   }, [statusQuery.data]);
 
   const methods = useQuery({
@@ -536,17 +544,20 @@ export function DeviceFirstConfigurator({
   const recoverAmbiguousCheckout = async (error: unknown) => {
     setActionError(error);
     if (deviceFirstErrorCode(error) === 'invoice_terminal') {
-      // The server archived a provider-verified cancelled/expired invoice.
-      // It has no active money path, so return straight to a fresh choice
-      // instead of trapping the customer on a technical error screen.
-      // 🔴 Мина X, третий выход. Здесь `rememberSelection` не звался — и это ЕДИНСТВЕННЫЙ
-      // путь на экране, где выброс терял выбор человека. Он достижим ровно у той когорты,
-      // ради которой затеян этап AR: человек приземлился по `?checkout=` (локальные срок и
-      // число устройств — умолчания), нажал «оплатить», а счёт провайдер уже закрыл. Без этой
-      // строки он оформлял 6 устройств на 90 дней, а возвращался к 2 на 30 — молча.
-      // Соседние выходы (`startNewQuote`, отмена, отказ от корзины) помнят выбор давно.
+      // 🔴 ЗДЕСЬ БЫЛ ВТОРОЙ МОЛЧАЛИВЫЙ ВЫБРОС, и он пережил первую волну правок этапа.
+      // Сервер бросает `invoice_terminal` ровно тогда же, когда закрывает счёт причиной
+      // `provider_terminal:*` — то есть это ТОТ ЖЕ человек и то же состояние, ради которого
+      // затеян этап. Прежний код звал `returnToConfiguration()`, а тот первой строкой делает
+      // `setActionError(null)`: поставленная строкой выше ошибка стиралась в том же кадре, и
+      // человек, нажавший «оплатить», молча оказывался на экране выбора срока. Объяснения он
+      // не видел никогда.
+      // Теперь вместо выброса перечитываем строку заказа: сервер вернёт её уже закрытой, и
+      // человек прочитает то же, что читает пришедший опросом. Ошибку не стираем — если
+      // перечитать не удалось, ему останется хотя бы она.
+      // `rememberSelection` нужен потому, что при холодном приземлении по `?checkout=`
+      // локальные срок и устройства — умолчания, а его выбор живёт только в строке заказа.
       rememberSelection(checkout);
-      returnToConfiguration();
+      void statusQuery.refetch();
       return;
     }
     if (deviceFirstErrorCode(error) !== 'reconciliation_required') return;
@@ -652,8 +663,10 @@ export function DeviceFirstConfigurator({
     await recoverAmbiguousCheckout(error);
   };
   // 🔴 Пункт 4.11а. Кнопка оплаты на экране счёта рисуется из запроса `getPendingPayment`,
-  // а он живёт с `retry: false`: одна сетевая осечка — и человек остаётся на экране БЕЗ
-  // ЕДИНОГО способа заплатить. Пока мы уходили редиректом, это было незаметно, адрес держали
+  // а тот отвечает один раз: одна сетевая осечка — и человек остаётся на экране БЕЗ
+  // ЕДИНОГО способа заплатить. (⚠️ 26.08.2026, мина AN: прежде здесь было написано «живёт с
+  // `retry: false`» — больше не живёт, молчание сети переспрашивается дважды. Довод ниже от
+  // этого не изменился: ответ мутации всё равно свежее любого повтора.) Пока мы уходили редиректом, это было незаметно, адрес держали
   // в руках. Поэтому ответ мутации кладём в ТОТ ЖЕ кэш, откуда экран берёт кнопку: это такой
   // же ответ сервера, только свежее — адрес пришёл вместе с самим счётом.
   // 🔴 Кэш именно ЗАПИСЫВАЕМ, а не инвалидируем: `resume` не меняет id заказа, и в кэше
@@ -1272,9 +1285,19 @@ export function DeviceFirstConfigurator({
           text={t('deviceFirst.restoringOrderText')}
         />
       )}
+      {/* 🔴 Мина AR, найдено волной 1 (три линзы независимо). Здесь стоял тот же `refreshText`
+          — «Данные подписки или цена изменились. Создайте новый расчёт — деньги без
+          подтверждения не списаны». Обе половины неправда, и вторая опаснее: сюда падает
+          ровно тот, у кого холодный старт вебвью сорвал ТРИ чтения подряд после оплаты
+          картой (`retry: 2` заводили под эту когорту). Ему сообщали, что списания не было,
+          и звали оформить заказ заново — то есть заплатить второй раз.
+          Новый текст не утверждает про деньги ничего и несёт защиту вместо обещания. */}
       {!checkout && initialCheckoutId && restoredCheckout.isError && (
         <div className="space-y-4">
-          <StateMessage title={t('deviceFirst.refreshTitle')} text={t('deviceFirst.refreshText')} />
+          <StateMessage
+            title={t('deviceFirst.restoringErrorTitle')}
+            text={t('deviceFirst.restoringErrorText')}
+          />
           <button
             type="button"
             onClick={startNewQuote}
