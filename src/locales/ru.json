@@ -973,7 +973,7 @@
     "copyLink": "Копировать",
     "copied": "Скопировано!",
     "shareButton": "Поделиться",
-    "shareMessage": "Подключайся к {{botName}} по моей ссылке — при пополнении баланса от {{minimum}} тебе ещё {{bonus}} бонусом на счёт! 💸",
+    "shareMessage": "Подключайся к {{botName}} по моей ссылке — при первой оплате от {{minimum}} тебе ещё {{bonus}} бонусом на счёт! 💸",
     "shareHint": "Поделитесь ссылкой с друзьями. Когда они зарегистрируются и оплатят, вы получите {{percent}}% комиссии!",
     "stats": {
       "totalReferrals": "Всего рефералов",
@@ -984,7 +984,7 @@
     "terms": {
       "title": "Условия программы",
       "commission": "Комиссия",
-      "minTopup": "Мин. пополнение",
+      "minTopup": "Мин. оплата",
       "newUserBonus": "Бонус новому пользователю",
       "inviterBonus": "Бонус пригласившему"
     },
@@ -1006,7 +1006,9 @@
       "referral_registration": "Регистрация реферала",
       "referral_first_payment": "Первая оплата реферала",
       "referral_subscription_renewal": "Продление подписки реферала",
-      "referral_bonus": "Бонус за реферала"
+      "referral_bonus": "Бонус за реферала",
+      "referral_first_topup": "Первая оплата реферала",
+      "referral_commission_topup": "Комиссия с оплаты реферала"
     },
     "disabled": "Реферальная программа временно отключена",
     "partner": {

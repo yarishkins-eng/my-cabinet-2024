@@ -945,7 +945,7 @@
     "copyLink": "Copy",
     "copied": "Copied!",
     "shareButton": "Share",
-    "shareMessage": "Join {{botName}} via my link — top up your balance from {{minimum}} and get an extra {{bonus}} bonus! 💸",
+    "shareMessage": "Join {{botName}} via my link — pay {{minimum}} or more the first time and get an extra {{bonus}} bonus! 💸",
     "shareHint": "Share this link with friends. When they sign up and make a purchase, you'll earn {{percent}}% commission!",
     "stats": {
       "totalReferrals": "Total Referrals",
@@ -956,7 +956,7 @@
     "terms": {
       "title": "Program Terms",
       "commission": "Commission",
-      "minTopup": "Min. Top-up",
+      "minTopup": "Min. Payment",
       "newUserBonus": "New User Bonus",
       "inviterBonus": "Inviter Bonus"
     },
@@ -978,7 +978,9 @@
       "referral_registration": "Referral Registration",
       "referral_first_payment": "Referral First Payment",
       "referral_subscription_renewal": "Referral Subscription Renewal",
-      "referral_bonus": "Referral Bonus"
+      "referral_bonus": "Referral Bonus",
+      "referral_first_topup": "Referral First Payment",
+      "referral_commission_topup": "Commission from Referral Payment"
     },
     "disabled": "Referral program is currently disabled",
     "partner": {
