@@ -84,6 +84,25 @@ export function closedCartCopy(
           textKey: 'deviceFirst.operatorClosedMoneyText',
         };
   }
+  // 🔴 Мина AR. Счёт закрыл САМ провайдер — на боевом это 22 из 31 отменённого заказа, то есть
+  // главный способ потерять покупателя. До этой ветки экран возвращал `null`, а человека молча
+  // отматывало на выбор срока: ни слова о том, что оплата не прошла и что старая ссылка опасна.
+  // ⛔ Про `money_state` здесь НЕ спрашиваем, и это не забывчивость. Ровно так же устроена
+  // ботовая половина (`bot-code/app/handlers/subscription/device_first.py`, ветка
+  // `provider_terminal`): там `money_state` для этой причины даже не вычисляется. Два экрана
+  // про одно состояние обязаны сходиться — это требование пункта 4.2б.
+  // Гард по `no_money` не сработал бы вовсе: сервер на `provider_terminal:*` отвечает `unknown`
+  // (`device_first_checkout_service.py`, набор `_NO_MONEY_TERMINAL_REASONS` этой причины не
+  // содержит). Замер боевой базы 25.08.2026: у всех 22 таких заказов нет ни списания, ни
+  // зачисленной попытки — `unknown` во всех двадцати двух.
+  // Текст при этом не утверждает про деньги НИЧЕГО: он предупреждает про живую ссылку и
+  // описывает уже работающую ветку возврата поздних денег на баланс.
+  if (terminalReason?.startsWith('provider_terminal:')) {
+    return {
+      titleKey: 'deviceFirst.providerClosedTitle',
+      textKey: 'deviceFirst.providerClosedText',
+    };
+  }
   if (terminalReason !== 'cancelled_by_user_after_invoice' || moneyState !== 'no_money') {
     return null;
   }

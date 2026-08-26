@@ -53,12 +53,19 @@ export function DeviceFirstConfigurator({
   const { openLink } = usePlatform();
   const g = getGlassColors(isDark);
   const paymentLinkOpenedRef = useRef(false);
+  const paymentDeclinedRef = useRef(false);
+  const [paymentDeclined, setPaymentDeclined] = useState(false);
   const markLeavingToPay = useCallback(() => {
     // 🔴 Оба выхода наружу обязаны отмечаться одинаково: и кнопка оплаты, и «скопировать
     // ссылку». Пока это знал только первый, человек, оплативший ПО СКОПИРОВАННОЙ ссылке,
     // возвращался на экран, который не перечитывал заказ и уже замолчал по порогу, — а
     // подпись под кнопкой обещала ему «заказ обновится сам». Нашла волна ревью, не я.
     paymentLinkOpenedRef.current = true;
+    // 🔴 Мина EW (наша, нашли три проверки волны 2). Плашка «Оплата не прошла» — это НОВОСТЬ
+    // от платёжной системы, а не свойство заказа. Человек пошёл платить снова — прежний отказ
+    // перестал быть последним, что мы о нём знаем. Не сбросив здесь, мы показывали бы «оплата
+    // не прошла» поверх работающей кнопки оплаты тому, кто как раз платит.
+    setPaymentDeclined(false);
     // Опрос статуса затухает через 2 минуты (`:365`), а окно оплаты по СБП — 30–41 минута.
     // Пока документ умирал, это было незаметно: возврат с оплаты был новой загрузкой и
     // отсчёт начинался заново. Оставив документ живым, мы обязаны перевзвести отсчёт сами.
@@ -149,6 +156,25 @@ export function DeviceFirstConfigurator({
     nextParams.delete('from');
     setSearchParams(nextParams, { replace: true });
   }, [fixtureCheckout, searchParams, setSearchParams]);
+  // 🔴 Мина AQ. Платёжная система возвращает отказавшего с меткой `payment=failed`
+  // (`utils/telegramStartParam.ts` превращает `co_<id>_fail` в этот параметр). До сих пор его
+  // на этом маршруте не читал НИКТО — параметр доезжал и пропадал впустую.
+  // Зачем он нужен, если заказ и так закроется: закрывает его не возврат человека, а вебхук
+  // или сверка. Пока они не сработали, строка остаётся `awaiting_payment`, и человек видит
+  // живую кнопку «Перейти к оплате» и НИ СЛОВА о том, что банк только что отказал.
+  // ⛔ Метку снимаем с адреса сразу и держим в ref: иначе она переживёт перезагрузку и будет
+  // объявлять отказ по заказу, который человек к тому времени уже оплатил.
+  useEffect(() => {
+    if (fixtureCheckout !== undefined) return;
+    if (paymentDeclinedRef.current) return;
+    if (searchParams.get('payment') !== 'failed') return;
+    paymentDeclinedRef.current = true;
+    setPaymentDeclined(true);
+    const nextParams = new URLSearchParams(searchParams);
+    nextParams.delete('payment');
+    setSearchParams(nextParams, { replace: true });
+  }, [fixtureCheckout, searchParams, setSearchParams]);
+
   const acceptCheckout = useCallback(
     (next: DeviceFirstCheckout) => {
       if (isShowcaseDraft(next)) {
@@ -187,6 +213,10 @@ export function DeviceFirstConfigurator({
     // until an explicit abandonment or a completed different configuration.
     deviceFirstApi.clearCreateIntents();
     setActionError(null);
+    // 🔴 Мина EW. Без этого отказ по ЗАКРЫТОМУ заказу переезжал на следующий, ни разу не
+    // оплаченный счёт: состояние ставилось один раз и не сбрасывалось ничем, а компонент
+    // между заказами не размонтируется.
+    setPaymentDeclined(false);
     setExistingPaymentAttempt(null);
     setConfirmAbandon(false);
     setRepriced(false);
@@ -310,9 +340,11 @@ export function DeviceFirstConfigurator({
     // «Недоступно», «Итого» пустое, кнопка мертва, и подсказки нет. Экран при этом
     // лечится одним касанием по карточке устройства — но об этом ничто не говорит,
     // а с клавиатуры до карточек не добраться: без выбранной ни одна не в tab-порядке.
-    // Владелец поймал это после отмены заказа; на деле сюда приводит и автоматический
-    // возврат при отмене счёта провайдером (эффект `provider_terminal:` ниже), то есть каждая брошенная
+    // Владелец поймал это после отмены заказа; сюда же приводит уход с экрана закрытого
+    // заказа кнопкой «Начать новый расчёт» (`startNewQuote`), то есть каждая брошенная
     // корзина, оплачивавшаяся через СБП.
+    // ⚠️ Прежняя редакция ссылалась на «автоматический возврат при отмене счёта провайдером» —
+    // того эффекта больше нет, он снят этапом AR 25.08.2026 (см. комментарий на его месте).
     // 🔴 Гард обязателен: пока открыто подтверждение или показан заказ, под кнопкой
     // оплаты стоит конкретная сумма, и молча поменять там ВЫБОР — значит показать цену
     // другой конфигурации.
@@ -415,7 +447,19 @@ export function DeviceFirstConfigurator({
     },
   });
   useEffect(() => {
-    if (statusQuery.data) setCheckout(statusQuery.data);
+    if (!statusQuery.data) return;
+    setCheckout(statusQuery.data);
+    // 🔴 Опрос пишет строку МИМО `acceptCheckout`, поэтому единственным, кто чистил
+    // `actionError` на переходе `awaiting_payment → cancelled`, был снятый этапом
+    // авто-возврат. Без этой строки поверх объяснения «Предыдущий счёт закрыт» вставала
+    // прежняя техническая ошибка («не оплачивайте повторно; обновите статус»), и экран
+    // давал два противоположных указания разом. Гасим ровно на терминальном переходе:
+    // ошибка относилась к счёту, которого больше нет.
+    // ⚠️ СУЖЕНО волной 2. Было «любое не-`awaiting_payment`», и это уносило защиту
+    // «не оплачивайте повторно» на `expired`/`failed`/`conflict`, где своего объяснения нет и
+    // экран падает в запасной текст. Гасим ровно там, где этап поставил ЗАМЕНУ: закрытый
+    // провайдером счёт со своим объяснением. Остальные состояния ведут себя как прежде.
+    if (statusQuery.data.terminal_reason?.startsWith('provider_terminal:')) setActionError(null);
   }, [statusQuery.data]);
 
   const methods = useQuery({
@@ -534,10 +578,26 @@ export function DeviceFirstConfigurator({
   const recoverAmbiguousCheckout = async (error: unknown) => {
     setActionError(error);
     if (deviceFirstErrorCode(error) === 'invoice_terminal') {
-      // The server archived a provider-verified cancelled/expired invoice.
-      // It has no active money path, so return straight to a fresh choice
-      // instead of trapping the customer on a technical error screen.
-      returnToConfiguration();
+      // 🔴 ЗДЕСЬ БЫЛ ВТОРОЙ МОЛЧАЛИВЫЙ ВЫБРОС, и он пережил первую волну правок этапа.
+      // Сервер бросает `invoice_terminal` ровно тогда же, когда закрывает счёт причиной
+      // `provider_terminal:*` — то есть это ТОТ ЖЕ человек и то же состояние, ради которого
+      // затеян этап. Прежний код звал `returnToConfiguration()`, а тот первой строкой делает
+      // `setActionError(null)`: поставленная строкой выше ошибка стиралась в том же кадре, и
+      // человек, нажавший «оплатить», молча оказывался на экране выбора срока. Объяснения он
+      // не видел никогда.
+      // Теперь вместо выброса перечитываем строку заказа: сервер вернёт её уже закрытой, и
+      // человек прочитает то же, что читает пришедший опросом. Ошибку не стираем — если
+      // перечитать не удалось, ему останется хотя бы она.
+      // ⚠️ Здесь стоял ещё и `rememberSelection(checkout)` — он был нужен, пока эта ветка
+      // ВЫБРАСЫВАЛА человека на экран выбора. Выброса больше нет, человек остаётся на строке
+      // заказа, а уходит кнопкой «Начать новый расчёт», которая помнит выбор сама. Мутация
+      // показала, что строка стала мёртвой: без неё не краснеет ни один сторож. Убрана —
+      // мёртвый вызов на денежном экране врёт следующему читателю сильнее, чем его отсутствие.
+      // ⚠️ Волна 2: на pay-time мутациях локальной строки НЕТ по построению, и перечитывать
+      // тогда нечего — запрос разыменовал бы `null`. В этом случае человек остаётся на
+      // подтверждении с поставленной выше ошибкой, у которой теперь есть свой честный текст
+      // (`invoice_terminal` в карте сообщений ниже, слово в слово из бота).
+      if (checkout) void statusQuery.refetch();
       return;
     }
     if (deviceFirstErrorCode(error) !== 'reconciliation_required') return;
@@ -643,8 +703,10 @@ export function DeviceFirstConfigurator({
     await recoverAmbiguousCheckout(error);
   };
   // 🔴 Пункт 4.11а. Кнопка оплаты на экране счёта рисуется из запроса `getPendingPayment`,
-  // а он живёт с `retry: false`: одна сетевая осечка — и человек остаётся на экране БЕЗ
-  // ЕДИНОГО способа заплатить. Пока мы уходили редиректом, это было незаметно, адрес держали
+  // а тот отвечает один раз: одна сетевая осечка — и человек остаётся на экране БЕЗ
+  // ЕДИНОГО способа заплатить. (⚠️ 26.08.2026, мина AN: прежде здесь было написано «живёт с
+  // `retry: false`» — больше не живёт, молчание сети переспрашивается дважды. Довод ниже от
+  // этого не изменился: ответ мутации всё равно свежее любого повтора.) Пока мы уходили редиректом, это было незаметно, адрес держали
   // в руках. Поэтому ответ мутации кладём в ТОТ ЖЕ кэш, откуда экран берёт кнопку: это такой
   // же ответ сервера, только свежее — адрес пришёл вместе с самим счётом.
   // 🔴 Кэш именно ЗАПИСЫВАЕМ, а не инвалидируем: `resume` не меняет id заказа, и в кэше
@@ -801,21 +863,16 @@ export function DeviceFirstConfigurator({
     },
     onError: setActionError,
   });
-  useEffect(() => {
-    if (
-      checkout?.ui_state === 'cancelled' &&
-      checkout.terminal_reason?.startsWith('provider_terminal:')
-    ) {
-      rememberSelection(checkout);
-      returnToConfiguration();
-    }
-  }, [
-    checkout?.terminal_reason,
-    checkout?.ui_state,
-    checkout,
-    rememberSelection,
-    returnToConfiguration,
-  ]);
+  // 🔴 Мина AR. ЗДЕСЬ СТОЯЛ МОЛЧАЛИВЫЙ АВТО-ВОЗВРАТ и снят намеренно (этап AR, 25.08.2026).
+  // Он ловил `ui_state === 'cancelled'` с причиной `provider_terminal:*` и сразу звал
+  // `returnToConfiguration()` — человека, у которого платёжная система закрыла счёт, отматывало
+  // на выбор срока БЕЗ ЕДИНОГО СЛОВА. На боевом это 22 из 31 отменённого заказа.
+  // Теперь он остаётся на экране закрытого заказа и читает `closedCartCopy` (`:1084`), а уходит
+  // сам — кнопкой «Начать новый расчёт», которая делает ровно то же самое (`startNewQuote`).
+  // ⛔ Ничего, кроме показа, снятие не меняет: `statusQuery` и `pendingPayment` на `cancelled`
+  // выключаются сами своими `enabled`, `clearCreateIntents` чистит префикс `create:`, которого
+  // этот экран не заводит вовсе (запрещено сторожем `contract.test.ts`), а `cancelled` не входит
+  // в `OPEN_STATES` сервера и новую покупку не запирает.
   const pendingPayment = useQuery({
     queryKey: ['device-first-pending-payment', checkout?.id],
     queryFn: () => deviceFirstApi.getPendingPayment(checkout!.id),
@@ -823,7 +880,19 @@ export function DeviceFirstConfigurator({
       fixtureCheckout === undefined &&
       checkout?.settlement_mode === 'direct_purchase_v2' &&
       checkout.ui_state === 'awaiting_payment',
-    retry: false,
+    // 🔴 Мина AN. Было `retry: false`, и ОДНА осечка сети выглядела как окончательный ответ
+    // «платить нечем»: адрес оплаты берётся ТОЛЬКО из ответа этого запроса, и кнопка исчезала.
+    // ⛔ Но переспрашивать можно ТОЛЬКО молчание сети. Если сервер ОТВЕТИЛ, что адреса нет
+    // (4xx, `pending_payment_not_found`), это не осечка, а защита от повторной оплаты —
+    // её нельзя ни переспрашивать, ни пережидать спиннером на денежном экране. Различаем
+    // ровно тем же признаком, что и слой запросов (`api/deviceFirst.ts`, `postPayIntent`):
+    // есть ответ сервера ниже 500 — окончательно, нет ответа или 5xx — можно переспросить.
+    // Задержка короткая нарочно: пока идут повторы, человеку нечем платить.
+    retry: (failureCount, error) => {
+      const status = (error as { response?: { status?: number } })?.response?.status;
+      return failureCount < 2 && (status === undefined || status >= 500);
+    },
+    retryDelay: 300,
   });
   // Пункт 4.11а: единственный источник кнопки оплаты — ответ сервера. Свежий адрес попадает
   // сюда записью в кэш из `rememberInvoiceRedirect`, а не отдельной веткой в обход сервера.
@@ -1243,12 +1312,43 @@ export function DeviceFirstConfigurator({
         )}
       </div>
 
+      {/* 🔴 Мина AR, вторая половина. Здесь стояло «Настраиваем VPN. Оплата учтена» — то есть
+          экран утверждал ПОЛУЧЕНИЕ ДЕНЕГ в тот самый момент, когда он ещё только грузит строку
+          заказа и не знает про них ничего. Это ровно ошибка пункта 4.2б, и она врала не только
+          отказавшему: сюда же приводят карточка «незавершённый заказ» с Главной и кнопка из
+          бота. Теперь текст говорит то, что происходит на самом деле, и не обещает ничего.
+          ⛔ Соседний экран `processing`/`provisioning` ниже НЕ тронут: там сервер уже подтвердил
+          оплату, и «Оплата учтена» — правда. */}
       {!checkout && initialCheckoutId && restoredCheckout.isLoading && (
-        <StateMessage title={t('deviceFirst.processing')} text={t('deviceFirst.processingText')} />
+        <StateMessage
+          title={t('deviceFirst.restoringOrderTitle')}
+          text={t('deviceFirst.restoringOrderText')}
+        />
       )}
+      {/* 🔴 Мина AR, найдено волной 1 (три линзы независимо). Здесь стоял тот же `refreshText`
+          — «Данные подписки или цена изменились. Создайте новый расчёт — деньги без
+          подтверждения не списаны». Обе половины неправда, и вторая опаснее: сюда падает
+          ровно тот, у кого холодный старт вебвью сорвал ТРИ чтения подряд после оплаты
+          картой (`retry: 2` заводили под эту когорту). Ему сообщали, что списания не было,
+          и звали оформить заказ заново — то есть заплатить второй раз.
+          Новый текст не утверждает про деньги ничего и несёт защиту вместо обещания. */}
       {!checkout && initialCheckoutId && restoredCheckout.isError && (
         <div className="space-y-4">
-          <StateMessage title={t('deviceFirst.refreshTitle')} text={t('deviceFirst.refreshText')} />
+          <StateMessage
+            title={t('deviceFirst.restoringErrorTitle')}
+            text={t('deviceFirst.restoringErrorText')}
+          />
+          {/* ⚠️ Волна 2: текст просит «не создавайте новый заказ — напишите в поддержку», а
+              единственная кнопка под ним называлась «Начать новый расчёт» и стирала `?checkout=`
+              — последнюю ссылку на заказ, за который человек, возможно, заплатил. Соседние
+              терминальные ветки выход в поддержку дают; эта не давала. Даём. */}
+          <button
+            type="button"
+            onClick={() => navigate('/support')}
+            className={`min-h-11 w-full rounded-xl px-4 py-2 text-sm text-dark-400 hover:text-dark-200 ${choiceClass}`}
+          >
+            {t('deviceFirst.contactSupport')}
+          </button>
           <button
             type="button"
             onClick={startNewQuote}
@@ -1641,6 +1741,27 @@ export function DeviceFirstConfigurator({
           <h3 className="text-lg font-bold text-dark-50">{t(directTitleKey)}</h3>
           <Summary checkout={checkout} formatPrice={formatPrice} />
           <p className="text-sm text-dark-400">{t(directTextKey)}</p>
+          {/* 🔴 Мина AQ. Сообщение живёт ТОЛЬКО пока заказ не закрыт: как только он станет
+              `cancelled`, слово берёт объяснение закрытого счёта, и два голоса про одно
+              состояние были бы ровно тем, что запрещает пункт 4.2б.
+              ⚠️ Забор для этого стоит СНАРУЖИ — весь этот блок висит на
+              `checkout?.ui_state === 'awaiting_payment'`. Здесь стояла его копия; мутация
+              показала, что она ничего не держит, и копия убрана: условие, которое выглядит
+              защитой, но не защищает, хуже отсутствия условия. */}
+          {paymentDeclined && (
+            <div role="status" className="rounded-xl bg-error-500/10 p-3">
+              <p className="text-sm font-semibold text-error-400">
+                {t('deviceFirst.providerDeclinedNoticeTitle')}
+              </p>
+              {/* ⚠️ Второе предложение («счёт ещё открыт — можно попробовать») отсюда убрано
+                  волной 2: адрес оплаты гаснет РАНЬШЕ, чем закрывается заказ, и текст звал
+                  повторить там, где повторять нечем, а соседний абзац в это же время просит
+                  «не оплачивайте повторно». Оставлено ровно то, что нам сказал провайдер. */}
+              <p className="mt-1 text-sm text-dark-300">
+                {t('deviceFirst.providerDeclinedNotice')}
+              </p>
+            </div>
+          )}
           {checkout.settlement_mode === 'direct_purchase_v2' &&
             invoiceRedirectUrl &&
             invoiceDeadline && (
@@ -2123,6 +2244,10 @@ function deviceFirstErrorMessage(
     invalid_selection: 'deviceFirst.errorSelectionChanged',
     invalid_funding_request: 'deviceFirst.error',
     invalid_state: 'deviceFirst.errorOrderUpdated',
+    // ⚠️ Волна 2: без этой строки отказ падал в безликое «Не удалось выполнить действие.
+    // Попробуйте ещё раз» — то есть звал повторить ровно то, откуда его только что отбили.
+    // Текст взят слово в слово из ботовой половины и про деньги не утверждает ничего.
+    invoice_terminal: 'deviceFirst.errorInvoiceTerminal',
     quote_expired: 'deviceFirst.errorOrderUpdated',
     rate_limited: 'deviceFirst.errorRateLimited',
     concurrent_idempotency_key: 'deviceFirst.errorRateLimited',

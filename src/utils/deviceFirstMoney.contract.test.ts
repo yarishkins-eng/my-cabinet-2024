@@ -87,6 +87,110 @@ describe('вердикт о деньгах доведён до всех экра
     expect(locale('en').deviceFirst.abandonedCartText.toLowerCase()).toContain('do not use it');
   });
 
+  it('мина AR: ключи закрытого провайдером счёта есть во всех четырёх языках', () => {
+    for (const language of ['ru', 'en', 'zh', 'fa']) {
+      for (const key of ['providerClosedTitle', 'providerClosedText']) {
+        expect(locale(language).deviceFirst[key], `${language}.${key}`).toBeTruthy();
+      }
+    }
+  });
+
+  // 🔴 ПЕРЕПИСАН 26.08.2026 по находке волны 1. Первая редакция запрещала ДВЕ русских подстроки
+  // и одну английскую — и линза текстов показала обход формулировкой, которая уже лежит в этом
+  // же проекте («Списаний по нему не было», `operatorClosedNoMoneyText`). Плюс китайский и
+  // персидский не проверялись по содержанию вовсе. Стережём КЛАСС утверждений, а не буквы, и во
+  // всех четырёх языках.
+  // ⚠️ Кириллицу писать явным диапазоном: `\w` в JavaScript — это `[A-Za-z0-9_]`, русские
+  // слова он не ловит вовсе. Первая редакция класса из-за этого пропускала «Списаний по нему
+  // не было»; поймал мета-сторож в конце файла, а не человек.
+  const NO_CHARGE_CLAIM: Record<string, RegExp> = {
+    ru: /не\s*списан|списани[а-яё]*\s+(по\s+\S+\s+)?не\s+было|ничего\s+не\s+списыв|деньги\s+остались|не\s+взяли|без\s+списани/i,
+    en: /nothing was charged|no money was charged|not charged|did ?n[o']?t charge|balance is untouched|without (any )?charge/i,
+    zh: /没有扣款|未扣款|不会扣款|没有收取|未收取/,
+    fa: /کسر نشده|کسر نکردیم|کسر نمی|برداشت نشده/,
+  };
+  const WARNS_AGAINST_OLD_LINK: Record<string, RegExp> = {
+    ru: /не платите по ней/i,
+    en: /do not use it/i,
+    zh: /不要使用/,
+    fa: /استفاده نکنید/,
+  };
+
+  it('мина AR: про закрытый провайдером счёт предупреждают, но НИЧЕГО не утверждают про деньги', () => {
+    // Свойств два, и они противоположны:
+    //   (1) текст обязан предупредить, что старая ссылка ещё принимает деньги, — иначе он не
+    //       защищает и ничем не отличается от прежнего молчания;
+    //   (2) текст НЕ смеет заявить, что списания не было. Сервер на эту причину отвечает
+    //       `unknown`, то есть НЕ ЗНАЕТ. Ровно эту ошибку разбирал пункт 4.2б, а соседний ключ
+    //       `abandonedCartText` начинается со слов «Деньги не списаны» — готовое враньё в двух
+    //       строках отсюда.
+    for (const language of ['ru', 'en', 'zh', 'fa']) {
+      const text = locale(language).deviceFirst.providerClosedText;
+      expect(text, `${language}: предупреждение про старую ссылку`).toMatch(
+        WARNS_AGAINST_OLD_LINK[language],
+      );
+      expect(text, `${language}: утверждение про несписание`).not.toMatch(
+        NO_CHARGE_CLAIM[language],
+      );
+    }
+  });
+
+  it('мина AR: экраны загрузки и неудачного чтения тоже не утверждают про деньги', () => {
+    // Оба экрана показываются, когда строки заказа ещё НЕТ, то есть система про деньги не знает
+    // ничего. Здесь запрещено и «оплата учтена», и «денег не списывали» — обе стороны.
+    for (const language of ['ru', 'en', 'zh', 'fa']) {
+      for (const key of ['restoringOrderText', 'restoringErrorText']) {
+        const text = locale(language).deviceFirst[key];
+        expect(text, `${language}.${key}`).toBeTruthy();
+        expect(text, `${language}.${key}: утверждение про несписание`).not.toMatch(
+          NO_CHARGE_CLAIM[language],
+        );
+      }
+    }
+    // И зеркально: обещания оплаты тоже нет.
+    expect(locale('ru').deviceFirst.restoringOrderText).not.toContain('плата учтена');
+    expect(locale('en').deviceFirst.restoringOrderText.toLowerCase()).not.toContain(
+      'payment is recorded',
+    );
+  });
+
+  it('мина AQ: тексты про отказ есть во всех четырёх языках и не утверждают про деньги', () => {
+    // Плашка отказа появилась вместе с чтением метки `payment=failed`, а сторожа у неё не было
+    // вовсе — нашла волна 2. Она делает проверяемое заявление («платёжная система сообщила»),
+    // и заявление это про СЛОВА провайдера, а не про списание. Про деньги здесь молчим.
+    for (const language of ['ru', 'en', 'zh', 'fa']) {
+      for (const key of [
+        'providerDeclinedNoticeTitle',
+        'providerDeclinedNotice',
+        'errorInvoiceTerminal',
+      ]) {
+        const text = locale(language).deviceFirst[key];
+        expect(text, `${language}.${key}`).toBeTruthy();
+        expect(text, `${language}.${key}: утверждение про несписание`).not.toMatch(
+          NO_CHARGE_CLAIM[language],
+        );
+      }
+    }
+    // ⚠️ И отдельно: плашка не смеет обещать, что счёт ещё можно оплатить. Адрес оплаты гаснет
+    // раньше, чем закрывается заказ, — обещание «можно попробовать ещё раз» стояло здесь и было
+    // снято волной 2 как непроверяемое.
+    expect(locale('ru').deviceFirst.providerDeclinedNotice).not.toContain('попробовать ещё раз');
+    expect(locale('en').deviceFirst.providerDeclinedNotice.toLowerCase()).not.toContain(
+      'try again',
+    );
+  });
+
+  it('мина AR: сторож несписания ловит формулировки, которые уже есть в проекте', () => {
+    // 🔴 Сторож на сторожа. Первая редакция проверки пропускала «Списаний по нему не было» —
+    // фразу из соседнего ключа этой же локали. Если класс перестанет её ловить, проверка выше
+    // снова станет проверкой совпадения, и покраснеть должна ИМЕННО ЗДЕСЬ.
+    expect(locale('ru').deviceFirst.operatorClosedNoMoneyText).toMatch(NO_CHARGE_CLAIM.ru);
+    expect(locale('ru').deviceFirst.abandonedCartText).toMatch(NO_CHARGE_CLAIM.ru);
+    expect(locale('en').deviceFirst.abandonedCartText).toMatch(NO_CHARGE_CLAIM.en);
+    expect(locale('zh').deviceFirst.abandonedCartText).toMatch(NO_CHARGE_CLAIM.zh);
+    expect(locale('fa').deviceFirst.abandonedCartText).toMatch(NO_CHARGE_CLAIM.fa);
+  });
+
   it('мина F: поздней оплате не говорят «деньги не списаны»', () => {
     // Единственный случай, когда деньги есть. До этой ветки экран показывал ему общий
     // «цена изменилась, деньги без подтверждения не списаны» — неправда дважды.

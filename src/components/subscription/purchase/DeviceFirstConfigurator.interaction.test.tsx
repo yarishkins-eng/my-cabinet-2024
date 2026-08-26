@@ -426,10 +426,15 @@ describe('DeviceFirstConfigurator interaction safety', () => {
     await waitFor(() => expect(screen.queryByText(/deviceFirst\.unavailable/)).toBeNull());
   });
 
-  it('keeps the selection the person made when the provider cancels the invoice', async () => {
-    // 🔴 Провайдер закрыл счёт → нас молча уводит на экран выбора. Раньше выбор человека
-    // при этом терялся: он оформлял 6 устройств на 90 дней, а видел первый попавшийся
-    // вариант и мог не заметить, что покупает другое.
+  it('провайдер закрыл счёт — человек читает объяснение и уходит САМ, не потеряв выбор', async () => {
+    // 🔴 ПЕРЕПИСАН 25.08.2026 (этап AR). Прежний сторож назывался «keeps the selection the person
+    // made when the provider cancels the invoice» и закреплял МОЛЧАЛИВЫЙ авто-возврат: он
+    // проверял, что человека уже унесло на экран выбора, и радовался, что выбор уцелел.
+    // Молчание и было бедой: 22 из 31 отменённого заказа на боевом закрыты провайдером, и ни
+    // одному человеку экран не сказал ни слова. Теперь свойство другое и оно шире:
+    //   1) человек ОСТАЁТСЯ на экране закрытого заказа и читает, что произошло;
+    //   2) уходит своим нажатием;
+    //   3) и только после этого видит экран выбора — со СВОЕЙ конфигурацией.
     const wide: DeviceFirstOptions = {
       ...options,
       period_options: [30, 90],
@@ -454,6 +459,11 @@ describe('DeviceFirstConfigurator interaction safety', () => {
       period_days: 90,
       selected_device_limit: 6,
       terminal_reason: 'provider_terminal:canceled',
+      // 🔴 Ровно то, что отдаёт боевой сервер: `provider_terminal:*` не входит в
+      // `_NO_MONEY_TERMINAL_REASONS`, поэтому `money_state` здесь ВСЕГДА `unknown`
+      // (замер боевой базы 25.08.2026: у всех 22 таких заказов). Если бы ветка была
+      // написана с гардом по `no_money`, этот сторож покраснел бы — и правильно.
+      money_state: 'unknown',
     };
     vi.mocked(deviceFirstApi.get).mockResolvedValue(cancelledRow);
 
@@ -462,7 +472,16 @@ describe('DeviceFirstConfigurator interaction safety', () => {
       initialPath: '/subscription/purchase?checkout=checkout-owned',
     });
 
-    // Экран выбора вернулся — и на нём стоит ЕГО конфигурация, а не первая попавшаяся.
+    // 1. Экран НЕ отмотался: человек видит объяснение про закрытый счёт.
+    expect(await screen.findByText('deviceFirst.providerClosedTitle')).toBeTruthy();
+    expect(screen.getByText('deviceFirst.providerClosedText')).toBeTruthy();
+    // 🔴 Улика того, что мы именно на экране заказа, а не на выборе: карточек устройств тут нет.
+    expect(screen.queryByText('deviceFirst.deviceCount:6')).toBeNull();
+
+    // 2. Уходит он сам.
+    fireEvent.click(screen.getByRole('button', { name: 'deviceFirst.startNew' }));
+
+    // 3. Экран выбора — и на нём стоит ЕГО конфигурация, а не первая попавшаяся.
     await waitFor(() =>
       expect(
         screen
@@ -495,8 +514,16 @@ describe('DeviceFirstConfigurator interaction safety', () => {
       expect(openLink).toHaveBeenCalledWith('https://app.platega.io/pay/4');
       expect(unhandled).toEqual([]);
       // Экран жив, и забрать ссылку руками по-прежнему можно.
+      // ⚠️ Запас по времени добавлен 26.08.2026: файл потяжелел на девять новых сторожей, и под
+      // полной нагрузкой набора этот `findByRole` один раз не уложился в дефолтную секунду при
+      // исправном коде. Вывод выглядел зелёным, а `npm test` вышел с кодом 1 — ровно та грабля,
+      // на которой проект обжигался дважды. Свойство теста не изменилось.
       expect(
-        await screen.findByRole('button', { name: 'deviceFirst.copyPaymentLink' }),
+        await screen.findByRole(
+          'button',
+          { name: 'deviceFirst.copyPaymentLink' },
+          { timeout: 5000 },
+        ),
       ).toBeTruthy();
     } finally {
       window.removeEventListener('error', catchUnhandled);
@@ -650,8 +677,13 @@ describe('DeviceFirstConfigurator interaction safety', () => {
 
   it('shows the payment CTA even when the pending-payment read fails outright', async () => {
     // 🔴 Вторая половина пункта, без которой первая калечит экран. Кнопка оплаты рисовалась
-    // ТОЛЬКО из отдельного запроса `getPendingPayment`, а он живёт с `retry: false` и
-    // штатно отвечает `redirect_url: null`. Пока мы уходили сами, это было незаметно.
+    // ТОЛЬКО из отдельного запроса `getPendingPayment`, который штатно отвечает
+    // `redirect_url: null`. Пока мы уходили сами, это было незаметно.
+    // ⚠️ Обоснование поправлено 25.08.2026 (этап AR, мина AN): прежде здесь стояло «а он живёт
+    // с `retry: false`». Больше не живёт — молчание сети теперь переспрашивается дважды
+    // (ответ сервера ниже 500 по-прежнему окончателен). Свойство самого сторожа от этого не
+    // изменилось: адрес пришёл вместе со счётом, поэтому кнопка обязана быть даже когда
+    // запрос падает совсем. Уберут запоминание адреса — покраснеет.
     // Перестав уходить, мы бы оставили человека на экране БЕЗ ЕДИНОГО способа заплатить.
     // Здесь запрос падает совсем — кнопка обязана быть, потому что адрес пришёл вместе со
     // счётом. Уберут запоминание адреса — покраснеет.
@@ -1381,6 +1413,291 @@ describe('DeviceFirstConfigurator interaction safety', () => {
     ).toBeNull();
     expect(screen.queryByRole('button', { name: 'deviceFirst.changeOptions' })).toBeNull();
     expect(deviceFirstApi.payDirect).toHaveBeenCalledTimes(1);
+  });
+
+  it('мина AN: молчание сети переспрашиваем, ответ «адреса нет» — НЕТ', async () => {
+    // 🔴 Две половины одной защиты, и обе обязаны быть проверены ОДНИМ входом каждая,
+    // иначе сторож стережёт совпадение:
+    //   сеть промолчала → окончательного ответа не было → переспрашиваем;
+    //   сервер ОТВЕТИЛ 404 → адреса нет, и это защита от повторной оплаты → не трогаем.
+    // Улика того, что момент действительно прошёл, — число попыток в первом сценарии:
+    // пока оно не дошло до трёх, время повторов ещё не истекло, и «ровно одна попытка»
+    // во втором сценарии ничего бы не доказывала.
+    const invoice = directInvoice();
+    vi.mocked(deviceFirstApi.get).mockResolvedValue(invoice);
+
+    vi.mocked(deviceFirstApi.getPendingPayment).mockRejectedValue(new Error('network is down'));
+    renderConfigurator({ initialPath: '/subscription/purchase?checkout=checkout-owned' });
+    await waitFor(() => expect(deviceFirstApi.getPendingPayment).toHaveBeenCalledTimes(3), {
+      timeout: 4000,
+    });
+
+    cleanup();
+    vi.mocked(deviceFirstApi.getPendingPayment).mockClear();
+    vi.mocked(deviceFirstApi.getPendingPayment).mockRejectedValue({
+      response: { status: 404, data: { detail: { code: 'pending_payment_not_found' } } },
+    });
+    renderConfigurator({ initialPath: '/subscription/purchase?checkout=checkout-owned' });
+    await waitFor(() => expect(deviceFirstApi.getPendingPayment).toHaveBeenCalled());
+    // Ждём заведомо дольше, чем заняли три попытки выше.
+    await new Promise((resolve) => setTimeout(resolve, 1200));
+    expect(deviceFirstApi.getPendingPayment).toHaveBeenCalledTimes(1);
+  }, 10000);
+
+  it('нажал «оплатить», а счёт уже закрыт — объяснение, а не молчаливый выброс', async () => {
+    // 🔴 ПЕРЕПИСАН 26.08.2026 по находке волны 1. Первая редакция этого сторожа проверяла, что
+    // человека УЖЕ УНЕСЛО на экран выбора, — то есть закрепляла ровно то молчание, ради снятия
+    // которого затеян этап. Четыре линзы нашли это независимо.
+    // Сервер бросает `invoice_terminal` тогда же, когда закрывает счёт причиной
+    // `provider_terminal:*`: это тот же человек и то же состояние. Свойство теперь такое:
+    //   1) он остаётся и читает объяснение;
+    //   2) технической ошибки под объяснением нет — экран не даёт двух указаний разом;
+    //   3) уйдя своим нажатием, он не теряет выбор.
+    // Вход боевой: приземлился по `?checkout=` (локально умолчания 30/2, выбор живёт только в
+    // строке заказа), нажал «возобновить счёт», а провайдер счёт уже закрыл.
+    const wide: DeviceFirstOptions = {
+      ...options,
+      period_options: [30, 90],
+      device_options: [2, 6],
+      price_matrix: [
+        options.price_matrix![0],
+        {
+          period_days: 90,
+          prices: [
+            {
+              device_limit: 6,
+              price_kopeks: 99000,
+              breakdown: options.price_matrix![0].prices[0].breakdown,
+            },
+          ],
+        },
+      ],
+    };
+    const stillOpen: DeviceFirstCheckout = {
+      ...directInvoice(),
+      period_days: 90,
+      selected_device_limit: 6,
+    };
+    // 🔴 ФИКСТУРА ПЕРЕПИСАНА после мутационного прогона: первая была `mockResolvedValueOnce`,
+    // и строка успевала прийти закрытой САМА, вторым чтением, ещё до нажатия. Сторож проходил
+    // и со снятой защитой — то есть проверял совпадение, а не работу. Теперь строка закрывается
+    // РОВНО тогда, когда сервер отказал: до этого момента любое чтение даёт «ждёт оплаты».
+    let resumeRefused = false;
+    const closedRow: DeviceFirstCheckout = {
+      ...stillOpen,
+      ui_state: 'cancelled',
+      lifecycle_state: 'cancelled',
+      terminal_reason: 'provider_terminal:canceled',
+      money_state: 'unknown',
+    };
+    vi.mocked(deviceFirstApi.get).mockImplementation(async () =>
+      resumeRefused ? closedRow : stillOpen,
+    );
+    vi.mocked(deviceFirstApi.getPendingPayment).mockResolvedValue({
+      redirect_url: null,
+      status: 'pending',
+      resume_allowed: true,
+    });
+    vi.mocked(deviceFirstApi.resumeInvoice).mockImplementation(async () => {
+      resumeRefused = true;
+      throw { response: { data: { detail: { code: 'invoice_terminal' } } } };
+    });
+
+    renderConfigurator({
+      options: wide,
+      initialPath: '/subscription/purchase?checkout=checkout-owned',
+    });
+
+    const resumeButton = await screen.findByRole('button', { name: 'deviceFirst.resumeInvoice' });
+    // 🔴 Улика: ДО нажатия объяснения на экране нет. Без неё сторож не отличал бы свою правку
+    // от строки, пришедшей закрытой сама по себе.
+    expect(screen.queryByText('deviceFirst.providerClosedText')).toBeNull();
+    fireEvent.click(resumeButton);
+
+    // 1. Он остался и читает объяснение — то же, что читает пришедший опросом.
+    expect(await screen.findByText('deviceFirst.providerClosedText')).toBeTruthy();
+    // 2. Двух указаний разом нет: протухшая техническая ошибка погашена.
+    expect(screen.queryByText('deviceFirst.errorPaymentChecking')).toBeNull();
+    expect(screen.queryByText('deviceFirst.error')).toBeNull();
+
+    // 3. Уходит своим нажатием — и на экране выбора ЕГО конфигурация, а не умолчания 30/2.
+    fireEvent.click(screen.getByRole('button', { name: 'deviceFirst.startNew' }));
+    await waitFor(() =>
+      expect(
+        screen
+          .getByText('deviceFirst.deviceCount:6')
+          .closest('button')
+          ?.getAttribute('aria-checked'),
+      ).toBe('true'),
+    );
+    expect(
+      screen.getByText('deviceFirst.deviceCount:2').closest('button')?.getAttribute('aria-checked'),
+    ).toBe('false');
+  });
+
+  it('заказ не прочитался — экран не утверждает, что денег не списывали', async () => {
+    // 🔴 Найдено волной 1, тремя линзами независимо. Соседняя с загрузкой ветка показывала
+    // «Данные подписки или цена изменились. Создайте новый расчёт — деньги без подтверждения
+    // не списаны». Падает сюда ровно тот, у кого холодный старт вебвью сорвал ТРИ чтения
+    // подряд после оплаты картой, — и ему сообщали об отсутствии списания и звали
+    // оформить заказ заново, то есть заплатить второй раз.
+    // Улика: старого текста на экране нет НИ В КАКОМ виде.
+    vi.mocked(deviceFirstApi.get).mockRejectedValue(new Error('network is down'));
+    renderConfigurator({ initialPath: '/subscription/purchase?checkout=checkout-owned' });
+
+    expect(
+      await screen.findByText('deviceFirst.restoringErrorText', undefined, { timeout: 9000 }),
+    ).toBeTruthy();
+    expect(screen.queryByText('deviceFirst.refreshText')).toBeNull();
+    expect(screen.queryByText('deviceFirst.refreshTitle')).toBeNull();
+    // 🔴 Волна 2: текст просит «напишите в поддержку», значит выход в поддержку обязан быть на
+    // экране. Раньше единственная кнопка называлась «Начать новый расчёт» и стирала
+    // `?checkout=` — последнюю ссылку на заказ, за который человек мог заплатить.
+    expect(screen.getByRole('button', { name: 'deviceFirst.contactSupport' })).toBeTruthy();
+  }, 15000);
+
+  it('мина AQ: банк отказал, а заказ ещё не закрыт — экран говорит об отказе и снимает метку', async () => {
+    // 🔴 Заказ закрывает не возврат человека, а вебхук или сверка. Пока они не сработали,
+    // строка остаётся `awaiting_payment`, и человек видел живую кнопку «Перейти к оплате»
+    // и ни слова о том, что банк только что отказал. Метку `payment=failed` на этом маршруте
+    // до сих пор не читал никто.
+    vi.mocked(deviceFirstApi.get).mockResolvedValue(directInvoice());
+    vi.mocked(deviceFirstApi.getPendingPayment).mockResolvedValue({
+      redirect_url: 'https://app.platega.io/pay/9',
+      status: 'pending',
+      resume_allowed: false,
+    });
+
+    renderConfigurator({
+      initialPath: '/subscription/purchase?checkout=checkout-owned&payment=failed',
+    });
+
+    expect(await screen.findByText('deviceFirst.providerDeclinedNotice')).toBeTruthy();
+    // 🔴 Улика: метка снята с адреса сразу. Иначе она пережила бы перезагрузку и объявляла бы
+    // отказ по заказу, который человек к тому времени уже оплатил.
+    await waitFor(() =>
+      expect(screen.getByTestId('location').textContent).toBe(
+        '/subscription/purchase?checkout=checkout-owned',
+      ),
+    );
+  });
+
+  it('мина EW: пошёл платить снова — плашка отказа гаснет, а не висит поверх оплаты', async () => {
+    // 🔴 Наша мина, нашли три проверки волны 2. Плашка — это НОВОСТЬ от платёжной системы, а не
+    // свойство заказа. Состояние ставилось один раз и не сбрасывалось ничем, а компонент между
+    // заказами не размонтируется. Худший вход именно этот: человек жмёт «Перейти к оплате» и
+    // платит успешно, а над работающей кнопкой у него написано «Оплата не прошла».
+    vi.mocked(deviceFirstApi.get).mockResolvedValue(directInvoice());
+    vi.mocked(deviceFirstApi.getPendingPayment).mockResolvedValue({
+      redirect_url: 'https://app.platega.io/pay/11',
+      status: 'pending',
+      resume_allowed: false,
+    });
+
+    renderConfigurator({
+      initialPath: '/subscription/purchase?checkout=checkout-owned&payment=failed',
+    });
+
+    expect(await screen.findByText('deviceFirst.providerDeclinedNotice')).toBeTruthy();
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'deviceFirst.continueExistingInvoice' }),
+    );
+
+    // Улика, что уход действительно состоялся, а не просто «плашки нет».
+    expect(openLink).toHaveBeenCalledWith('https://app.platega.io/pay/11');
+    await waitFor(() =>
+      expect(screen.queryByText('deviceFirst.providerDeclinedNotice')).toBeNull(),
+    );
+  });
+
+  it('счёт закрыт на ОПЛАТЕ, а не на возобновлении — человек читает про закрытый счёт', async () => {
+    // 🔴 Волна 2: главный платёжный путь идёт через слитую мутацию, у которой локальной строки
+    // заказа НЕТ по построению. Там перечитывать нечего, и человеку оставалась ошибка — а у
+    // кода `invoice_terminal` не было своего текста, и он падал в безликое «Не удалось
+    // выполнить действие. Попробуйте ещё раз», то есть звал повторить ровно то, откуда его
+    // только что отбили. Текст взят слово в слово из бота.
+    vi.mocked(deviceFirstApi.payDirect).mockRejectedValue({
+      response: { data: { detail: { code: 'invoice_terminal' } } },
+    });
+    renderConfigurator();
+
+    fireEvent.click(screen.getByRole('button', { name: 'deviceFirst.review' }));
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'deviceFirst.paymentMethodAmount:450 ₽' }),
+    );
+
+    expect(await screen.findByText('deviceFirst.errorInvoiceTerminal')).toBeTruthy();
+    // Улика: безликого «попробуйте ещё раз» больше нет.
+    expect(screen.queryByText('deviceFirst.error')).toBeNull();
+  });
+
+  it('заказ протух — техническую защиту «не оплачивайте повторно» НЕ гасим', async () => {
+    // 🔴 Волна 2 нашла, что моё гашение ошибки было слишком широким: на `expired`/`failed`/
+    // `conflict` своего объяснения у экрана нет, он падает в запасной текст «деньги без
+    // подтверждения не списаны», и единственным носителем защиты была как раз ошибка.
+    // Гасить её можно ТОЛЬКО там, где этап поставил замену, — на закрытом провайдером счёте.
+    const invoice = directInvoice();
+    let expiredNow = false;
+    vi.mocked(deviceFirstApi.get).mockImplementation(async () =>
+      expiredNow ? { ...invoice, ui_state: 'expired', lifecycle_state: 'expired' } : invoice,
+    );
+    vi.mocked(deviceFirstApi.getPendingPayment).mockResolvedValue({
+      redirect_url: null,
+      status: 'pending',
+      resume_allowed: true,
+    });
+    vi.mocked(deviceFirstApi.resumeInvoice).mockImplementation(async () => {
+      expiredNow = true;
+      throw { response: { data: { detail: { code: 'external_invoice_active' } } } };
+    });
+
+    renderConfigurator({ initialPath: '/subscription/purchase?checkout=checkout-owned' });
+    fireEvent.click(await screen.findByRole('button', { name: 'deviceFirst.resumeInvoice' }));
+    expect(await screen.findByText('deviceFirst.errorPaymentChecking')).toBeTruthy();
+
+    // 🔴 Улика, без которой сторож проверял бы совпадение: переход надо ВЫЗВАТЬ. Сама по себе
+    // строка в тесте никуда не перейдёт — отказ `external_invoice_active` перечитывания не
+    // запускает. Жмём «Обновить статус», и только теперь заказ приходит протухшим.
+    fireEvent.click(screen.getByRole('button', { name: 'deviceFirst.refreshStatus' }));
+    await waitFor(() => expect(screen.getByText('deviceFirst.refreshText')).toBeTruthy());
+
+    // Своего объяснения у `expired` нет, экран падает в запасной текст «деньги без
+    // подтверждения не списаны» — и защита «не оплачивайте повторно» обязана уцелеть.
+    expect(screen.getByText('deviceFirst.errorPaymentChecking')).toBeTruthy();
+  });
+
+  it('мина AQ: если заказ уже закрыт, про отказ говорит объяснение, а не второй голос', async () => {
+    // Два текста про одно состояние — ровно то, что запрещает пункт 4.2б. Как только строка
+    // пришла закрытой, сообщение об отказе замолкает.
+    vi.mocked(deviceFirstApi.get).mockResolvedValue({
+      ...directInvoice(),
+      ui_state: 'cancelled',
+      lifecycle_state: 'cancelled',
+      terminal_reason: 'provider_terminal:canceled',
+      money_state: 'unknown',
+    });
+
+    renderConfigurator({
+      initialPath: '/subscription/purchase?checkout=checkout-owned&payment=failed',
+    });
+
+    expect(await screen.findByText('deviceFirst.providerClosedText')).toBeTruthy();
+    expect(screen.queryByText('deviceFirst.providerDeclinedNotice')).toBeNull();
+  });
+
+  it('пока заказ грузится, экран НЕ утверждает, что оплата учтена', async () => {
+    // 🔴 Мина AR, вторая половина. Здесь экран писал «Настраиваем VPN. Оплата учтена» — про
+    // деньги, о которых он в этот момент не знает ничего: строка заказа ещё не пришла.
+    // Врало это не только тому, кому отказал банк: на этот же экран приводят карточка
+    // «незавершённый заказ» с Главной и кнопка из бота.
+    // Сторож держит момент ЗАГРУЗКИ: запрос заказа не разрешается никогда.
+    vi.mocked(deviceFirstApi.get).mockReturnValue(new Promise(() => {}));
+    renderConfigurator({ initialPath: '/subscription/purchase?checkout=checkout-owned' });
+
+    expect(await screen.findByText('deviceFirst.restoringOrderText')).toBeTruthy();
+    // 🔴 Улика: обещания оплаты на экране нет ни в каком виде.
+    expect(screen.queryByText('deviceFirst.processingText')).toBeNull();
+    expect(screen.queryByText('deviceFirst.processing')).toBeNull();
   });
 
   it('restores a returned checkout without needing purchase options and resumes it by id', async () => {
