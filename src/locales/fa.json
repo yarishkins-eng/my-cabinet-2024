@@ -791,8 +791,8 @@
       "referral_first_payment": "اولین پرداخت کاربر معرفی‌شده",
       "referral_subscription_renewal": "تمدید اشتراک کاربر معرفی‌شده",
       "referral_bonus": "پاداش کاربر معرفی‌شده",
-      "referral_first_topup": "اولین پرداخت معرفی‌شده",
-      "referral_commission_topup": "کمیسیون از پرداخت معرفی‌شده"
+      "referral_first_topup": "اولین پرداخت کاربر معرفی‌شده",
+      "referral_commission_topup": "کمیسیون از پرداخت کاربر معرفی‌شده"
     },
     "disabled": "برنامه معرفی موقتاً غیرفعال است",
     "partner": {

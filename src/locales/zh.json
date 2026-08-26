@@ -791,8 +791,8 @@
       "referral_first_payment": "推荐用户首次付款",
       "referral_subscription_renewal": "推荐用户续订",
       "referral_bonus": "推荐奖金",
-      "referral_first_topup": "推荐人首次付款",
-      "referral_commission_topup": "推荐人付款佣金"
+      "referral_first_topup": "推荐用户首次付款",
+      "referral_commission_topup": "推荐用户付款佣金"
     },
     "disabled": "推荐计划暂时停用",
     "partner": {
