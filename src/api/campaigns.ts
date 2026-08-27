@@ -17,6 +17,10 @@ export interface CampaignListItem {
   registrations_count: number;
   total_revenue_kopeks: number;
   conversion_rate: number;
+  leads: number;
+  paying_leads: number;
+  payment_conversion_rate: number;
+  confirmed_receipts_kopeks: number;
   partner_user_id: number | null;
   partner_name: string | null;
   created_at: string;
@@ -104,6 +108,13 @@ export interface CampaignStatistics {
   avg_revenue_per_user_rubles: number;
   avg_first_payment_kopeks: number;
   avg_first_payment_rubles: number;
+  leads: number;
+  paying_leads: number;
+  payment_conversion_rate: number;
+  confirmed_receipts_kopeks: number;
+  confirmed_receipts_rubles: number;
+  avg_confirmed_receipts_per_lead_kopeks: number;
+  avg_confirmed_receipts_per_lead_rubles: number;
   trial_users_count: number;
   active_trials_count: number;
   conversion_count: number;

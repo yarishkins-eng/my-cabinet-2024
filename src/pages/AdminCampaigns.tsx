@@ -57,6 +57,11 @@ const formatRubles = (kopeks: number) => {
   );
 };
 
+const formatPercent = (value: number) => {
+  const locale = localeMap[i18n.language] || 'ru-RU';
+  return new Intl.NumberFormat(locale, { maximumFractionDigits: 1 }).format(value);
+};
+
 // Main Component
 export default function AdminCampaigns() {
   const { t } = useTranslation();
@@ -209,17 +214,19 @@ export default function AdminCampaigns() {
                   <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-dark-400">
                     <span className="font-mono text-xs">?start={campaign.start_parameter}</span>
                     <span>
-                      {t('admin.campaigns.table.registrations', {
-                        count: campaign.registrations_count,
+                      {t('admin.campaigns.table.leads', {
+                        count: campaign.leads,
                       })}
                     </span>
                     <span>
-                      {t('admin.campaigns.table.revenue', {
-                        amount: formatRubles(campaign.total_revenue_kopeks),
+                      {t('admin.campaigns.table.confirmedReceipts', {
+                        amount: formatRubles(campaign.confirmed_receipts_kopeks),
                       })}
                     </span>
                     <span>
-                      {t('admin.campaigns.table.conversion', { rate: campaign.conversion_rate })}
+                      {t('admin.campaigns.table.conversion', {
+                        rate: formatPercent(campaign.payment_conversion_rate),
+                      })}
                     </span>
                   </div>
                 </div>
