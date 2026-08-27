@@ -10,7 +10,6 @@ import {
   type UserDetailResponse,
   type UserAvailableTariff,
   type UserListItem,
-  type UserPanelInfo,
   type UserNodeUsageResponse,
   type PanelSyncStatusResponse,
   type UpdateSubscriptionRequest,
@@ -71,9 +70,7 @@ export default function AdminUserDetail() {
   // (Referrals-tab state, query, handlers, click-outside + debounced search
   // effects moved into components/admin/userDetail/ReferralsTab.tsx)
 
-  // Panel info & node usage
-  const [panelInfo, setPanelInfo] = useState<UserPanelInfo | null>(null);
-  const [panelInfoLoading, setPanelInfoLoading] = useState(false);
+  // Node usage
   const [nodeUsage, setNodeUsage] = useState<UserNodeUsageResponse | null>(null);
   const [nodeUsageDays, setNodeUsageDays] = useState(7);
 
@@ -238,10 +235,6 @@ export default function AdminUserDetail() {
     setReferralsLoading(referralsQuery.isFetching);
   }, [referralsQuery.data, referralsQuery.isFetching]);
   // (referralsListQuery sync moved into ReferralsTab.tsx)
-  useEffect(() => {
-    if (panelInfoQuery.data) setPanelInfo(panelInfoQuery.data);
-    setPanelInfoLoading(panelInfoQuery.isFetching);
-  }, [panelInfoQuery.data, panelInfoQuery.isFetching]);
   useEffect(() => {
     if (nodeUsageQuery.data) setNodeUsage(nodeUsageQuery.data);
   }, [nodeUsageQuery.data]);
@@ -925,8 +918,8 @@ export default function AdminUserDetail() {
             hasPermission={hasPermission}
             formatDate={formatDate}
             locale={locale}
-            panelInfo={panelInfo}
-            panelInfoLoading={panelInfoLoading}
+            panelInfo={panelInfoQuery.data ?? null}
+            panelInfoLoading={panelInfoQuery.isFetching}
             userSubscriptions={userSubscriptions}
             activeSubscriptionId={activeSubscriptionId}
             onActiveSubscriptionChange={setActiveSubscriptionId}
@@ -977,8 +970,8 @@ export default function AdminUserDetail() {
             onSelectedTariffIdChange={setSelectedTariffId}
             selectedTrafficGb={selectedTrafficGb}
             onSelectedTrafficGbChange={setSelectedTrafficGb}
-            panelInfo={panelInfo}
-            panelInfoLoading={panelInfoLoading}
+            panelInfo={panelInfoQuery.data ?? null}
+            panelInfoLoading={panelInfoQuery.isFetching}
             copyToClipboard={copyToClipboard}
             formatBytes={formatBytes}
             nodeUsageDays={nodeUsageDays}
@@ -1042,6 +1035,9 @@ export default function AdminUserDetail() {
             actionLoading={actionLoading}
             onSyncFromPanel={handleSyncFromPanel}
             onSyncToPanel={handleSyncToPanel}
+            panelInfo={panelInfoQuery.data ?? null}
+            panelInfoLoading={panelInfoQuery.isFetching}
+            formatBytes={formatBytes}
             locale={locale}
           />
         )}

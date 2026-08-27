@@ -132,6 +132,19 @@ const TWO_SUBSCRIPTIONS = [
   },
 ] as unknown as SubscriptionTabProps['userSubscriptions'];
 
+const PANEL_INFO = {
+  found: true,
+  used_traffic_bytes: 0,
+  lifetime_used_traffic_bytes: 1_250_382_390,
+  traffic_limit_bytes: 5 * 1024 * 1024 * 1024,
+} as SubscriptionTabProps['panelInfo'];
+
+const formatTrafficBytes = (bytes: number) => {
+  if (bytes === 0) return '0 B';
+  if (bytes === 5 * 1024 * 1024 * 1024) return '5 GB';
+  return '1.16 GB';
+};
+
 afterEach(() => cleanup());
 
 describe('Выдача подписки из кабинета требует тариф (пункт 2.2б)', () => {
@@ -193,5 +206,45 @@ describe('Выдача подписки из кабинета требует т�
       const text = dict.default.admin.users.detail.subscription.tariffRequired;
       expect(typeof text === 'string' && text.trim().length > 0).toBe(true);
     }
+  });
+
+  it('не смешивает текущий лимит, накопленный расход и историю по нодам', () => {
+    const onNodeUsageDaysChange = vi.fn();
+    const selectedSub = TWO_SUBSCRIPTIONS[1];
+
+    renderTab({
+      userSubscriptions: [selectedSub],
+      selectedSub,
+      subscriptionDetailView: true,
+      panelInfo: PANEL_INFO,
+      formatBytes: formatTrafficBytes,
+      nodeUsageForPeriod: [
+        {
+          node_uuid: 'de',
+          node_name: 'Германия',
+          country_code: 'DE',
+          daily_bytes: [],
+          total_bytes: 1_250_382_390,
+        },
+      ],
+      onNodeUsageDaysChange,
+    });
+
+    expect(screen.getByText('Базовый').previousElementSibling?.textContent).toBe(
+      'admin.users.detail.subscription.tariff',
+    );
+    expect(screen.getByText('admin.users.detail.subscription.traffic')).toBeTruthy();
+    expect(screen.getByText('admin.users.detail.liveTraffic')).toBeTruthy();
+    expect(
+      screen.getByText(
+        (_content, element) => element?.textContent === 'admin.users.detail.lifetime: 1.16 GB',
+      ),
+    ).toBeTruthy();
+    expect(screen.getByText('admin.users.detail.nodeUsage')).toBeTruthy();
+    expect(screen.getByText('0 B')).toBeTruthy();
+    expect(screen.getByText(/Германия/)).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: '1d' }));
+    expect(onNodeUsageDaysChange).toHaveBeenCalledWith(1);
   });
 });

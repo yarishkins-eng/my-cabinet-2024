@@ -2,6 +2,7 @@ import { useTranslation } from 'react-i18next';
 import { ArrowDownIcon, ArrowUpIcon } from '@/components/icons';
 import type {
   UserDetailResponse,
+  UserPanelInfo,
   UserSubscriptionInfo,
   PanelSyncStatusResponse,
 } from '../../../api/adminUsers';
@@ -19,6 +20,9 @@ export interface SyncTabProps {
   actionLoading: boolean;
   onSyncFromPanel: () => void;
   onSyncToPanel: () => void;
+  panelInfo: UserPanelInfo | null;
+  panelInfoLoading: boolean;
+  formatBytes: (bytes: number) => string;
   locale: string;
 }
 
@@ -31,6 +35,9 @@ export function SyncTab({
   actionLoading,
   onSyncFromPanel,
   onSyncToPanel,
+  panelInfo,
+  panelInfoLoading,
+  formatBytes,
   locale,
 }: SyncTabProps) {
   const { t } = useTranslation();
@@ -60,10 +67,20 @@ export function SyncTab({
       {/* Sync status */}
       {syncStatus && (
         <div
-          className={`rounded-xl border p-4 ${syncStatus.has_differences ? 'border-warning-500/30 bg-warning-500/10' : 'border-success-500/30 bg-success-500/10'}`}
+          className={`rounded-xl border p-4 ${
+            !syncStatus.panel_found
+              ? 'border-warning-500/30 bg-warning-500/10'
+              : syncStatus.has_differences
+                ? 'border-warning-500/30 bg-warning-500/10'
+                : 'border-success-500/30 bg-success-500/10'
+          }`}
         >
           <div className="mb-3 flex items-center gap-2">
-            {syncStatus.has_differences ? (
+            {!syncStatus.panel_found ? (
+              <span className="font-medium text-warning-400">
+                {t('admin.users.detail.sync.panelUnavailable')}
+              </span>
+            ) : syncStatus.has_differences ? (
               <span className="font-medium text-warning-400">
                 {t('admin.users.detail.sync.hasDifferences')}
               </span>
@@ -148,6 +165,23 @@ export function SyncTab({
               </div>
             </div>
           </div>
+
+          {panelInfo?.found && !panelInfoLoading && (
+            <div className="mt-4 rounded-lg bg-dark-900/20 p-3 text-sm">
+              <div className="text-xs text-dark-400">
+                {t('admin.users.detail.sync.panelLifetime')}
+              </div>
+              <div className="mt-1 break-all text-dark-100">
+                {formatBytes(panelInfo.lifetime_used_traffic_bytes)}
+              </div>
+            </div>
+          )}
+
+          {syncStatus.panel_found && (
+            <div className="mt-3 text-xs leading-5 text-dark-400">
+              {t('admin.users.detail.sync.scopeHint')}
+            </div>
+          )}
         </div>
       )}
 
