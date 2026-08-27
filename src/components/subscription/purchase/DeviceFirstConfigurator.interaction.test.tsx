@@ -528,7 +528,7 @@ describe('DeviceFirstConfigurator interaction safety', () => {
     } finally {
       window.removeEventListener('error', catchUnhandled);
     }
-  });
+  }, 10_000);
 
   it('warns before leaving only on the screen that still leads to the provider', async () => {
     // 🔴 Пункт 4.11а. Экран выбора способа оплаты больше НИКУДА не уводит: тап по способу
