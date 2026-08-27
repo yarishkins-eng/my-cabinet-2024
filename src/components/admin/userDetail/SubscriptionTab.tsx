@@ -773,6 +773,9 @@ export function SubscriptionTab(props: SubscriptionTabProps) {
                   </div>
                 </div>
                 <div className="text-xs text-dark-500">
+                  {t('admin.users.detail.trafficPeriodHint')}
+                </div>
+                <div className="mt-2 text-xs text-dark-500">
                   {t('admin.users.detail.lifetime')}:{' '}
                   {formatBytes(panelInfo.lifetime_used_traffic_bytes)}
                 </div>
@@ -838,6 +841,9 @@ export function SubscriptionTab(props: SubscriptionTabProps) {
                 ) : (
                   <div className="py-2 text-center text-xs text-dark-500">-</div>
                 )}
+                <div className="mt-3 text-xs text-dark-500">
+                  {t('admin.users.detail.nodeUsageHint')}
+                </div>
               </div>
             </>
           ) : null}
