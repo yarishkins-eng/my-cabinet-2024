@@ -2870,7 +2870,7 @@
         "totalSpending": "Subscription Spending",
         "periodComparison": "Wallet deposit comparison",
         "vsLastWeek": "vs last week",
-        "topRegistrations": "Top registrations",
+        "topWalletDeposits": "Largest wallet deposits",
         "subscriptionsIssued": "Subscriptions issued",
         "tariffsIssued": "Tariffs issued"
       },

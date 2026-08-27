@@ -398,10 +398,12 @@ export default function AdminCampaignStats() {
                 comparisonLabel={t('admin.campaigns.stats.vsLastWeek')}
               />
               {/* Top Registrations */}
-              {chartData.top_registrations.length > 0 && (
+              {chartData.top_registrations.some(
+                (registration) => registration.total_earnings_kopeks > 0,
+              ) && (
                 <div className="bento-card">
                   <h4 className="mb-3 text-sm font-semibold text-dark-200">
-                    {t('admin.campaigns.stats.topRegistrations')}
+                    {t('admin.campaigns.stats.topWalletDeposits')}
                   </h4>
                   <div className="space-y-2">
                     {chartData.top_registrations.map((reg) => (

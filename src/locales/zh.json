@@ -2386,7 +2386,7 @@
         "totalSpending": "订阅支出",
         "periodComparison": "钱包充值比较",
         "vsLastWeek": "与上周对比",
-        "topRegistrations": "热门注册",
+        "topWalletDeposits": "最大钱包充值",
         "subscriptionsIssued": "已发放订阅",
         "tariffsIssued": "已发放套餐"
       },
