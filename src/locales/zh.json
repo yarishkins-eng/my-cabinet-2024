@@ -4041,7 +4041,14 @@
       "paid_other": "{{count}} 人已付款",
       "stats": "活动，{{count}} 注册",
       "total": "已确认收款总额",
-      "hint": "统计全部时间。用户归属于首次进入的活动。仅统计已确认的外部付款；普通退款暂未扣除。"
+      "hint": "统计全部时间。用户归属于首次进入的活动。仅统计已确认的外部付款；普通退款暂未扣除。",
+      "shownTop": "显示前 {{count}} 个，共 {{total}} 个",
+      "share": "占全部已确认收款的 {{percent}}%",
+      "shareTiny": "占全部已确认收款不到 {{percent}}%",
+      "averagesLabel": "所有广告活动的平均值",
+      "perLead": "每个潜在客户的收款",
+      "perPayingLead": "每个付费客户的收款",
+      "openStats": "打开活动“{{name}}”的统计信息"
     },
     "recentPayments": {
       "title": "最近的支付",

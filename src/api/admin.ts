@@ -287,11 +287,11 @@ export interface TopCampaignItem {
   conversion_rate: number;
   total_revenue_kopeks: number;
   avg_revenue_per_user_kopeks: number;
-  leads: number;
-  paying_leads: number;
-  payment_conversion_rate: number;
-  confirmed_receipts_kopeks: number;
-  avg_confirmed_receipts_per_lead_kopeks: number;
+  leads?: number;
+  paying_leads?: number;
+  payment_conversion_rate?: number;
+  confirmed_receipts_kopeks?: number;
+  avg_confirmed_receipts_per_lead_kopeks?: number;
   created_at?: string;
 }
 
@@ -300,10 +300,10 @@ export interface TopCampaignsResponse {
   total_campaigns: number;
   total_registrations: number;
   total_revenue_kopeks: number;
-  total_leads: number;
-  total_paying_leads: number;
-  payment_conversion_rate: number;
-  confirmed_receipts_kopeks: number;
+  total_leads?: number;
+  total_paying_leads?: number;
+  payment_conversion_rate?: number;
+  confirmed_receipts_kopeks?: number;
 }
 
 export interface RecentPaymentItem {
