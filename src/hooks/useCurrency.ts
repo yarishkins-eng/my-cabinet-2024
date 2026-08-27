@@ -61,7 +61,7 @@ export function useCurrency() {
         exchangeRates,
       );
 
-      // For IRR (Iranian Toman), use no decimals as amounts are large
+      // For IRR (Iranian rial), use no decimals as amounts are large
       if (targetCurrency === 'IRR') {
         return Math.round(convertedAmount).toLocaleString('fa-IR');
       }

@@ -4296,7 +4296,14 @@
       "paid_other": "{{count}} paid",
       "stats": "camp., {{count}} reg.",
       "total": "Total confirmed receipts",
-      "hint": "All time. A user belongs to their first campaign. Confirmed external payments only; ordinary refunds are not deducted yet."
+      "hint": "All time. A user belongs to their first campaign. Confirmed external payments only; ordinary refunds are not deducted yet.",
+      "shownTop": "showing top {{count}} of {{total}}",
+      "share": "{{percent}}% of all confirmed receipts",
+      "shareTiny": "<{{percent}}% of all confirmed receipts",
+      "averagesLabel": "Averages across all advertising campaigns",
+      "perLead": "Receipts per lead",
+      "perPayingLead": "Receipts per paying lead",
+      "openStats": "Open statistics for campaign “{{name}}”"
     },
     "recentPayments": {
       "title": "Recent payments",

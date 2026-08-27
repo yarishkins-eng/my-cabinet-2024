@@ -9,6 +9,7 @@ import { formatUptime } from '../utils/format';
 const CABINET_VERSION = __APP_VERSION__;
 import { useCurrency } from '../hooks/useCurrency';
 import { usePlatform } from '../platform/hooks/usePlatform';
+import { usePermissionStore } from '../store/permissions';
 
 import {
   BackIcon,
@@ -233,6 +234,9 @@ export default function AdminDashboard() {
   const navigate = useNavigate();
   const { formatAmount, currencySymbol } = useCurrency();
   const { capabilities } = usePlatform();
+  const canOpenCampaignDetails = usePermissionStore((state) =>
+    state.hasAllPermissions('campaigns:read', 'campaigns:stats'),
+  );
 
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [showAllNodes, setShowAllNodes] = useState(false);
@@ -793,6 +797,7 @@ export default function AdminDashboard() {
             data={campaigns}
             currencySymbol={currencySymbol}
             formatAmount={formatAmount}
+            canOpenDetails={canOpenCampaignDetails}
           />
         )}
       </div>
