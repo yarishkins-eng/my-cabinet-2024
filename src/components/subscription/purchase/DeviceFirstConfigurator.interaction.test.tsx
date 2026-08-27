@@ -236,30 +236,6 @@ describe('DeviceFirstConfigurator interaction safety', () => {
     cleanup();
   });
 
-  // 🔴 Пункт 4.11а. Путь до провайдера стал двухшаговым: сначала НАШ экран счёта, и только
-  // явный тап по кнопке оплаты уводит. Сторожа мины W ходят теперь этой дорогой — раньше
-  // они ловили уход, который случался сам.
-  // Адрес мутации ОТЛИЧАЕТСЯ от дефолтного адреса сервера нарочно: так видно, чей именно
-  // адрес попал под кнопку. Пока запрос счёта не ответил, это адрес мутации.
-  async function payAndTapInvoiceCta(redirectUrl: string) {
-    vi.mocked(deviceFirstApi.payDirect).mockResolvedValue({
-      checkout: directInvoice(),
-      redirect_url: redirectUrl,
-    });
-    // Сервер подтверждает тот же самый счёт — как на боевом сразу после его создания.
-    vi.mocked(deviceFirstApi.getPendingPayment).mockResolvedValue({
-      redirect_url: redirectUrl,
-      status: 'pending',
-      resume_allowed: false,
-    });
-    renderConfigurator();
-    fireEvent.click(await screen.findByText('deviceFirst.review'));
-    fireEvent.click(await screen.findByText(/deviceFirst\.paymentMethodAmount/));
-    fireEvent.click(
-      await screen.findByRole('button', { name: 'deviceFirst.continueExistingInvoice' }),
-    );
-  }
-
   // --- мина X: экран не залипает на «Недоступно» ---------------------------------
 
   it('picks a real device option once the tariff arrives instead of freezing on a phantom one', async () => {
@@ -509,21 +485,22 @@ describe('DeviceFirstConfigurator interaction safety', () => {
     const catchUnhandled = (event: ErrorEvent) => unhandled.push(event.error?.message ?? '');
     window.addEventListener('error', catchUnhandled);
     try {
-      await payAndTapInvoiceCta('https://app.platega.io/pay/4');
+      vi.mocked(deviceFirstApi.getPendingPayment).mockResolvedValue({
+        redirect_url: 'https://app.platega.io/pay/4',
+        status: 'pending',
+        resume_allowed: false,
+      });
+      vi.mocked(deviceFirstApi.get).mockResolvedValue(directInvoice());
+      renderConfigurator({ initialPath: '/subscription/purchase?checkout=checkout-owned' });
+      fireEvent.click(
+        await screen.findByRole('button', { name: 'deviceFirst.continueExistingInvoice' }),
+      );
 
       expect(openLink).toHaveBeenCalledWith('https://app.platega.io/pay/4');
       expect(unhandled).toEqual([]);
       // Экран жив, и забрать ссылку руками по-прежнему можно.
-      // ⚠️ Запас по времени добавлен 26.08.2026: файл потяжелел на девять новых сторожей, и под
-      // полной нагрузкой набора этот `findByRole` один раз не уложился в дефолтную секунду при
-      // исправном коде. Вывод выглядел зелёным, а `npm test` вышел с кодом 1 — ровно та грабля,
-      // на которой проект обжигался дважды. Свойство теста не изменилось.
       expect(
-        await screen.findByRole(
-          'button',
-          { name: 'deviceFirst.copyPaymentLink' },
-          { timeout: 5000 },
-        ),
+        await screen.findByRole('button', { name: 'deviceFirst.copyPaymentLink' }),
       ).toBeTruthy();
     } finally {
       window.removeEventListener('error', catchUnhandled);

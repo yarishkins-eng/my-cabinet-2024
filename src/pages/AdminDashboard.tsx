@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { useQuery } from '@tanstack/react-query';
 import { statsApi, type NodeStatus } from '../api/admin';
+import { CampaignResultsCard } from '../components/admin/CampaignResultsCard';
 import { formatUptime } from '../utils/format';
 
 const CABINET_VERSION = __APP_VERSION__;
@@ -15,7 +16,6 @@ import {
   ChartBarIcon,
   ChevronDownIcon,
   ExclamationIcon,
-  MegaphoneIcon,
   PowerIcon,
   RefreshIcon,
   RestartIcon,
@@ -789,64 +789,11 @@ export default function AdminDashboard() {
 
         {/* Top Campaigns */}
         {campaigns && campaigns.campaigns.length > 0 && (
-          <div className="rounded-xl border border-dark-700 bg-dark-800/30 p-4 sm:p-5">
-            <div className="mb-4 flex items-center gap-2 sm:gap-3">
-              <div className="rounded-lg bg-warning-500/20 p-2 text-warning-400 sm:p-2.5">
-                <MegaphoneIcon />
-              </div>
-              <div>
-                <h2 className="text-base font-semibold text-dark-100 sm:text-lg">
-                  {t('adminDashboard.topCampaigns.title')}
-                </h2>
-                <p className="text-xs text-dark-400 sm:text-sm">
-                  {campaigns.total_campaigns}{' '}
-                  {t('adminDashboard.topCampaigns.stats', { count: campaigns.total_registrations })}
-                </p>
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              {campaigns.campaigns.slice(0, 5).map((campaign, idx) => (
-                <div
-                  key={campaign.id}
-                  className="flex items-center justify-between gap-2 rounded-lg bg-dark-900/50 p-2 transition-colors hover:bg-dark-800/50 sm:p-3"
-                >
-                  <div className="flex min-w-0 flex-1 items-center gap-2 sm:gap-3">
-                    <span className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full bg-dark-700 text-[10px] font-bold text-dark-300 sm:h-6 sm:w-6 sm:text-xs">
-                      {idx + 1}
-                    </span>
-                    <div className="min-w-0">
-                      <div className="truncate text-xs font-medium text-dark-100 sm:text-sm">
-                        {campaign.name}
-                      </div>
-                      <div className="truncate text-[10px] text-dark-500 sm:text-xs">
-                        ?start={campaign.start_parameter}
-                      </div>
-                    </div>
-                  </div>
-                  <div className="flex-shrink-0 text-right">
-                    <div className="text-xs font-semibold text-warning-400 sm:text-sm">
-                      {formatAmount(campaign.total_revenue_kopeks / 100)} {currencySymbol}
-                    </div>
-                    <div className="text-[10px] text-dark-500 sm:text-xs">
-                      {campaign.registrations} · {campaign.conversion_rate.toFixed(0)}%
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            <div className="mt-4 border-t border-dark-700 pt-4">
-              <div className="flex items-center justify-between">
-                <span className="text-xs text-dark-400 sm:text-sm">
-                  {t('adminDashboard.topCampaigns.total')}
-                </span>
-                <span className="text-sm font-bold text-warning-400 sm:text-base">
-                  {formatAmount(campaigns.total_revenue_kopeks / 100)} {currencySymbol}
-                </span>
-              </div>
-            </div>
-          </div>
+          <CampaignResultsCard
+            data={campaigns}
+            currencySymbol={currencySymbol}
+            formatAmount={formatAmount}
+          />
         )}
       </div>
 
