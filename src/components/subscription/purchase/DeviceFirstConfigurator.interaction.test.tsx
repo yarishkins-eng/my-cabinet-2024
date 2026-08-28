@@ -1587,6 +1587,61 @@ describe('DeviceFirstConfigurator interaction safety', () => {
     );
   });
 
+  it('пункт 2б: сервер уже проверяет платёж — баннер отказа МОЛЧИТ, а не спорит с ним', async () => {
+    // 🔴 P1 линзы «деньги». `paymentDeclined` приходит ИЗ АДРЕСА — это слово провайдера,
+    // сказанное редиректом. Провайдер уводит на `failedUrl` и тогда, когда платёж ещё жив
+    // (это записано у соседа, `pages/TopUpResult.tsx:479-489`), и деньги подтверждаются
+    // позже. Пункт 2б впервые довёл эту метку до авторизованного экрана.
+    //
+    // Худший вход: сервер уже перестал отдавать адрес оплаты — по `_is_live_direct_provider_
+    // invoice` это значит «попытка ушла в сверку либо платёж помечен оплаченным», то есть
+    // сервер знает про эти деньги больше редиректа. Без забора экран объявлял бы отказ
+    // человеку, с которого деньги уже списаны.
+    //
+    // 🔴 ВТОРАЯ УЛИКА В ЭТОМ ЖЕ ТЕСТЕ: заголовок в этот момент — `paymentChecking`
+    // («Проверяем счёт… не оплачивайте повторно»). Без забора он и баннер стояли РЯДОМ и
+    // говорили противоположное про одни и те же деньги. Проверяем оба факта сразу, иначе
+    // починку легко откатить наполовину.
+    vi.mocked(deviceFirstApi.get).mockResolvedValue(directInvoice());
+    // Адреса оплаты нет — ровно то, что отдаёт сервер в состоянии сверки.
+    vi.mocked(deviceFirstApi.getPendingPayment).mockResolvedValue({
+      redirect_url: null,
+      status: 'pending',
+      resume_allowed: false,
+    });
+
+    renderConfigurator({
+      initialPath: '/subscription/purchase?checkout=checkout-owned&payment=failed',
+    });
+
+    // Улика, что экран действительно доехал до нужного состояния, а не просто ничего не
+    // отрисовал: заголовок сверки на месте.
+    expect(await screen.findByText('deviceFirst.paymentChecking')).toBeTruthy();
+    expect(screen.queryByText('deviceFirst.providerDeclinedNotice')).toBeNull();
+  });
+
+  it('пункт 2б: счёт ещё живой — баннер отказа показывается, забор не съел полезный случай', async () => {
+    // Второй конец шкалы. Забор `canPayNow` обязан гасить баннер ТОЛЬКО там, где сервер знает
+    // больше. Пока счёт жив и платить можно — человек обязан прочитать, что банк отказал, и
+    // увидеть кнопку рядом. Без этой проверки «починка» могла бы просто убить баннер везде,
+    // то есть отменить весь пункт 2б и остаться зелёной.
+    vi.mocked(deviceFirstApi.get).mockResolvedValue(directInvoice());
+    vi.mocked(deviceFirstApi.getPendingPayment).mockResolvedValue({
+      redirect_url: 'https://app.platega.io/pay/12',
+      status: 'pending',
+      resume_allowed: false,
+    });
+
+    renderConfigurator({
+      initialPath: '/subscription/purchase?checkout=checkout-owned&payment=failed',
+    });
+
+    expect(await screen.findByText('deviceFirst.providerDeclinedNotice')).toBeTruthy();
+    expect(
+      await screen.findByRole('button', { name: 'deviceFirst.continueExistingInvoice' }),
+    ).toBeTruthy();
+  });
+
   it('счёт закрыт на ОПЛАТЕ, а не на возобновлении — человек читает про закрытый счёт', async () => {
     // 🔴 Волна 2: главный платёжный путь идёт через слитую мутацию, у которой локальной строки
     // заказа НЕТ по построению. Там перечитывать нечего, и человеку оставалась ошибка — а у
