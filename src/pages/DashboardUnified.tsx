@@ -16,6 +16,7 @@ import { useTheme } from '../hooks/useTheme';
 import { useCurrency } from '../hooks/useCurrency';
 import { useHaptic } from '../platform';
 import HeroZone from '../components/home/HeroZone';
+import PromoDiscountBanner from '../components/home/PromoDiscountBanner';
 import StatusCard from '../components/home/StatusCard';
 import { formatUntil, graceDays } from '../utils/format';
 import OverlayBanner from '../components/home/OverlayBanner';
@@ -201,6 +202,11 @@ export default function DashboardUnified() {
       // двигалась. Раньше добавлять было бессмысленно (перезапрос снова падал в 404, и
       // данные оставались), а теперь ответ становится честным `null` — и сброс работает.
       queryClient.invalidateQueries({ queryKey: ['device-first-open-checkout'] }),
+      // Без этих двух баннер скидки не обновляется НИЧЕМ: `refetchOnWindowFocus` выключен
+      // глобально, интервала нет, а мини-приложение живёт в вебвью часами. Человек тянул бы
+      // вниз, весь экран обновлялся, а сгоревшее предложение продолжало предлагаться.
+      queryClient.invalidateQueries({ queryKey: ['promo-offers'] }),
+      queryClient.invalidateQueries({ queryKey: ['active-discount'] }),
     ];
     if (subscriptionId != null) {
       tasks.push(queryClient.invalidateQueries({ queryKey: ['subscription', subscriptionId] }));
@@ -431,6 +437,12 @@ export default function DashboardUnified() {
       {/* Multi-tariff: список подписок (управление через /subscriptions) — паритет со старым экраном */}
       {isMultiTariff && multiSubData?.subscriptions && multiSubData.subscriptions.length > 0 && (
         <div className="space-y-3">
+          {/* 🔴 Третья точка. Без неё платящий клиент в мульти-тарифном режиме не видел бы
+              баннер НИ ОДНОЙ точкой: первые две лежат внутри `!isMultiTariff` и внутри
+              «подписки нет». Сегодня режим выключен, то есть дефект латентный — но это
+              ровно тот класс, который этот этап и чинит: компонент есть, покрыт, не
+              подключён. Нашёл критик полноты волны 2. */}
+          <PromoDiscountBanner />
           <div className="flex items-center justify-between px-1">
             <span className="text-sm font-medium opacity-60">
               {t('dashboard.subscriptions', 'Подписки')}
@@ -497,6 +509,14 @@ export default function DashboardUnified() {
                     }}
                   />
                 )}
+                {/* Скидка клиента. Место выбрано двумя линзами ревью независимо:
+                    🔴 НИЖЕ аварийных баннеров — иначе человек, у которого лёг VPN или
+                    обрабатывается платёж, первым делом видел бы продающую кнопку ровно
+                    там, откуда её намеренно убрали (`OverlayBanner`: «без продающих
+                    кнопок»).
+                    🔴 НИЖЕ HeroZone — баннер приезжает после запроса и иначе сдвигал бы
+                    главную кнопку вниз под пальцем. */}
+                <PromoDiscountBanner />
                 {/* При перекрывающем состоянии (платёж обрабатывается / временно отключён)
                     карточку «Осталось N дн.» прячем — она путала (активна? тикают ли дни?).
                     Баннер несёт смысл. Для grace/истёкшей overlay=null → карточка остаётся. */}
@@ -573,6 +593,10 @@ export default function DashboardUnified() {
           в moneyInFlightRecovery — там уже идёт выдача или ручной разбор. */}
       {showTrialBlock && (
         <div className="space-y-3">
+          {/* Тот же баннер и для ушедших: предложение шлётся как раз тем, у кого подписка
+              кончилась. Компонент сам возвращает null, когда показывать нечего, а запрос
+              react-query дедуплицирует — второе монтирование ничего не стоит. */}
+          <PromoDiscountBanner />
           {trialInfo?.is_available && (
             <TrialOfferCard
               trialInfo={trialInfo}

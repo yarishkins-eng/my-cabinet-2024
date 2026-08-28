@@ -27,7 +27,7 @@ export interface PromoDiscountResult {
 }
 
 export function usePromoDiscount() {
-  const { data: activeDiscount } = useQuery({
+  const { data: activeDiscount, isSuccess: activeDiscountResolved } = useQuery({
     queryKey: ['active-discount'],
     queryFn: promoApi.getActiveDiscount,
     staleTime: 30000,
@@ -69,5 +69,8 @@ export function usePromoDiscount() {
     [activeDiscount],
   );
 
-  return { activeDiscount, applyPromoDiscount };
+  // 🔴 `activeDiscountResolved` отличает «сервер ответил: активной скидки нет» от «ответ ещё
+  // летит». Без этого различия экран, который принимает решение по отсутствию скидки, решает
+  // его на пустом месте: у `activeDiscount` в обоих случаях `undefined`.
+  return { activeDiscount, activeDiscountResolved, applyPromoDiscount };
 }
