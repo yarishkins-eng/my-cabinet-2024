@@ -32,11 +32,13 @@ function formatDeadline(iso: string | null): string | null {
 }
 
 function isClaimableDiscount(offer: PromoOffer): boolean {
+  // ⛔ Проверки `!offer.is_claimed` здесь НЕТ намеренно, и это не забывчивость: сервер уже
+  // складывает её в `is_active` (`app/cabinet/routes/promo.py`: `is_active=offer.is_active
+  // and offer.claimed_at is None`). Дубль внешнего забора — это вид защиты, а не защита:
+  // мутация «убрать его» переживает любой набор, потому что он ни на что не влияет.
+  // Урок 26.08 (мина AR), проверено мутацией здесь же.
   return (
-    offer.is_active &&
-    !offer.is_claimed &&
-    offer.effect_type !== 'test_access' &&
-    (offer.discount_percent ?? 0) > 0
+    offer.is_active && offer.effect_type !== 'test_access' && (offer.discount_percent ?? 0) > 0
   );
 }
 
