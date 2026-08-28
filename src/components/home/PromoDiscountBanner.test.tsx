@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import PromoDiscountBanner from './PromoDiscountBanner';
 import type { ActiveDiscount, PromoOffer } from '../../api/promo';
@@ -66,6 +66,15 @@ function offer(over: Partial<PromoOffer> = {}): PromoOffer {
   };
 }
 
+// 🔴 Без этого негативные проверки проходят ПО ПУСТОМУ экрану: `waitFor` доволен уже на
+// первом тике, когда запрос ещё не ответил, и мутация «показывать всё подряд» их переживает.
+// Так и вышло с первого раза — поймано мутацией, не ревью.
+async function settle() {
+  await act(async () => {
+    for (let i = 0; i < 10; i += 1) await Promise.resolve();
+  });
+}
+
 function renderBanner() {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
@@ -124,7 +133,8 @@ describe('баннер скидки на Главной', () => {
     const { container } = renderBanner();
 
     await waitFor(() => expect(getOffers).toHaveBeenCalled());
-    await waitFor(() => expect(container.textContent).toBe(''));
+    await settle();
+    expect(container.textContent).toBe('');
   });
 
   it('из нескольких предложений показывает то, что сгорит раньше', async () => {
@@ -154,11 +164,30 @@ describe('баннер скидки на Главной', () => {
     expect(screen.queryByRole('button')).toBeNull();
   });
 
+  it('НЕ показывает скидку, у которой сервер снял признак активности', async () => {
+    // Единственный вход, на котором «смотреть на флаг» и «смотреть только на процент»
+    // расходятся: процент есть, но скидка уже неактивна (истекла и ещё не убрана).
+    getActiveDiscount.mockResolvedValue({
+      discount_percent: PERCENT,
+      source: 'expired_discount_wave2',
+      expires_at: '2026-09-03T14:05:00Z',
+      is_active: false,
+    });
+
+    const { container } = renderBanner();
+
+    await waitFor(() => expect(getActiveDiscount).toHaveBeenCalled());
+    await settle();
+    expect(container.textContent).toBe('');
+  });
+
   it('молчит, когда нет ни предложения, ни активной скидки', async () => {
     const { container } = renderBanner();
 
     await waitFor(() => expect(getOffers).toHaveBeenCalled());
-    await waitFor(() => expect(container.textContent).toBe(''));
+    await waitFor(() => expect(getActiveDiscount).toHaveBeenCalled());
+    await settle();
+    expect(container.textContent).toBe('');
   });
 
   it('показывает отказ сервера, а не глотает его', async () => {
