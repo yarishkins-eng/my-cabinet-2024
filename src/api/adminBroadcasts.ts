@@ -130,6 +130,7 @@ export interface BroadcastListResponse {
 
 export interface BroadcastPreviewRequest {
   target: string;
+  category: 'system' | 'news' | 'promo';
 }
 
 export interface BroadcastPreviewResponse {
@@ -146,17 +147,23 @@ export interface MediaUploadResponse {
 
 export const adminBroadcastsApi = {
   // Get all available filters with counts (for Telegram)
-  getFilters: async (): Promise<BroadcastFiltersResponse> => {
+  getFilters: async (
+    category: 'system' | 'news' | 'promo' = 'system',
+  ): Promise<BroadcastFiltersResponse> => {
     const response = await apiClient.get<BroadcastFiltersResponse>(
       '/cabinet/admin/broadcasts/filters',
+      { params: { category } },
     );
     return response.data;
   },
 
   // Get email filters with counts
-  getEmailFilters: async (): Promise<EmailFiltersResponse> => {
+  getEmailFilters: async (
+    category: 'system' | 'news' | 'promo' = 'system',
+  ): Promise<EmailFiltersResponse> => {
     const response = await apiClient.get<EmailFiltersResponse>(
       '/cabinet/admin/broadcasts/email-filters',
+      { params: { category } },
     );
     return response.data;
   },
@@ -178,23 +185,19 @@ export const adminBroadcastsApi = {
   },
 
   // Preview broadcast (get recipients count)
-  preview: async (target: string): Promise<BroadcastPreviewResponse> => {
+  preview: async (request: BroadcastPreviewRequest): Promise<BroadcastPreviewResponse> => {
     const response = await apiClient.post<BroadcastPreviewResponse>(
       '/cabinet/admin/broadcasts/preview',
-      {
-        target,
-      },
+      request,
     );
     return response.data;
   },
 
   // Preview email broadcast (get recipients count)
-  previewEmail: async (target: string): Promise<BroadcastPreviewResponse> => {
+  previewEmail: async (request: BroadcastPreviewRequest): Promise<BroadcastPreviewResponse> => {
     const response = await apiClient.post<BroadcastPreviewResponse>(
       '/cabinet/admin/broadcasts/email-preview',
-      {
-        target,
-      },
+      request,
     );
     return response.data;
   },
