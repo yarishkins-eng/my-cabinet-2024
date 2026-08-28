@@ -62,6 +62,10 @@ export default function AdminBroadcastCreate() {
   // Separate targets per channel
   const [telegramTarget, setTelegramTarget] = useState('');
   const [emailTarget, setEmailTarget] = useState('');
+  const [telegramFilterSnapshot, setTelegramFilterSnapshot] = useState<
+    BroadcastFilter | TariffFilter | null
+  >(null);
+  const [emailFilterSnapshot, setEmailFilterSnapshot] = useState<BroadcastFilter | null>(null);
   const [showTelegramFilters, setShowTelegramFilters] = useState(false);
   const [showEmailFilters, setShowEmailFilters] = useState(false);
 
@@ -141,16 +145,26 @@ export default function AdminBroadcastCreate() {
   }, [selectedButtons, customButtons, t]);
 
   // Fetch Telegram filters
-  const { data: filtersData, isLoading: filtersLoading } = useQuery({
-    queryKey: ['admin', 'broadcasts', 'filters'],
-    queryFn: adminBroadcastsApi.getFilters,
+  const {
+    data: filtersData,
+    isLoading: filtersLoading,
+    isError: filtersError,
+    refetch: refetchFilters,
+  } = useQuery({
+    queryKey: ['admin', 'broadcasts', 'filters', category],
+    queryFn: () => adminBroadcastsApi.getFilters(category),
     enabled: telegramEnabled,
   });
 
   // Fetch Email filters
-  const { data: emailFiltersData, isLoading: emailFiltersLoading } = useQuery({
-    queryKey: ['admin', 'broadcasts', 'email-filters'],
-    queryFn: adminBroadcastsApi.getEmailFilters,
+  const {
+    data: emailFiltersData,
+    isLoading: emailFiltersLoading,
+    isError: emailFiltersError,
+    refetch: refetchEmailFilters,
+  } = useQuery({
+    queryKey: ['admin', 'broadcasts', 'email-filters', category],
+    queryFn: () => adminBroadcastsApi.getEmailFilters(category),
     enabled: emailEnabled,
   });
 
@@ -238,44 +252,71 @@ export default function AdminBroadcastCreate() {
 
   // Selected filter info for each channel
   const selectedTelegramFilter = useMemo(() => {
-    if (!telegramTarget || !filtersData) return null;
+    if (!telegramTarget) return null;
     const all = [
-      ...filtersData.filters,
-      ...filtersData.tariff_filters,
-      ...filtersData.custom_filters,
+      ...(filtersData?.filters ?? []),
+      ...(filtersData?.tariff_filters ?? []),
+      ...(filtersData?.custom_filters ?? []),
     ];
-    return all.find((f) => f.key === telegramTarget) ?? null;
-  }, [telegramTarget, filtersData]);
+    return (
+      all.find((filter) => filter.key === telegramTarget) ??
+      (telegramFilterSnapshot?.key === telegramTarget ? telegramFilterSnapshot : null)
+    );
+  }, [telegramTarget, filtersData, telegramFilterSnapshot]);
 
   const selectedEmailFilter = useMemo(() => {
-    if (!emailTarget || !emailFiltersData) return null;
-    return emailFiltersData.filters.find((f) => f.key === emailTarget) ?? null;
-  }, [emailTarget, emailFiltersData]);
+    if (!emailTarget) return null;
+    return (
+      emailFiltersData?.filters.find((filter) => filter.key === emailTarget) ??
+      (emailFilterSnapshot?.key === emailTarget ? emailFilterSnapshot : null)
+    );
+  }, [emailTarget, emailFiltersData, emailFilterSnapshot]);
 
   // Handle toggling channels
   const handleToggleTelegram = () => {
     setTelegramEnabled((prev) => !prev);
     setTelegramTarget('');
+    setTelegramFilterSnapshot(null);
     telegramPreviewMutation.reset();
   };
 
   const handleToggleEmail = () => {
     setEmailEnabled((prev) => !prev);
     setEmailTarget('');
+    setEmailFilterSnapshot(null);
     emailPreviewMutation.reset();
   };
 
   // Handle filter selection per channel
   const handleTelegramFilterSelect = (filterKey: string) => {
+    const allFilters = [
+      ...(filtersData?.filters ?? []),
+      ...(filtersData?.tariff_filters ?? []),
+      ...(filtersData?.custom_filters ?? []),
+    ];
     setTelegramTarget(filterKey);
+    setTelegramFilterSnapshot(allFilters.find((filter) => filter.key === filterKey) ?? null);
     setShowTelegramFilters(false);
-    telegramPreviewMutation.mutate(filterKey);
+    telegramPreviewMutation.mutate({ target: filterKey, category });
   };
 
   const handleEmailFilterSelect = (filterKey: string) => {
     setEmailTarget(filterKey);
+    setEmailFilterSnapshot(
+      emailFiltersData?.filters.find((filter) => filter.key === filterKey) ?? null,
+    );
     setShowEmailFilters(false);
-    emailPreviewMutation.mutate(filterKey);
+    emailPreviewMutation.mutate({ target: filterKey, category });
+  };
+
+  const handleCategorySelect = (nextCategory: 'system' | 'news' | 'promo') => {
+    setCategory(nextCategory);
+    if (telegramEnabled && telegramTarget) {
+      telegramPreviewMutation.mutate({ target: telegramTarget, category: nextCategory });
+    }
+    if (emailEnabled && emailTarget) {
+      emailPreviewMutation.mutate({ target: emailTarget, category: nextCategory });
+    }
   };
 
   // Handle file selection
@@ -383,11 +424,52 @@ export default function AdminBroadcastCreate() {
     return true;
   }, [telegramEnabled, emailEnabled, isTelegramValid, isEmailValid]);
 
+  const telegramPreviewMatches =
+    acceptedTelegramId !== null ||
+    (!telegramEnabled
+      ? true
+      : telegramPreviewMutation.isSuccess &&
+        telegramPreviewMutation.variables?.target === telegramTarget &&
+        telegramPreviewMutation.variables?.category === category);
+  const emailPreviewMatches = !emailEnabled
+    ? true
+    : emailPreviewMutation.isSuccess &&
+      emailPreviewMutation.variables?.target === emailTarget &&
+      emailPreviewMutation.variables?.category === category;
+  const previewReady = telegramPreviewMatches && emailPreviewMatches;
+  const previewHasRecipients =
+    (acceptedTelegramId !== null ||
+      !telegramEnabled ||
+      (telegramPreviewMatches && (telegramPreviewMutation.data?.count ?? 0) > 0)) &&
+    (!emailEnabled || (emailPreviewMatches && (emailPreviewMutation.data?.count ?? 0) > 0));
+  const previewPending =
+    (telegramEnabled && acceptedTelegramId === null && telegramPreviewMutation.isPending) ||
+    (emailEnabled && emailPreviewMutation.isPending);
+  const previewFailedChannels = [
+    telegramEnabled && acceptedTelegramId === null && telegramPreviewMutation.isError
+      ? t('admin.broadcasts.channel.telegram')
+      : null,
+    emailEnabled && emailPreviewMutation.isError ? t('admin.broadcasts.channel.email') : null,
+  ].filter((channel): channel is string => channel !== null);
+  const previewEmptyChannels = [
+    telegramEnabled &&
+    acceptedTelegramId === null &&
+    telegramPreviewMatches &&
+    (telegramPreviewMutation.data?.count ?? 0) <= 0
+      ? t('admin.broadcasts.channel.telegram')
+      : null,
+    emailEnabled && emailPreviewMatches && (emailPreviewMutation.data?.count ?? 0) <= 0
+      ? t('admin.broadcasts.channel.email')
+      : null,
+  ].filter((channel): channel is string => channel !== null);
+  const previewFailed = previewFailedChannels.length > 0;
+  const canSubmit = Boolean(isValid && previewReady && previewHasRecipients);
+
   const bothChannels = telegramEnabled && emailEnabled;
 
   // Submit
   const handleSubmit = async () => {
-    if (!isValid || outcomeUnknown || submitGuardRef.current) return;
+    if (!canSubmit || outcomeUnknown || submitGuardRef.current) return;
     submitGuardRef.current = true;
     setSubmissionError(null);
     setNavigationBlocked(true);
@@ -488,13 +570,13 @@ export default function AdminBroadcastCreate() {
   };
 
   // Recipients counts per channel
-  const telegramRecipientsCount = telegramEnabled
-    ? (telegramPreviewMutation.data?.count ?? selectedTelegramFilter?.count ?? null)
-    : null;
+  const telegramRecipientsCount =
+    telegramEnabled && acceptedTelegramId === null && telegramPreviewMatches
+      ? (telegramPreviewMutation.data?.count ?? null)
+      : null;
 
-  const emailRecipientsCount = emailEnabled
-    ? (emailPreviewMutation.data?.count ?? selectedEmailFilter?.count ?? null)
-    : null;
+  const emailRecipientsCount =
+    emailEnabled && emailPreviewMatches ? (emailPreviewMutation.data?.count ?? null) : null;
 
   const isPending = createMutation.isPending || isSubmitting;
   const formLocked = isPending || outcomeUnknown;
@@ -511,6 +593,8 @@ export default function AdminBroadcastCreate() {
     handleFilterSelect: (key: string) => void,
     groupedFilters: Record<string, (BroadcastFilter | TariffFilter)[]>,
     isLoading: boolean,
+    isError: boolean,
+    retry: () => void,
   ) => (
     <div>
       <label className="mb-2 block text-sm font-medium text-dark-300">
@@ -545,6 +629,15 @@ export default function AdminBroadcastCreate() {
           <div className="absolute left-0 right-0 top-full z-10 mt-1 max-h-64 overflow-y-auto rounded-lg border border-dark-700 bg-dark-800 shadow-xl">
             {isLoading ? (
               <div className="p-4 text-center text-dark-400">{t('common.loading')}</div>
+            ) : isError ? (
+              <div className="space-y-3 p-4 text-center">
+                <p className="text-sm text-error-300">
+                  {t('admin.broadcasts.filterCatalogFailed')}
+                </p>
+                <button type="button" onClick={retry} className="btn-secondary px-3 py-1.5 text-sm">
+                  {t('common.retry')}
+                </button>
+              </div>
             ) : (
               Object.entries(groupedFilters).map(([group, filters]) => (
                 <div key={group}>
@@ -637,14 +730,14 @@ export default function AdminBroadcastCreate() {
         <p className="mb-3 text-xs text-dark-500">
           {t(
             'admin.broadcasts.categoryDesc',
-            'Пользователи могут отключить получение новостей и промо в настройках профиля. Системные рассылки доставляются всем.',
+            'Пользователи могут отключить новости и промо в настройках профиля. Системные рассылки не исключаются этими настройками.',
           )}
         </p>
         <div className="flex gap-3">
           {(['system', 'news', 'promo'] as const).map((cat) => (
             <button
               key={cat}
-              onClick={() => setCategory(cat)}
+              onClick={() => handleCategorySelect(cat)}
               disabled={telegramLocked}
               className={`flex-1 rounded-lg border p-3 text-sm font-medium transition-all disabled:cursor-not-allowed disabled:opacity-60 ${
                 category === cat
@@ -688,6 +781,8 @@ export default function AdminBroadcastCreate() {
             handleTelegramFilterSelect,
             groupedTelegramFilters,
             filtersLoading,
+            filtersError,
+            () => void refetchFilters(),
           )}
 
           {/* Message text */}
@@ -936,6 +1031,8 @@ export default function AdminBroadcastCreate() {
             handleEmailFilterSelect,
             groupedEmailFilters,
             emailFiltersLoading,
+            emailFiltersError,
+            () => void refetchEmailFilters(),
           )}
 
           {/* Email subject */}
@@ -1005,6 +1102,35 @@ export default function AdminBroadcastCreate() {
         </div>
       )}
 
+      {previewPending && (
+        <div
+          role="status"
+          className="rounded-lg border border-dark-700 bg-dark-800 p-4 text-sm text-dark-300"
+        >
+          {t('admin.broadcasts.previewPending')}
+        </div>
+      )}
+
+      {previewFailed && (
+        <div
+          role="alert"
+          className="rounded-lg border border-error-500/40 bg-error-500/10 p-4 text-sm text-error-300"
+        >
+          {t('admin.broadcasts.previewFailed', { channels: previewFailedChannels.join(' / ') })}
+        </div>
+      )}
+
+      {previewReady && !previewHasRecipients && !previewPending && !previewFailed && (
+        <div
+          role="alert"
+          className="rounded-lg border border-warning-500/40 bg-warning-500/10 p-4 text-sm text-warning-300"
+        >
+          {t('admin.broadcasts.recipientPreviewEmpty', {
+            channels: previewEmptyChannels.join(' / '),
+          })}
+        </div>
+      )}
+
       {/* Footer */}
       <div className="card flex items-center justify-between">
         <div className="text-sm text-dark-400">
@@ -1037,7 +1163,7 @@ export default function AdminBroadcastCreate() {
           </button>
           <button
             onClick={handleSubmit}
-            disabled={!isValid || isPending || isUploading || outcomeUnknown}
+            disabled={!canSubmit || isPending || isUploading || outcomeUnknown}
             className="btn-primary flex items-center gap-2"
           >
             {isPending ? <RefreshIcon /> : <BroadcastIcon className="h-6 w-6" />}
