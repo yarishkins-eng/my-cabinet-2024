@@ -430,8 +430,15 @@ export function InfoTab(props: InfoTabProps) {
                       <div className="text-xs text-dark-500">{formatDate(ref.created_at)}</div>
                     </div>
                   </div>
-                  <div className="shrink-0 text-xs text-dark-400">
-                    {formatWithCurrency(ref.total_spent_kopeks / 100)}
+                  <div className="ml-2 shrink-0 text-right tabular-nums">
+                    <div className="whitespace-nowrap text-sm text-dark-100">
+                      {t('admin.users.detail.referral.earned')}:{' '}
+                      {formatWithCurrency((ref.referral_earned_kopeks ?? 0) / 100)}
+                    </div>
+                    <div className="whitespace-nowrap text-xs text-dark-500">
+                      {t('admin.bulkActions.columns.spent')}:{' '}
+                      {formatWithCurrency(ref.total_spent_kopeks / 100)}
+                    </div>
                   </div>
                 </button>
               ))}

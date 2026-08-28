@@ -71,6 +71,7 @@ export interface UserListItem {
   promo_group_id: number | null;
   promo_group_name: string | null;
   total_spent_kopeks: number;
+  referral_earned_kopeks?: number;
   purchase_count: number;
   has_restrictions: boolean;
   restriction_topup: boolean;
