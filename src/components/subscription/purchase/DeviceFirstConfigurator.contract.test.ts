@@ -29,6 +29,22 @@ describe('DeviceFirstConfigurator responsive and modal contract', () => {
     expect(source.match(/legacyDraftCancelMutation\.mutate\(legacyDraft\)/g)?.length).toBe(1);
   });
 
+  it('drops the promo-discount cache when the order becomes ready', () => {
+    // Покупка ГАСИТ одноразовую скидку (СК-1а в боте). Не сбросив кэш, экран
+    // показывает баннер «Скидка N% активна» после оплаты, а тот же кэш кормит
+    // ценами экраны покупки — цена со скидкой, которой уже нет.
+    // ⚠️ Проверяем не «строка есть где-то в файле», а «строка есть ВНУТРИ того самого
+    // эффекта»: иначе сторож зеленел бы от любого совпадения в соседнем коде.
+    const start = source.indexOf("checkout?.ui_state === 'ready'");
+    expect(start).toBeGreaterThan(-1);
+    const readyEffect = source.slice(
+      start,
+      source.indexOf('}, [checkout?.ui_state, queryClient]);', start),
+    );
+    expect(readyEffect).toContain("queryKey: ['active-discount']");
+    expect(readyEffect).toContain("queryKey: ['promo-offers']");
+  });
+
   it('births the order only at pay time through the fused routes', () => {
     expect(source).toContain('deviceFirstApi.payDirect({');
     expect(source).toContain('deviceFirstApi.nativeLaunchDirect({');
