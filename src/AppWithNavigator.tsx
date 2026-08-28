@@ -11,6 +11,7 @@ import Twemoji from 'react-twemoji';
 import App from './App';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { PlatformProvider } from './platform/PlatformProvider';
+import { usePlatform } from './platform/hooks/usePlatform';
 import { ThemeColorsProvider } from './providers/ThemeColorsProvider';
 import { ThemeProvider } from './hooks/useTheme';
 import { WebSocketProvider } from './providers/WebSocketProvider';
@@ -21,6 +22,7 @@ import { getFallbackParentPath } from './utils/navigation';
 import { TelegramStartParamRouter } from './components/TelegramStartParamRouter';
 import { subscriptionApi } from './api/subscription';
 import { useBlockingStore } from './store/blocking';
+import { useNavigationGuardStore } from './store/navigationGuard';
 
 const TWEMOJI_OPTIONS = { className: 'twemoji', folder: 'svg', ext: '.svg' } as const;
 
@@ -45,7 +47,7 @@ const BOTTOM_NAV_PATHS = ['/', '/balance', '/referral', '/support', '/wheel'];
  * (or anyone with >1 subscription) keep a real Back to their meaningful list. */
 const SUBSCRIPTION_DETAIL_RE = /^\/subscriptions\/\d+\/?$/;
 
-function TelegramBackButton() {
+export function TelegramBackButton() {
   const location = useLocation();
   const navigate = useNavigate();
   const navType = useNavigationType();
@@ -60,6 +62,9 @@ function TelegramBackButton() {
   const blockingType = useBlockingStore((state) => state.blockingType);
   const blockingTypeRef = useRef(blockingType);
   blockingTypeRef.current = blockingType;
+  const navigationBlocked = useNavigationGuardStore((state) => state.blocked);
+  const navigationBlockedRef = useRef(navigationBlocked);
+  navigationBlockedRef.current = navigationBlocked;
 
   // Reliable in-app navigation depth (the app's entry point is 0). Driven by
   // React Router's navigation TYPE — NOT window.history.state.idx, which the
@@ -106,6 +111,13 @@ function TelegramBackButton() {
   subsCountRef.current = subsCount;
 
   useEffect(() => {
+    if (navigationBlocked) {
+      try {
+        hideBackButton();
+      } catch {}
+      return;
+    }
+
     // On a blocking overlay, keep exactly one visible Back button (its click
     // exits the app — see handler). Skip the route logic so it can't flip
     // between Back and Close as the hidden route changes underneath.
@@ -141,10 +153,12 @@ function TelegramBackButton() {
         showBackButton();
       }
     } catch {}
-  }, [location, listRedirectsToDetail, blockingType]);
+  }, [location, listRedirectsToDetail, blockingType, navigationBlocked]);
 
   // Stable handler — ref prevents re-subscription on every render
   const handler = useCallback(() => {
+    if (navigationBlockedRef.current) return;
+
     // A blocking overlay is a hard block with nowhere to navigate — the back
     // button's only job is to EXIT the Mini App (no SPA navigation, so it can't
     // flip-flop between Back and Close).
@@ -193,6 +207,37 @@ function TelegramBackButton() {
   return null;
 }
 
+export function GlobalInteractionGuard() {
+  const navigationBlocked = useNavigationGuardStore((state) => state.blocked);
+  const { setClosingConfirmation } = usePlatform();
+
+  useEffect(() => {
+    setClosingConfirmation(navigationBlocked);
+    if (!navigationBlocked) return;
+
+    const blockClick = (event: MouseEvent) => {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+    };
+
+    document.addEventListener('click', blockClick, true);
+    return () => {
+      document.removeEventListener('click', blockClick, true);
+      setClosingConfirmation(false);
+    };
+  }, [navigationBlocked, setClosingConfirmation]);
+
+  if (!navigationBlocked) return null;
+
+  return (
+    <div
+      data-testid="global-interaction-guard"
+      className="fixed inset-0 z-[2147483647] cursor-wait"
+      aria-hidden="true"
+    />
+  );
+}
+
 export function AppWithNavigator() {
   const isTelegram = isInTelegramWebApp();
 
@@ -202,6 +247,7 @@ export function AppWithNavigator() {
       {isTelegram && <TelegramBackButton />}
       <ErrorBoundary level="page">
         <PlatformProvider>
+          <GlobalInteractionGuard />
           <ThemeProvider>
             <ThemeColorsProvider>
               <TooltipProvider>

@@ -2,6 +2,7 @@ import { useState, useRef, useMemo, useEffect } from 'react';
 import { useNavigate } from 'react-router';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
+import axios from 'axios';
 import {
   adminBroadcastsApi,
   BroadcastFilter,
@@ -23,6 +24,16 @@ import {
   VideoIcon,
   XIcon,
 } from '@/components/icons';
+import { getApiErrorMessage } from '@/utils/api-error';
+import { useNotify } from '@/platform/hooks/useNotify';
+import { useNavigationGuardStore } from '@/store/navigationGuard';
+
+const DEFINITE_PRECOMMIT_STATUSES = new Set([400, 401, 403, 422]);
+
+const isDefiniteClientRejection = (error: unknown) =>
+  axios.isAxiosError(error) &&
+  error.response !== undefined &&
+  DEFINITE_PRECOMMIT_STATUSES.has(error.response.status);
 
 // Filter labels
 const FILTER_GROUP_LABEL_KEYS: Record<string, string> = {
@@ -40,6 +51,8 @@ export default function AdminBroadcastCreate() {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const notify = useNotify();
+  const setNavigationBlocked = useNavigationGuardStore((state) => state.setBlocked);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Channel toggles (both can be enabled)
@@ -83,6 +96,10 @@ export default function AdminBroadcastCreate() {
 
   // Submitting state for dual send
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submissionError, setSubmissionError] = useState<string | null>(null);
+  const [acceptedTelegramId, setAcceptedTelegramId] = useState<number | null>(null);
+  const [outcomeUnknown, setOutcomeUnknown] = useState(false);
+  const submitGuardRef = useRef(false);
 
   // Preview modals
   const [showTelegramPreview, setShowTelegramPreview] = useState(false);
@@ -156,9 +173,28 @@ export default function AdminBroadcastCreate() {
   // Create mutation (used for single-channel sends)
   const createMutation = useMutation({
     mutationFn: adminBroadcastsApi.createCombined,
+    networkMode: 'always',
+    onMutate: () => setSubmissionError(null),
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['admin', 'broadcasts'] });
       navigate(`/admin/broadcasts/${data.id}`);
+    },
+    onError: (error) => {
+      if (isDefiniteClientRejection(error)) {
+        setSubmissionError(
+          t('admin.broadcasts.createRejected', {
+            error: getApiErrorMessage(error, t('admin.broadcasts.createFailed')),
+          }),
+        );
+        return;
+      }
+
+      setOutcomeUnknown(true);
+      setSubmissionError(t('admin.broadcasts.createOutcomeUnknown'));
+    },
+    onSettled: () => {
+      setNavigationBlocked(false);
+      submitGuardRef.current = false;
     },
   });
 
@@ -351,7 +387,10 @@ export default function AdminBroadcastCreate() {
 
   // Submit
   const handleSubmit = async () => {
-    if (!isValid) return;
+    if (!isValid || outcomeUnknown || submitGuardRef.current) return;
+    submitGuardRef.current = true;
+    setSubmissionError(null);
+    setNavigationBlocked(true);
 
     // Single channel — use existing createMutation with navigation to detail
     if (telegramEnabled && !emailEnabled) {
@@ -382,8 +421,10 @@ export default function AdminBroadcastCreate() {
       return;
     }
 
-    // Both channels — two sequential requests, navigate to list
+    // Both channels — two sequential requests, never recreate an accepted Telegram campaign.
     setIsSubmitting(true);
+    let telegramId = acceptedTelegramId;
+    let submittingChannel: 'telegram' | 'email' = telegramId === null ? 'telegram' : 'email';
     try {
       const telegramData: CombinedBroadcastCreateRequest = {
         channel: 'telegram',
@@ -405,12 +446,43 @@ export default function AdminBroadcastCreate() {
         category,
       };
 
-      await adminBroadcastsApi.createCombined(telegramData);
-      await adminBroadcastsApi.createCombined(emailData);
+      if (telegramId === null) {
+        const telegramBroadcast = await adminBroadcastsApi.createCombined(telegramData);
+        telegramId = telegramBroadcast.id;
+        setAcceptedTelegramId(telegramBroadcast.id);
+        void queryClient.invalidateQueries({ queryKey: ['admin', 'broadcasts'] });
+      }
 
-      queryClient.invalidateQueries({ queryKey: ['admin', 'broadcasts'] });
+      submittingChannel = 'email';
+      const emailBroadcast = await adminBroadcastsApi.createCombined(emailData);
+
+      void queryClient.invalidateQueries({ queryKey: ['admin', 'broadcasts'] });
+      notify.success(
+        t('admin.broadcasts.bothCreatedWithIds', {
+          telegramId,
+          emailId: emailBroadcast.id,
+        }),
+      );
       navigate('/admin/broadcasts');
+    } catch (error) {
+      if (isDefiniteClientRejection(error)) {
+        const reason = getApiErrorMessage(error, t('admin.broadcasts.createFailed'));
+        setSubmissionError(
+          telegramId === null
+            ? t('admin.broadcasts.telegramRejected', { error: reason })
+            : t('admin.broadcasts.emailRejectedAfterTelegram', { id: telegramId, error: reason }),
+        );
+      } else {
+        setOutcomeUnknown(true);
+        setSubmissionError(
+          submittingChannel === 'telegram'
+            ? t('admin.broadcasts.telegramOutcomeUnknown')
+            : t('admin.broadcasts.emailOutcomeUnknown', { id: telegramId }),
+        );
+      }
     } finally {
+      setNavigationBlocked(false);
+      submitGuardRef.current = false;
       setIsSubmitting(false);
     }
   };
@@ -425,6 +497,8 @@ export default function AdminBroadcastCreate() {
     : null;
 
   const isPending = createMutation.isPending || isSubmitting;
+  const formLocked = isPending || outcomeUnknown;
+  const telegramLocked = formLocked || acceptedTelegramId !== null;
 
   // Render filter dropdown
   const renderFilterDropdown = (
@@ -504,7 +578,7 @@ export default function AdminBroadcastCreate() {
     <div className="space-y-6">
       {/* Header */}
       <div className="flex items-center gap-3">
-        <AdminBackButton />
+        {!isPending && <AdminBackButton to="/admin/broadcasts" />}
         <div className="flex items-center gap-3">
           <div className="rounded-lg bg-accent-500/20 p-2 text-accent-400">
             <BroadcastIcon className="h-6 w-6" />
@@ -524,7 +598,8 @@ export default function AdminBroadcastCreate() {
         <div className="flex gap-3">
           <button
             onClick={handleToggleTelegram}
-            className={`flex flex-1 items-center justify-center gap-2 rounded-lg border p-4 transition-all ${
+            disabled={formLocked || acceptedTelegramId !== null}
+            className={`flex flex-1 items-center justify-center gap-2 rounded-lg border p-4 transition-all disabled:cursor-not-allowed disabled:opacity-60 ${
               telegramEnabled
                 ? 'border-accent-500 bg-accent-500/10 text-accent-400'
                 : 'border-dark-700 bg-dark-800 text-dark-300 hover:border-dark-600'
@@ -535,7 +610,8 @@ export default function AdminBroadcastCreate() {
           </button>
           <button
             onClick={handleToggleEmail}
-            className={`flex flex-1 items-center justify-center gap-2 rounded-lg border p-4 transition-all ${
+            disabled={formLocked || acceptedTelegramId !== null}
+            className={`flex flex-1 items-center justify-center gap-2 rounded-lg border p-4 transition-all disabled:cursor-not-allowed disabled:opacity-60 ${
               emailEnabled
                 ? 'border-accent-500 bg-accent-500/10 text-accent-400'
                 : 'border-dark-700 bg-dark-800 text-dark-300 hover:border-dark-600'
@@ -569,7 +645,8 @@ export default function AdminBroadcastCreate() {
             <button
               key={cat}
               onClick={() => setCategory(cat)}
-              className={`flex-1 rounded-lg border p-3 text-sm font-medium transition-all ${
+              disabled={telegramLocked}
+              className={`flex-1 rounded-lg border p-3 text-sm font-medium transition-all disabled:cursor-not-allowed disabled:opacity-60 ${
                 category === cat
                   ? 'border-accent-500 bg-accent-500/10 text-accent-400'
                   : 'border-dark-700 bg-dark-800 text-dark-300 hover:border-dark-600'
@@ -585,7 +662,7 @@ export default function AdminBroadcastCreate() {
 
       {/* Telegram section */}
       {telegramEnabled && (
-        <div className="card space-y-6">
+        <fieldset disabled={telegramLocked} className="card space-y-6 disabled:opacity-70">
           <div className="flex items-center justify-between gap-2">
             <h2 className="text-lg font-semibold text-dark-100">
               {t('admin.broadcasts.telegramSection')}
@@ -828,12 +905,12 @@ export default function AdminBroadcastCreate() {
               </button>
             )}
           </div>
-        </div>
+        </fieldset>
       )}
 
       {/* Email section */}
       {emailEnabled && (
-        <div className="card space-y-6">
+        <fieldset disabled={formLocked} className="card space-y-6 disabled:opacity-70">
           <div className="flex items-center justify-between gap-2">
             <h2 className="text-lg font-semibold text-dark-100">
               {t('admin.broadcasts.emailSection')}
@@ -907,6 +984,24 @@ export default function AdminBroadcastCreate() {
               ))}
             </div>
           </div>
+        </fieldset>
+      )}
+
+      {acceptedTelegramId !== null && !submissionError && !isSubmitting && (
+        <div
+          role="status"
+          className="rounded-lg border border-accent-500/40 bg-accent-500/10 p-4 text-sm text-accent-300"
+        >
+          {t('admin.broadcasts.telegramAcceptedEmailPending', { id: acceptedTelegramId })}
+        </div>
+      )}
+
+      {submissionError && (
+        <div
+          role="alert"
+          className="rounded-lg border border-error-500/40 bg-error-500/10 p-4 text-sm text-error-300"
+        >
+          {submissionError}
         </div>
       )}
 
@@ -931,16 +1026,24 @@ export default function AdminBroadcastCreate() {
           )}
         </div>
         <div className="flex gap-3">
-          <button onClick={() => navigate('/admin/broadcasts')} className="btn-secondary">
-            {t('common.cancel')}
+          <button
+            onClick={() => navigate('/admin/broadcasts')}
+            disabled={isPending}
+            className="btn-secondary disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {acceptedTelegramId !== null || outcomeUnknown
+              ? t('admin.broadcasts.openHistory')
+              : t('common.cancel')}
           </button>
           <button
             onClick={handleSubmit}
-            disabled={!isValid || isPending || isUploading}
+            disabled={!isValid || isPending || isUploading || outcomeUnknown}
             className="btn-primary flex items-center gap-2"
           >
             {isPending ? <RefreshIcon /> : <BroadcastIcon className="h-6 w-6" />}
-            {t('admin.broadcasts.send')}
+            {acceptedTelegramId !== null
+              ? t('admin.broadcasts.retryEmailOnly')
+              : t('admin.broadcasts.send')}
           </button>
         </div>
       </div>
