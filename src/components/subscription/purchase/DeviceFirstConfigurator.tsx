@@ -972,6 +972,11 @@ export function DeviceFirstConfigurator({
       queryClient.invalidateQueries({ queryKey: ['balance'] });
       queryClient.invalidateQueries({ queryKey: ['user'] });
       queryClient.invalidateQueries({ queryKey: ['device-first-options'] });
+      // Покупка ГАСИТ одноразовую скидку (этап СК-1а в боте). Без этих двух ключей
+      // баннер «Скидка N% активна» висит после оплаты, а тот же кэш кормит ценами
+      // экраны покупки — человек видел бы цену со скидкой, которой у него больше нет.
+      queryClient.invalidateQueries({ queryKey: ['active-discount'] });
+      queryClient.invalidateQueries({ queryKey: ['promo-offers'] });
     }
   }, [checkout?.ui_state, queryClient]);
   useEffect(() => {
