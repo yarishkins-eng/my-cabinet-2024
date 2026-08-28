@@ -16,6 +16,7 @@ import { useTheme } from '../hooks/useTheme';
 import { useCurrency } from '../hooks/useCurrency';
 import { useHaptic } from '../platform';
 import HeroZone from '../components/home/HeroZone';
+import PromoDiscountBanner from '../components/home/PromoDiscountBanner';
 import StatusCard from '../components/home/StatusCard';
 import { formatUntil, graceDays } from '../utils/format';
 import OverlayBanner from '../components/home/OverlayBanner';
@@ -392,6 +393,11 @@ export default function DashboardUnified() {
         </h1>
         <p className="mt-1 text-dark-400">{t('dashboard.yourSubscription')}</p>
       </div>
+
+      {/* Скидка клиента. Стоит ВЫШЕ развилки «есть подписка / нет подписки» намеренно:
+          предложение приходит и тем, у кого подписка кончилась, — а это ровно те, ради
+          кого крючок и придуман. Внутри одной из веток половина людей его бы не увидела. */}
+      <PromoDiscountBanner />
 
       {showRecoveryCard && deviceFirstRecovery && recoveryVariant && (
         <button
