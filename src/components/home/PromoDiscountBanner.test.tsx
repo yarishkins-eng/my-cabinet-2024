@@ -120,6 +120,9 @@ describe('баннер скидки на Главной', () => {
     expect(keys).toContain('active-discount');
     expect(keys).toContain('device-first-options');
     expect(keys).toContain('purchase-options');
+    // 🔴 И сам список предложений: без него баннер до 30 секунд держит кнопку на уже
+    // забранном, второе нажатие вернёт отказ. Пропуск нашла линза, а не мой прогон мутаций.
+    expect(keys).toContain('promo-offers');
   });
 
   it('НЕ показывает предложение тестовых серверов — его выдача заглушена на сервере', async () => {
@@ -129,6 +132,32 @@ describe('баннер скидки на Главной', () => {
     // отсекал бы соседний забор, и мутация «убрать фильтр test_access» пережила бы тест —
     // так и вышло с первого раза. Разный ответ две ветки дают ровно на этом входе.
     getOffers.mockResolvedValue([offer({ effect_type: 'test_access', discount_percent: 30 })]);
+
+    const { container } = renderBanner();
+
+    await waitFor(() => expect(getOffers).toHaveBeenCalled());
+    await settle();
+    expect(container.textContent).toBe('');
+  });
+
+  it('НЕ рисует кнопку на предложении, которое сервер уже погасил', async () => {
+    // 🔴 `/offers` отдаёт и ЗАБРАННЫЕ предложения, помечая их `is_active: false`
+    // (`app/cabinet/routes/promo.py`). Значит `offer.is_active` — единственное, что не даёт
+    // нарисовать «Активировать» на уже забранном. Ни один сторож этого входа не давал:
+    // мутация «убрать проверку» переживала набор. Нашла линза «соответствие плану».
+    getOffers.mockResolvedValue([offer({ is_active: false, is_claimed: true })]);
+
+    const { container } = renderBanner();
+
+    await waitFor(() => expect(getOffers).toHaveBeenCalled());
+    await settle();
+    expect(container.textContent).toBe('');
+  });
+
+  it('НЕ рисует предложение с нулевым процентом', async () => {
+    // Вход, на котором «смотреть на процент» и «не смотреть» расходятся: тип обычный,
+    // предложение живое, но скидки в нём нет — рисовать «Скидка 0%» нельзя.
+    getOffers.mockResolvedValue([offer({ discount_percent: 0 })]);
 
     const { container } = renderBanner();
 
@@ -190,13 +219,61 @@ describe('баннер скидки на Главной', () => {
     expect(container.textContent).toBe('');
   });
 
-  it('показывает отказ сервера, а не глотает его', async () => {
+  it('говорит об отказе ПО-РУССКИ и не пересказывает английский текст сервера', async () => {
+    // Все отказы этого маршрута на сервере — захардкоженные английские строки. Показать
+    // их как есть значит написать русскому человеку «This offer has expired».
     getOffers.mockResolvedValue([offer()]);
-    claimOffer.mockRejectedValue({ response: { data: { detail: 'Предложение уже забрано' } } });
+    claimOffer.mockRejectedValue({ response: { data: { detail: 'This offer has expired' } } });
 
     renderBanner();
     fireEvent.click(await screen.findByRole('button', { name: 'promo.offers.activate' }));
 
-    expect(await screen.findByText('Предложение уже забрано')).toBeTruthy();
+    expect((await screen.findByRole('alert')).textContent).toBe('promo.offers.activationFailed');
+    expect(screen.queryByText('This offer has expired')).toBeNull();
+  });
+
+  it('НЕ предлагает забрать новое предложение, пока скидка уже активна', async () => {
+    // 🔴 Сервер при заборе перезаписывает процент, не спрашивая, что там лежало. Предложи
+    // мы забрать 9 % человеку с активными 17 — он потерял бы разницу одним нажатием и без
+    // слова, отменить нельзя. Это единственный вход, где «предложение важнее» и
+    // «активная важнее» дают разный ответ.
+    getOffers.mockResolvedValue([offer({ discount_percent: 9 })]);
+    getActiveDiscount.mockResolvedValue({
+      discount_percent: PERCENT,
+      source: 'trial_expired_discount',
+      expires_at: '2026-09-03T14:05:00Z',
+      is_active: true,
+    });
+
+    renderBanner();
+
+    expect(await screen.findByText(`promo.offers.discountActiveTitle|${PERCENT}`)).toBeTruthy();
+    expect(screen.queryByRole('button')).toBeNull();
+  });
+
+  it('фильтрует тестовый доступ независимо от регистра', async () => {
+    // Поле свободное, сервер сравнивает в нижнем регистре. `Test_Access` обязан отсеяться
+    // так же, как `test_access`, иначе кнопка нарисуется и упрётся в заглушку выдачи.
+    getOffers.mockResolvedValue([offer({ effect_type: 'Test_Access', discount_percent: 30 })]);
+
+    const { container } = renderBanner();
+
+    await waitFor(() => expect(getOffers).toHaveBeenCalled());
+    await settle();
+    expect(container.textContent).toBe('');
+  });
+
+  it('на время запроса подписывает кнопку «Активация…», а не молчит', async () => {
+    getOffers.mockResolvedValue([offer()]);
+    let release: (v: { success: boolean; message: string }) => void = () => {};
+    claimOffer.mockReturnValue(new Promise((resolve) => (release = resolve)));
+
+    renderBanner();
+    fireEvent.click(await screen.findByRole('button', { name: 'promo.offers.activate' }));
+
+    expect(await screen.findByRole('button', { name: 'promo.offers.activating' })).toBeTruthy();
+    await act(async () => {
+      release({ success: true, message: 'ok' });
+    });
   });
 });

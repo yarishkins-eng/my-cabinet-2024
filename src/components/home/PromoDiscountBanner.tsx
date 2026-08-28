@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
-import { GiftIcon } from '@/components/icons';
+import { CheckIcon, GiftIcon } from '@/components/icons';
 import { promoApi, type PromoOffer } from '../../api/promo';
 import { usePromoDiscount } from '../../hooks/usePromoDiscount';
 
@@ -38,7 +38,12 @@ function isClaimableDiscount(offer: PromoOffer): boolean {
   // мутация «убрать его» переживает любой набор, потому что он ни на что не влияет.
   // Урок 26.08 (мина AR), проверено мутацией здесь же.
   return (
-    offer.is_active && offer.effect_type !== 'test_access' && (offer.discount_percent ?? 0) > 0
+    // ⚠️ Сравнение БЕЗ регистра: поле свободное, сервер везде приводит к нижнему
+    // (`app/cabinet/routes/promo.py:325`). Шаблон, заведённый как `Test_Access`, иначе
+    // прошёл бы фильтр и дал ту самую мёртвую кнопку, ради которой фильтр и есть.
+    offer.is_active &&
+    (offer.effect_type ?? '').toLowerCase() !== 'test_access' &&
+    (offer.discount_percent ?? 0) > 0
   );
 }
 
@@ -56,24 +61,25 @@ export default function PromoDiscountBanner() {
 
   const claimMutation = useMutation({
     mutationFn: promoApi.claimOffer,
-    onSuccess: () => {
+    onSuccess: async () => {
       // 🔴 Гасим ВСЁ, что кормится скидкой: сама скидка, список предложений и цены обеих
       // касс. Иначе человек забирает скидку и продолжает видеть прежнюю цену — ровно та
       // беда, которую этап СК-1 чинил с другого конца.
-      for (const key of [
-        'active-discount',
-        'promo-offers',
-        'device-first-options',
-        'purchase-options',
-      ]) {
-        queryClient.invalidateQueries({ queryKey: [key] });
-      }
+      // 🔴 И ЖДЁМ их: без `await` кнопка оживает раньше, чем приедут новые данные, экран
+      // выглядит нетронутым, человек жмёт второй раз и получает отказ «уже забрано».
+      await Promise.all(
+        ['active-discount', 'promo-offers', 'device-first-options', 'purchase-options'].map((key) =>
+          queryClient.invalidateQueries({ queryKey: [key] }),
+        ),
+      );
       setErrorMessage(null);
     },
-    onError: (error: unknown) => {
-      const axiosErr = error as { response?: { data?: { detail?: string } } };
-      const detail = axiosErr.response?.data?.detail;
-      setErrorMessage(typeof detail === 'string' ? detail : t('promo.offers.activationFailed'));
+    onError: () => {
+      // ⛔ Серверный `detail` НЕ показываем: все отказы этого маршрута — захардкоженные
+      // английские строки (`app/cabinet/routes/promo.py:306,314,322,345,369`), и русский
+      // человек прочитал бы «This offer has expired». Все четыре причины значат для него
+      // одно: забрать это предложение больше нельзя. Мина заведена, сервер чинится отдельно.
+      setErrorMessage(t('promo.offers.activationFailed'));
     },
   });
 
@@ -85,18 +91,26 @@ export default function PromoDiscountBanner() {
     null,
   );
 
-  const hasActive = !!activeDiscount?.is_active && (activeDiscount.discount_percent ?? 0) > 0;
+  // ⛔ Проверки процента здесь НЕТ намеренно, как и в `isClaimableDiscount`: сервер сам
+  // отдаёт `discount_percent = 0`, когда скидка неактивна (`promo.py:162-179`). Дубль
+  // внешнего забора не держит ничего и никакой мутацией не ловится — а файл, который
+  // запрещает дубли строкой выше и ставит дубль строкой ниже, спорит сам с собой.
+  const hasActive = !!activeDiscount?.is_active;
 
   if (!offer && !hasActive) return null;
 
-  // Непринятое предложение важнее уже активной скидки: там есть срок и действие.
-  if (offer) {
+  // 🔴 УЖЕ АКТИВНАЯ скидка важнее непринятого предложения, а не наоборот. Сервер при заборе
+  // перезаписывает процент, НЕ спрашивая, что там лежало (`promo.py:372`) — предложи мы
+  // забрать 10 % человеку с активными 25 %, он потерял бы 15 % одним нажатием и без слова.
+  // Отменить нельзя. Цена решения названа честно: пока скидка активна, новое предложение
+  // из кабинета не забрать — только кнопкой в телеграм-сообщении, как было до этого этапа.
+  if (offer && !hasActive) {
     const deadline = formatDeadline(offer.expires_at);
     return (
       <div className="rounded-2xl border border-accent-400/25 bg-accent-500/10 p-3.5">
         <div className="flex gap-3">
           <span className="mt-0.5 flex-shrink-0 text-accent-300">
-            <GiftIcon />
+            <GiftIcon className="h-5 w-5" />
           </span>
           <div className="min-w-0 flex-1">
             <div className="text-sm font-semibold leading-snug text-dark-50">
@@ -107,16 +121,26 @@ export default function PromoDiscountBanner() {
               {deadline ? ` · ${t('promo.offers.expires', { time: deadline })}` : ''}
             </div>
             {errorMessage && (
-              <div className="mt-1 text-[13px] leading-snug text-error-300">{errorMessage}</div>
+              <div
+                role="alert"
+                className="mt-1 text-[13px] leading-snug text-error-400 light:text-error-700"
+              >
+                {errorMessage}
+              </div>
             )}
             <div className="mt-2.5">
               <button
                 type="button"
                 disabled={claimMutation.isPending}
-                onClick={() => claimMutation.mutate(offer.id)}
+                onClick={() => {
+                  setErrorMessage(null);
+                  claimMutation.mutate(offer.id);
+                }}
                 className="rounded-xl bg-accent-500 px-3.5 py-2 text-[13px] font-semibold text-white transition-colors active:scale-[0.98] disabled:opacity-60"
               >
-                {t('promo.offers.activate')}
+                {claimMutation.isPending
+                  ? t('promo.offers.activating')
+                  : t('promo.offers.activate')}
               </button>
             </div>
           </div>
@@ -130,7 +154,7 @@ export default function PromoDiscountBanner() {
     <div className="rounded-2xl border border-success-500/30 bg-success-500/10 p-3.5">
       <div className="flex gap-3">
         <span className="mt-0.5 flex-shrink-0 text-success-400">
-          <GiftIcon />
+          <CheckIcon className="h-5 w-5" />
         </span>
         <div className="min-w-0 flex-1">
           <div className="text-sm font-semibold leading-snug text-dark-50">
