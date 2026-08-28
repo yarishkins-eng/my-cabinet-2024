@@ -308,3 +308,83 @@ describe('баннер скидки на Главной', () => {
     });
   });
 });
+
+describe('сторожа, которых не хватало (нашёл скептик волны 2 мутациями)', () => {
+  it('НЕ рисует кнопку, пока не пришёл ответ про активную скидку', async () => {
+    // 🔴 Гонка двух запросов. Список предложений отвечает сразу, ответ про активную скидку
+    // держим. Нарисуй мы кнопку сейчас — человек с активными 17 % забрал бы 9 % и потерял
+    // разницу молча: сервер перезаписывает процент и отвечает 200 OK.
+    getOffers.mockResolvedValue([offer({ discount_percent: 9 })]);
+    let release: (v: ActiveDiscount) => void = () => {};
+    getActiveDiscount.mockReturnValue(new Promise((resolve) => (release = resolve)));
+
+    const { container } = renderBanner();
+
+    await waitFor(() => expect(getOffers).toHaveBeenCalled());
+    await settle();
+    expect(container.textContent).toBe('');
+
+    // А когда ответ пришёл и активной скидки нет — кнопка появляется.
+    await act(async () => {
+      release(NO_DISCOUNT);
+    });
+    expect(await screen.findByRole('button', { name: 'promo.offers.activate' })).toBeTruthy();
+  });
+
+  it('держит кнопку занятой, пока не приедут новые данные', async () => {
+    // Без `await` у инвалидации кнопка оживает раньше экрана: человек видит нетронутый
+    // баннер, жмёт второй раз и получает отказ. Мутация «убрать await» переживала набор.
+    getOffers.mockResolvedValue([offer()]);
+    const { queryClient } = renderBanner();
+    let releaseInvalidate: () => void = () => {};
+    vi.spyOn(queryClient, 'invalidateQueries').mockImplementation(
+      () => new Promise<void>((resolve) => (releaseInvalidate = resolve)),
+    );
+
+    fireEvent.click(await screen.findByRole('button', { name: 'promo.offers.activate' }));
+
+    await waitFor(() => expect(claimOffer).toHaveBeenCalled());
+    await settle();
+    const button = screen.getByRole('button');
+    expect(button.textContent).toBe('promo.offers.activating');
+    expect((button as HTMLButtonElement).disabled).toBe(true);
+
+    await act(async () => {
+      releaseInvalidate();
+    });
+  });
+
+  it('не даёт нажать второй раз, пока идёт первый запрос', async () => {
+    getOffers.mockResolvedValue([offer()]);
+    let release: (v: { success: boolean; message: string }) => void = () => {};
+    claimOffer.mockReturnValue(new Promise((resolve) => (release = resolve)));
+
+    renderBanner();
+    const button = await screen.findByRole('button', { name: 'promo.offers.activate' });
+    fireEvent.click(button);
+    await settle();
+    fireEvent.click(screen.getByRole('button'));
+
+    expect(claimOffer).toHaveBeenCalledTimes(1);
+    expect((screen.getByRole('button') as HTMLButtonElement).disabled).toBe(true);
+    await act(async () => {
+      release({ success: true, message: 'ok' });
+    });
+  });
+
+  it('не печатает пустой срок у бессрочной скидки', async () => {
+    // У активной скидки срок бывает пустым (предложения до починки СК-1б). Тогда строки
+    // «Истекает: …» быть не должно вовсе, а не «Истекает: » с пустотой.
+    getActiveDiscount.mockResolvedValue({
+      discount_percent: PERCENT,
+      source: 'expired_discount_wave2',
+      expires_at: null,
+      is_active: true,
+    });
+
+    renderBanner();
+
+    expect(await screen.findByText(`promo.offers.discountActiveTitle|${PERCENT}`)).toBeTruthy();
+    expect(screen.queryByText(/promo\.offers\.expires/)).toBeNull();
+  });
+});
