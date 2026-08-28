@@ -437,6 +437,12 @@ export default function DashboardUnified() {
       {/* Multi-tariff: список подписок (управление через /subscriptions) — паритет со старым экраном */}
       {isMultiTariff && multiSubData?.subscriptions && multiSubData.subscriptions.length > 0 && (
         <div className="space-y-3">
+          {/* 🔴 Третья точка. Без неё платящий клиент в мульти-тарифном режиме не видел бы
+              баннер НИ ОДНОЙ точкой: первые две лежат внутри `!isMultiTariff` и внутри
+              «подписки нет». Сегодня режим выключен, то есть дефект латентный — но это
+              ровно тот класс, который этот этап и чинит: компонент есть, покрыт, не
+              подключён. Нашёл критик полноты волны 2. */}
+          <PromoDiscountBanner />
           <div className="flex items-center justify-between px-1">
             <span className="text-sm font-medium opacity-60">
               {t('dashboard.subscriptions', 'Подписки')}

@@ -75,6 +75,11 @@ export default function PromoDiscountBanner() {
       setErrorMessage(null);
     },
     onError: () => {
+      // 🔴 Любой отказ значит «на сервере уже не то, что у нас в кэше»: предложение забрали
+      // из телеграма, оно истекло, его отключили. Не перечитав, экран держал бы живую кнопку
+      // на мёртвом предложении вечно — `refetchOnWindowFocus` выключен, интервала нет.
+      void queryClient.invalidateQueries({ queryKey: ['promo-offers'] });
+      void queryClient.invalidateQueries({ queryKey: ['active-discount'] });
       // ⛔ Серверный `detail` НЕ показываем: все отказы этого маршрута — захардкоженные
       // английские строки (`app/cabinet/routes/promo.py:306,314,322,345,369`), и русский
       // человек прочитал бы «This offer has expired». Все четыре причины значат для него
@@ -85,11 +90,18 @@ export default function PromoDiscountBanner() {
 
   const claimable = offers.filter(isClaimableDiscount);
   // Если предложений вдруг несколько — показываем то, что сгорит раньше всех.
-  const offer = claimable.reduce<PromoOffer | null>(
-    (soonest, current) =>
-      soonest && new Date(soonest.expires_at) <= new Date(current.expires_at) ? soonest : current,
-    null,
-  );
+  // 🔴 Берём САМОЕ ВЫГОДНОЕ предложение, а при равном проценте — то, что сгорит раньше.
+  // Раньше здесь стоял только срок, и вместе с правилом «активная скидка важнее» это давало
+  // отрицательный итог: человеку с 10 % назавтра и 30 % через три дня предлагались 10 %, он
+  // их забирал — и 30 % становились недостижимы из кабинета, пока первые не истекут.
+  // Две по отдельности разумные развилки в паре работали против клиента. Нашёл критик полноты.
+  const offer = claimable.reduce<PromoOffer | null>((best, current) => {
+    if (!best) return current;
+    const bestPercent = best.discount_percent ?? 0;
+    const currentPercent = current.discount_percent ?? 0;
+    if (currentPercent !== bestPercent) return currentPercent > bestPercent ? current : best;
+    return new Date(current.expires_at) < new Date(best.expires_at) ? current : best;
+  }, null);
 
   // ⛔ Проверки процента здесь НЕТ намеренно, как и в `isClaimableDiscount`: сервер сам
   // отдаёт `discount_percent = 0`, когда скидка неактивна (`promo.py:162-179`). Дубль

@@ -166,16 +166,47 @@ describe('баннер скидки на Главной', () => {
     expect(container.textContent).toBe('');
   });
 
-  it('из нескольких предложений показывает то, что сгорит раньше', async () => {
+  it('из нескольких предложений показывает САМОЕ ВЫГОДНОЕ, а не ближайшее по сроку', async () => {
+    // 🔴 Вход подобран так, что «по сроку» и «по выгоде» дают РАЗНЫЙ ответ: дешёвое сгорает
+    // раньше. Раньше баннер брал ближайшее — и в паре с правилом «активная важнее» человек,
+    // забрав 5 %, терял доступ к 30 % до истечения первых. Нашёл критик полноты волны 2.
     getOffers.mockResolvedValue([
-      offer({ id: 1, discount_percent: 5, expires_at: '2026-09-10T10:00:00Z' }),
-      offer({ id: 2, discount_percent: 9, expires_at: '2026-09-01T10:00:00Z' }),
+      offer({ id: 1, discount_percent: 5, expires_at: '2026-09-01T10:00:00Z' }),
+      offer({ id: 2, discount_percent: 30, expires_at: '2026-09-10T10:00:00Z' }),
     ]);
 
     renderBanner();
 
-    expect(await screen.findByText('promo.offers.discountPercent|9')).toBeTruthy();
+    expect(await screen.findByText('promo.offers.discountPercent|30')).toBeTruthy();
     expect(screen.queryByText('promo.offers.discountPercent|5')).toBeNull();
+  });
+
+  it('при равном проценте берёт то, что сгорит раньше', async () => {
+    getOffers.mockResolvedValue([
+      offer({ id: 1, discount_percent: 12, expires_at: '2026-09-10T10:00:00Z' }),
+      offer({ id: 2, discount_percent: 12, expires_at: '2026-09-01T09:00:00Z' }),
+    ]);
+
+    renderBanner();
+
+    // Различить их можно только по сроку — он и есть улика выбора.
+    expect(await screen.findByText(/promo\.offers\.expires\|01\.09/)).toBeTruthy();
+  });
+
+  it('после отказа перечитывает состояние, а не держит мёртвую кнопку', async () => {
+    // Отказ значит «на сервере уже не то»: предложение забрали из телеграма или оно истекло.
+    // Не перечитав, экран держал бы живую кнопку на мёртвом предложении вечно.
+    getOffers.mockResolvedValue([offer()]);
+    claimOffer.mockRejectedValue({ response: { data: { detail: 'This offer has expired' } } });
+    const { queryClient } = renderBanner();
+    const invalidate = vi.spyOn(queryClient, 'invalidateQueries');
+
+    fireEvent.click(await screen.findByRole('button', { name: 'promo.offers.activate' }));
+    await screen.findByRole('alert');
+
+    const keys = invalidate.mock.calls.map((c) => (c[0] as { queryKey: string[] }).queryKey[0]);
+    expect(keys).toContain('promo-offers');
+    expect(keys).toContain('active-discount');
   });
 
   it('показывает уже активную скидку, когда забирать больше нечего', async () => {
