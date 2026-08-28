@@ -110,8 +110,8 @@ async function selectFilter(placeholder: string, label: string) {
   fireEvent.click(await screen.findByRole('button', { name: new RegExp(label) }));
 }
 
-async function fillTelegram() {
-  await selectFilter('admin.broadcasts.selectFilterPlaceholder', 'Все Telegram');
+async function fillTelegram(label = 'Все Telegram') {
+  await selectFilter('admin.broadcasts.selectFilterPlaceholder', label);
   fireEvent.change(screen.getByPlaceholderText('admin.broadcasts.messageTextPlaceholder'), {
     target: { value: 'Тестовый текст' },
   });
@@ -122,9 +122,9 @@ async function fillTelegram() {
   );
 }
 
-async function enableAndFillEmail() {
+async function enableAndFillEmail(label = 'Все Email') {
   fireEvent.click(screen.getByRole('button', { name: 'admin.broadcasts.enableEmail' }));
-  await selectFilter('admin.broadcasts.selectEmailFilterPlaceholder', 'Все Email');
+  await selectFilter('admin.broadcasts.selectEmailFilterPlaceholder', label);
   fireEvent.change(screen.getByPlaceholderText('admin.broadcasts.emailSubjectPlaceholder'), {
     target: { value: 'Тема' },
   });
@@ -138,9 +138,9 @@ async function enableAndFillEmail() {
   );
 }
 
-async function fillEmailOnly() {
+async function fillEmailOnly(label = 'Все Email') {
   fireEvent.click(screen.getByRole('button', { name: 'admin.broadcasts.enableTelegram' }));
-  await enableAndFillEmail();
+  await enableAndFillEmail(label);
 }
 
 beforeEach(() => {
@@ -157,12 +157,18 @@ beforeEach(() => {
   }
   useNavigationGuardStore.setState({ blocked: false });
   getFilters.mockResolvedValue({
-    filters: [{ key: 'all', label: 'Все Telegram', count: 1, group: 'basic' }],
+    filters: [
+      { key: 'all', label: 'Все Telegram', count: 1, group: 'basic' },
+      { key: 'active', label: 'Активные Telegram', count: 1, group: 'subscription' },
+    ],
     tariff_filters: [],
     custom_filters: [],
   });
   getEmailFilters.mockResolvedValue({
-    filters: [{ key: 'all_email', label: 'Все Email', count: 1, group: 'email' }],
+    filters: [
+      { key: 'all_email', label: 'Все Email', count: 1, group: 'email' },
+      { key: 'expired_email', label: 'Истёкшие Email', count: 1, group: 'email' },
+    ],
   });
   getButtons.mockResolvedValue({ buttons: [] });
   preview.mockResolvedValue({ target: 'all', count: 1 });
@@ -254,6 +260,8 @@ describe('РС-10: отказы создания рассылки видны и 
       'telegram',
       'email',
     ]);
+    expect(screen.getByText(/admin\.broadcasts\.willBeSent/).textContent).not.toContain('(TG)');
+    expect(screen.getByText(/admin\.broadcasts\.willBeSent/).textContent).toContain('(Email)');
 
     fireEvent.click(screen.getByRole('button', { name: 'admin.broadcasts.retryEmailOnly' }));
 
@@ -537,6 +545,12 @@ describe('РС-10: отказы создания рассылки видны и 
     expect(
       screen.queryByRole('button', { name: /admin.broadcasts.selectFilterPlaceholder/ }),
     ).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: /Все Telegram/ }));
+    expect(await screen.findByText('admin.broadcasts.filterCatalogFailed')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'common.retry' }));
+    await waitFor(() => expect(getFilters).toHaveBeenCalledTimes(3));
+    expect(await screen.findByRole('button', { name: /Активные Telegram/ })).toBeTruthy();
   });
 
   it('не показывает старые category-counts как новый каталог во время загрузки', async () => {
@@ -644,51 +658,68 @@ describe('РС-10: отказы создания рассылки видны и 
     ).toBe(true);
   });
 
-  it('отправляет ту же category, по которой показаны оба preview', async () => {
-    createCombined.mockResolvedValueOnce(broadcast(71)).mockResolvedValueOnce(broadcast(72));
-    renderPage();
-    await fillTelegram();
-    await enableAndFillEmail();
-    fireEvent.click(screen.getByRole('button', { name: '📰 Новости' }));
-    await waitFor(() =>
-      expect(
-        (screen.getByRole('button', { name: 'admin.broadcasts.send' }) as HTMLButtonElement)
-          .disabled,
-      ).toBe(false),
-    );
+  it.each([
+    ['system', null, 'Активные Telegram', 'Истёкшие Email', 'active', 'expired_email'],
+    ['news', '📰 Новости', 'Все Telegram', 'Все Email', 'all', 'all_email'],
+  ] as const)(
+    'отправляет точные targets и category=%s, по которым показаны оба preview',
+    async (category, categoryLabel, telegramLabel, emailLabel, telegramTarget, emailTarget) => {
+      createCombined.mockResolvedValueOnce(broadcast(71)).mockResolvedValueOnce(broadcast(72));
+      renderPage();
+      await fillTelegram(telegramLabel);
+      await enableAndFillEmail(emailLabel);
+      if (categoryLabel) fireEvent.click(screen.getByRole('button', { name: categoryLabel }));
+      await waitFor(() =>
+        expect(
+          (screen.getByRole('button', { name: 'admin.broadcasts.send' }) as HTMLButtonElement)
+            .disabled,
+        ).toBe(false),
+      );
 
-    fireEvent.click(screen.getByRole('button', { name: 'admin.broadcasts.send' }));
-    await waitFor(() =>
-      expect(screen.getByTestId('location').textContent).toBe('/admin/broadcasts'),
-    );
-    expect(
-      createCombined.mock.calls.map(([payload]) => [payload.channel, payload.category]),
-    ).toEqual([
-      ['telegram', 'news'],
-      ['email', 'news'],
-    ]);
-  });
+      fireEvent.click(screen.getByRole('button', { name: 'admin.broadcasts.send' }));
+      await waitFor(() =>
+        expect(screen.getByTestId('location').textContent).toBe('/admin/broadcasts'),
+      );
+      expect(
+        createCombined.mock.calls.map(([payload]) => [
+          payload.channel,
+          payload.target,
+          payload.category,
+        ]),
+      ).toEqual([
+        ['telegram', telegramTarget, category],
+        ['email', emailTarget, category],
+      ]);
+    },
+  );
 
   it.each([
-    ['telegram', 'news', '📰 Новости'],
-    ['email', 'promo', '🎁 Промо'],
-  ] as const)('не теряет category в single-%s submit', async (channel, category, categoryLabel) => {
-    createCombined.mockResolvedValueOnce(broadcast(channel === 'telegram' ? 81 : 82));
-    renderPage();
-    if (channel === 'telegram') await fillTelegram();
-    else await fillEmailOnly();
-    fireEvent.click(screen.getByRole('button', { name: categoryLabel }));
-    await waitFor(() =>
-      expect(
-        (screen.getByRole('button', { name: 'admin.broadcasts.send' }) as HTMLButtonElement)
-          .disabled,
-      ).toBe(false),
-    );
+    ['telegram', 'system', null, 'Активные Telegram', 'active'],
+    ['telegram', 'news', '📰 Новости', 'Все Telegram', 'all'],
+    ['email', 'system', null, 'Истёкшие Email', 'expired_email'],
+    ['email', 'promo', '🎁 Промо', 'Все Email', 'all_email'],
+  ] as const)(
+    'не теряет target в single-%s submit для category=%s',
+    async (channel, category, categoryLabel, filterLabel, target) => {
+      createCombined.mockResolvedValueOnce(broadcast(channel === 'telegram' ? 81 : 82));
+      renderPage();
+      if (channel === 'telegram') await fillTelegram(filterLabel);
+      else await fillEmailOnly(filterLabel);
+      if (categoryLabel) fireEvent.click(screen.getByRole('button', { name: categoryLabel }));
+      await waitFor(() =>
+        expect(
+          (screen.getByRole('button', { name: 'admin.broadcasts.send' }) as HTMLButtonElement)
+            .disabled,
+        ).toBe(false),
+      );
 
-    fireEvent.click(screen.getByRole('button', { name: 'admin.broadcasts.send' }));
-    await waitFor(() => expect(createCombined).toHaveBeenCalledTimes(1));
-    expect(createCombined.mock.calls[0][0]).toEqual(expect.objectContaining({ channel, category }));
-  });
+      fireEvent.click(screen.getByRole('button', { name: 'admin.broadcasts.send' }));
+      await waitFor(() => expect(createCombined).toHaveBeenCalledTimes(1));
+      expect(createCombined.mock.calls[0][0]).toEqual(
+        expect.objectContaining({ channel, target, category }),
+      );
+    },
+  );
 
   it('держит обязательные ID и причины в настоящих переводах', () => {
     for (const locale of [ru, en]) {

@@ -1913,6 +1913,7 @@
       "previewPending": "Recalculating actual recipients for the selected audience and category…",
       "previewFailed": "Recipient count could not be confirmed ({{channels}}). Sending is blocked; select the audience again.",
       "recipientPreviewEmpty": "There are currently no available recipients for this audience and category ({{channels}}). Sending is blocked.",
+      "filterCatalogFailed": "The audience list for the current category could not be loaded.",
       "users": "users",
       "send": "Send",
       "stop": "Stop",

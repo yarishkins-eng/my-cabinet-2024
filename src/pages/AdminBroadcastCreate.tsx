@@ -145,14 +145,24 @@ export default function AdminBroadcastCreate() {
   }, [selectedButtons, customButtons, t]);
 
   // Fetch Telegram filters
-  const { data: filtersData, isLoading: filtersLoading } = useQuery({
+  const {
+    data: filtersData,
+    isLoading: filtersLoading,
+    isError: filtersError,
+    refetch: refetchFilters,
+  } = useQuery({
     queryKey: ['admin', 'broadcasts', 'filters', category],
     queryFn: () => adminBroadcastsApi.getFilters(category),
     enabled: telegramEnabled,
   });
 
   // Fetch Email filters
-  const { data: emailFiltersData, isLoading: emailFiltersLoading } = useQuery({
+  const {
+    data: emailFiltersData,
+    isLoading: emailFiltersLoading,
+    isError: emailFiltersError,
+    refetch: refetchEmailFilters,
+  } = useQuery({
     queryKey: ['admin', 'broadcasts', 'email-filters', category],
     queryFn: () => adminBroadcastsApi.getEmailFilters(category),
     enabled: emailEnabled,
@@ -561,7 +571,7 @@ export default function AdminBroadcastCreate() {
 
   // Recipients counts per channel
   const telegramRecipientsCount =
-    telegramEnabled && telegramPreviewMatches
+    telegramEnabled && acceptedTelegramId === null && telegramPreviewMatches
       ? (telegramPreviewMutation.data?.count ?? null)
       : null;
 
@@ -583,6 +593,8 @@ export default function AdminBroadcastCreate() {
     handleFilterSelect: (key: string) => void,
     groupedFilters: Record<string, (BroadcastFilter | TariffFilter)[]>,
     isLoading: boolean,
+    isError: boolean,
+    retry: () => void,
   ) => (
     <div>
       <label className="mb-2 block text-sm font-medium text-dark-300">
@@ -617,6 +629,15 @@ export default function AdminBroadcastCreate() {
           <div className="absolute left-0 right-0 top-full z-10 mt-1 max-h-64 overflow-y-auto rounded-lg border border-dark-700 bg-dark-800 shadow-xl">
             {isLoading ? (
               <div className="p-4 text-center text-dark-400">{t('common.loading')}</div>
+            ) : isError ? (
+              <div className="space-y-3 p-4 text-center">
+                <p className="text-sm text-error-300">
+                  {t('admin.broadcasts.filterCatalogFailed')}
+                </p>
+                <button type="button" onClick={retry} className="btn-secondary px-3 py-1.5 text-sm">
+                  {t('common.retry')}
+                </button>
+              </div>
             ) : (
               Object.entries(groupedFilters).map(([group, filters]) => (
                 <div key={group}>
@@ -760,6 +781,8 @@ export default function AdminBroadcastCreate() {
             handleTelegramFilterSelect,
             groupedTelegramFilters,
             filtersLoading,
+            filtersError,
+            () => void refetchFilters(),
           )}
 
           {/* Message text */}
@@ -1008,6 +1031,8 @@ export default function AdminBroadcastCreate() {
             handleEmailFilterSelect,
             groupedEmailFilters,
             emailFiltersLoading,
+            emailFiltersError,
+            () => void refetchEmailFilters(),
           )}
 
           {/* Email subject */}

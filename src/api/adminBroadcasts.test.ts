@@ -45,18 +45,21 @@ describe('РС-9: category-aware broadcast preview API', () => {
     ]);
   });
 
-  it('передаёт create payload без подмены category', async () => {
-    postMock.mockResolvedValueOnce({ data: { id: 17, status: 'queued' } });
-    const payload = {
-      channel: 'telegram' as const,
-      target: 'active',
-      category: 'news' as const,
-      message_text: 'Новость',
-      selected_buttons: [],
-    };
+  it.each(['news', 'promo'] as const)(
+    'передаёт create payload без подмены category=%s',
+    async (category) => {
+      postMock.mockResolvedValueOnce({ data: { id: 17, status: 'queued' } });
+      const payload = {
+        channel: 'telegram' as const,
+        target: 'active',
+        category,
+        message_text: 'Новость',
+        selected_buttons: [],
+      };
 
-    await adminBroadcastsApi.createCombined(payload);
+      await adminBroadcastsApi.createCombined(payload);
 
-    expect(postMock.mock.calls[0]).toEqual(['/cabinet/admin/broadcasts/send', payload]);
-  });
+      expect(postMock.mock.calls[0]).toEqual(['/cabinet/admin/broadcasts/send', payload]);
+    },
+  );
 });
