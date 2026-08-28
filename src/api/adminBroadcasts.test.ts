@@ -20,6 +20,8 @@ describe('РС-9: category-aware broadcast preview API', () => {
   it('передаёт категорию в оба каталога фильтров', async () => {
     await adminBroadcastsApi.getFilters('news');
     await adminBroadcastsApi.getEmailFilters('promo');
+    await adminBroadcastsApi.getFilters('system');
+    await adminBroadcastsApi.getEmailFilters('news');
 
     expect(getMock.mock.calls[0]).toEqual([
       '/cabinet/admin/broadcasts/filters',
@@ -29,11 +31,21 @@ describe('РС-9: category-aware broadcast preview API', () => {
       '/cabinet/admin/broadcasts/email-filters',
       { params: { category: 'promo' } },
     ]);
+    expect(getMock.mock.calls[2]).toEqual([
+      '/cabinet/admin/broadcasts/filters',
+      { params: { category: 'system' } },
+    ]);
+    expect(getMock.mock.calls[3]).toEqual([
+      '/cabinet/admin/broadcasts/email-filters',
+      { params: { category: 'news' } },
+    ]);
   });
 
   it('не теряет category в Telegram и Email preview payload', async () => {
     await adminBroadcastsApi.preview({ target: 'all', category: 'news' });
     await adminBroadcastsApi.previewEmail({ target: 'all_email', category: 'promo' });
+    await adminBroadcastsApi.preview({ target: 'active_zero', category: 'system' });
+    await adminBroadcastsApi.previewEmail({ target: 'expired_email', category: 'news' });
 
     expect(postMock.mock.calls[0]).toEqual([
       '/cabinet/admin/broadcasts/preview',
@@ -43,18 +55,30 @@ describe('РС-9: category-aware broadcast preview API', () => {
       '/cabinet/admin/broadcasts/email-preview',
       { target: 'all_email', category: 'promo' },
     ]);
+    expect(postMock.mock.calls[2]).toEqual([
+      '/cabinet/admin/broadcasts/preview',
+      { target: 'active_zero', category: 'system' },
+    ]);
+    expect(postMock.mock.calls[3]).toEqual([
+      '/cabinet/admin/broadcasts/email-preview',
+      { target: 'expired_email', category: 'news' },
+    ]);
   });
 
-  it.each(['news', 'promo'] as const)(
-    'передаёт create payload без подмены category=%s',
-    async (category) => {
+  it.each([
+    ['telegram', 'active', 'news'],
+    ['email', 'expired_email', 'promo'],
+  ] as const)(
+    'передаёт create payload без подмены channel=%s target=%s category=%s',
+    async (channel, target, category) => {
       postMock.mockResolvedValueOnce({ data: { id: 17, status: 'queued' } });
       const payload = {
-        channel: 'telegram' as const,
-        target: 'active',
+        channel,
+        target,
         category,
-        message_text: 'Новость',
-        selected_buttons: [],
+        ...(channel === 'telegram'
+          ? { message_text: 'Новость', selected_buttons: [] }
+          : { email_subject: 'Тема', email_html_content: '<p>Письмо</p>' }),
       };
 
       await adminBroadcastsApi.createCombined(payload);
