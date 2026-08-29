@@ -91,6 +91,7 @@ export interface CombinedBroadcastCreateRequest {
 export interface Broadcast {
   id: number;
   target_type: string;
+  target_label: string;
   message_text: string;
   has_media: boolean;
   media_type: string | null;

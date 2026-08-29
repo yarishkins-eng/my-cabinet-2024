@@ -2003,7 +2003,8 @@
       "categoryNews": "News",
       "categoryPromo": "Promo",
       "categorySystem": "System",
-      "stopping": "Stopping…"
+      "stopping": "Stopping…",
+      "completedAt": "Completed at"
     },
     "pinnedMessages": {
       "title": "Pinned Messages",

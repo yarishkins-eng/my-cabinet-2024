@@ -2029,7 +2029,8 @@
       "categoryNews": "Новости",
       "categoryPromo": "Промо",
       "categorySystem": "Системные",
-      "stopping": "Останавливается…"
+      "stopping": "Останавливается…",
+      "completedAt": "Завершена"
     },
     "pinnedMessages": {
       "title": "Закреплённые сообщения",

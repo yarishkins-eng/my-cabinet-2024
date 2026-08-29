@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router';
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { adminBroadcastsApi } from '../api/adminBroadcasts';
 import { usePlatform } from '../platform/hooks/usePlatform';
@@ -11,6 +11,7 @@ import {
   PhotoIcon,
   PlusIcon,
   RefreshIcon,
+  StopIcon,
   VideoIcon,
 } from '@/components/icons';
 
@@ -68,6 +69,7 @@ export default function AdminBroadcasts() {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const { capabilities } = usePlatform();
+  const queryClient = useQueryClient();
 
   const [page, setPage] = useState(0);
   const limit = 20;
@@ -88,6 +90,16 @@ export default function AdminBroadcasts() {
   const broadcasts = data?.items || [];
   const total = data?.total || 0;
   const totalPages = Math.ceil(total / limit);
+  const stopMutation = useMutation({
+    mutationFn: adminBroadcastsApi.stop,
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['admin', 'broadcasts'] }),
+  });
+
+  const categoryLabel = (category?: string) => {
+    if (category === 'news') return t('admin.broadcasts.categoryNews');
+    if (category === 'promo') return t('admin.broadcasts.categoryPromo');
+    return t('admin.broadcasts.categorySystem');
+  };
 
   return (
     <div className="space-y-6">
@@ -139,9 +151,17 @@ export default function AdminBroadcasts() {
       ) : (
         <div className="space-y-3">
           {broadcasts.map((broadcast) => (
-            <button
+            <div
               key={broadcast.id}
+              role="button"
+              tabIndex={0}
               onClick={() => navigate(`/admin/broadcasts/${broadcast.id}`)}
+              onKeyDown={(event) => {
+                if (event.target !== event.currentTarget) return;
+                if (event.key === 'Enter' || event.key === ' ') {
+                  navigate(`/admin/broadcasts/${broadcast.id}`);
+                }
+              }}
               className="w-full rounded-xl border border-dark-700 bg-dark-800/50 p-4 text-left transition-all hover:border-dark-600 hover:bg-dark-800"
             >
               <div className="flex items-start justify-between gap-4">
@@ -159,7 +179,8 @@ export default function AdminBroadcasts() {
                   </div>
                   <p className="truncate text-sm text-dark-100">{broadcast.message_text}</p>
                   <div className="mt-2 flex items-center gap-4 text-xs text-dark-400">
-                    <span>{broadcast.target_type}</span>
+                    <span>{broadcast.target_label}</span>
+                    <span>{categoryLabel(broadcast.category)}</span>
                     <span>
                       {broadcast.sent_count}/{broadcast.total_count}
                       {broadcast.blocked_count > 0 && (
@@ -169,11 +190,15 @@ export default function AdminBroadcasts() {
                         </span>
                       )}
                     </span>
-                    <span>{new Date(broadcast.created_at).toLocaleDateString()}</span>
+                    <span>
+                      {broadcast.completed_at
+                        ? `${t('admin.broadcasts.completedAt')}: ${new Date(broadcast.completed_at).toLocaleString()}`
+                        : new Date(broadcast.created_at).toLocaleString()}
+                    </span>
                   </div>
                 </div>
-                {['queued', 'in_progress'].includes(broadcast.status) && (
-                  <div className="w-16">
+                {['queued', 'in_progress', 'cancelling'].includes(broadcast.status) && (
+                  <div className="flex w-20 flex-col items-center gap-2">
                     <div className="h-1.5 overflow-hidden rounded-full bg-dark-600">
                       <div
                         className="h-full bg-accent-500"
@@ -183,10 +208,22 @@ export default function AdminBroadcasts() {
                     <p className="mt-1 text-center text-xs text-dark-400">
                       {broadcast.progress_percent.toFixed(0)}%
                     </p>
+                    <button
+                      type="button"
+                      aria-label={t('admin.broadcasts.stop')}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        stopMutation.mutate(broadcast.id);
+                      }}
+                      disabled={broadcast.status === 'cancelling' || stopMutation.isPending}
+                      className="rounded-lg border border-error-500/30 bg-error-500/20 p-2 text-error-400 hover:bg-error-500/30 disabled:opacity-50"
+                    >
+                      <StopIcon />
+                    </button>
                   </div>
                 )}
               </div>
-            </button>
+            </div>
           ))}
         </div>
       )}
