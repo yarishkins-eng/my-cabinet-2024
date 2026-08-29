@@ -2030,7 +2030,14 @@
       "categoryPromo": "Промо",
       "categorySystem": "Системные",
       "stopping": "Останавливается…",
-      "completedAt": "Завершена"
+      "completedAt": "Завершена",
+      "sendConfirmTitle": "Подтвердите отправку",
+      "sendConfirmIntro": "Рассылка необратима. Проверьте аудиторию и число получателей:",
+      "sendConfirmFailed": "Не удалось открыть подтверждение. Рассылка не отправлена.",
+      "previewRenderFailed": "Не удалось подготовить точный предпросмотр: {{error}}",
+      "previewRenderFailedFallback": "ошибка проверки Telegram-разметки",
+      "mediaUploadFailed": "Медиа не загружено: {{error}} Старый файл удалён из формы.",
+      "mediaUploadFailedFallback": "ошибка загрузки"
     },
     "pinnedMessages": {
       "title": "Закреплённые сообщения",

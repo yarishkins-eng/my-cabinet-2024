@@ -16,6 +16,9 @@ const {
   preview,
   previewEmail,
   notifySuccess,
+  notifyError,
+  confirmDialog,
+  uploadMedia,
 } = vi.hoisted(() => ({
   createCombined: vi.fn(),
   getFilters: vi.fn(),
@@ -24,6 +27,9 @@ const {
   preview: vi.fn(),
   previewEmail: vi.fn(),
   notifySuccess: vi.fn(),
+  notifyError: vi.fn(),
+  confirmDialog: vi.fn(),
+  uploadMedia: vi.fn(),
 }));
 
 vi.mock('../api/adminBroadcasts', () => ({
@@ -34,7 +40,7 @@ vi.mock('../api/adminBroadcasts', () => ({
     getButtons,
     preview,
     previewEmail,
-    uploadMedia: vi.fn(),
+    uploadMedia,
   },
 }));
 
@@ -43,12 +49,16 @@ vi.mock('../components/admin', () => ({
 }));
 
 vi.mock('../components/broadcasts/BroadcastPreview', () => ({
-  TelegramPreview: () => null,
+  TelegramPreview: ({ text }: { text: string }) => <div data-testid="telegram-preview">{text}</div>,
   EmailPreview: () => null,
 }));
 
 vi.mock('@/platform/hooks/useNotify', () => ({
-  useNotify: () => ({ success: notifySuccess }),
+  useNotify: () => ({ success: notifySuccess, error: notifyError }),
+}));
+
+vi.mock('@/platform/hooks/useNativeDialog', () => ({
+  useNativeDialog: () => ({ confirm: confirmDialog }),
 }));
 
 vi.mock('react-i18next', async () => {
@@ -152,6 +162,9 @@ beforeEach(() => {
     preview,
     previewEmail,
     notifySuccess,
+    notifyError,
+    confirmDialog,
+    uploadMedia,
   ]) {
     mock.mockReset();
   }
@@ -173,14 +186,87 @@ beforeEach(() => {
   getButtons.mockResolvedValue({ buttons: [] });
   preview.mockResolvedValue({ target: 'all', count: 1 });
   previewEmail.mockResolvedValue({ target: 'all_email', count: 1 });
+  confirmDialog.mockResolvedValue(true);
 });
 
 afterEach(() => {
   cleanup();
+  vi.unstubAllGlobals();
   onlineManager.setOnline(true);
 });
 
 describe('РС-10: отказы создания рассылки видны и повтор не создаёт дубль', () => {
+  it('не отправляет без явного подтверждения и показывает точную аудиторию с числом', async () => {
+    const longTariffLabel = `Тариф ${'Очень-длинное-название-'.repeat(5)}`;
+    getFilters.mockResolvedValueOnce({
+      filters: [],
+      tariff_filters: [
+        { key: 'tariff_17', label: longTariffLabel, tariff_id: 17, count: 1, group: 'tariff' },
+      ],
+      custom_filters: [],
+    });
+    confirmDialog.mockResolvedValueOnce(false);
+    renderPage();
+    await fillTelegram(longTariffLabel);
+
+    fireEvent.click(screen.getByRole('button', { name: 'admin.broadcasts.send' }));
+
+    await waitFor(() => expect(confirmDialog).toHaveBeenCalledTimes(1));
+    expect(confirmDialog.mock.calls[0][0]).toContain(`Telegram: ${longTariffLabel} — 1`);
+    expect(confirmDialog.mock.calls[0][0]).toContain('admin.broadcasts.categorySystem');
+    expect(createCombined).not.toHaveBeenCalled();
+  });
+
+  it('предпросмотр показывает канонический текст, который вернул backend', async () => {
+    preview.mockResolvedValueOnce({ target: 'all', count: 1 }).mockResolvedValueOnce({
+      target: 'all',
+      count: 1,
+      rendered_message_text: 'скрытые скобки ссылка',
+      media_caption_separate: false,
+    });
+    renderPage();
+    await fillTelegram();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Предпросмотр' }));
+
+    await waitFor(() =>
+      expect(screen.getByTestId('telegram-preview').textContent).toBe('скрытые скобки ссылка'),
+    );
+    expect(preview.mock.calls[1][0]).toEqual(
+      expect.objectContaining({ message_text: 'Тестовый текст', has_media: false }),
+    );
+  });
+
+  it('явно сообщает об ошибке медиа и не оставляет прежний file_id', async () => {
+    uploadMedia.mockRejectedValueOnce(new Error('storage unavailable'));
+    const { container } = renderPage();
+    const input = container.querySelector('input[type="file"]') as HTMLInputElement;
+    const file = new File(['broken'], 'broken.pdf', { type: 'application/pdf' });
+
+    fireEvent.change(input, { target: { files: [file] } });
+
+    await waitFor(() => expect(notifyError).toHaveBeenCalledTimes(1));
+    expect(screen.queryByText('broken.pdf')).toBeNull();
+    expect(input.value).toBe('');
+  });
+
+  it('показывает выбранное видео как video, а не сломанное изображение', async () => {
+    const createObjectURL = vi.fn(() => 'blob:video-preview');
+    const revokeObjectURL = vi.fn();
+    vi.stubGlobal('URL', { ...URL, createObjectURL, revokeObjectURL });
+    uploadMedia.mockResolvedValueOnce({ file_id: 'video-id' });
+    const { container } = renderPage();
+    const input = container.querySelector('input[type="file"]') as HTMLInputElement;
+
+    fireEvent.change(input, {
+      target: { files: [new File(['video'], 'clip.mp4', { type: 'video/mp4' })] },
+    });
+
+    expect(await screen.findByText('clip.mp4')).toBeTruthy();
+    expect(container.querySelector('video[src="blob:video-preview"]')).toBeTruthy();
+    expect(container.querySelector('img[alt="Preview"]')).toBeNull();
+  });
+
   it('передаёт backend-фильтр «Тест: только мне» без расширения target', async () => {
     getFilters.mockResolvedValueOnce({
       filters: [{ key: 'self', label: 'Тест: только мне', count: 1, group: 'basic' }],

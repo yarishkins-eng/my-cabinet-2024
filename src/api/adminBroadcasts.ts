@@ -132,11 +132,15 @@ export interface BroadcastListResponse {
 export interface BroadcastPreviewRequest {
   target: string;
   category: 'system' | 'news' | 'promo';
+  message_text?: string;
+  has_media?: boolean;
 }
 
 export interface BroadcastPreviewResponse {
   target: string;
   count: number;
+  rendered_message_text?: string | null;
+  media_caption_separate?: boolean;
 }
 
 export interface MediaUploadResponse {

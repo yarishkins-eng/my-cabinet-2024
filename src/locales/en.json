@@ -2004,7 +2004,14 @@
       "categoryPromo": "Promo",
       "categorySystem": "System",
       "stopping": "Stopping…",
-      "completedAt": "Completed at"
+      "completedAt": "Completed at",
+      "sendConfirmTitle": "Confirm sending",
+      "sendConfirmIntro": "This broadcast cannot be undone. Check the audience and recipient count:",
+      "sendConfirmFailed": "Could not open confirmation. The broadcast was not sent.",
+      "previewRenderFailed": "Could not prepare the exact preview: {{error}}",
+      "previewRenderFailedFallback": "Telegram markup validation failed",
+      "mediaUploadFailed": "Media was not uploaded: {{error}} The previous file was removed from the form.",
+      "mediaUploadFailedFallback": "upload failed"
     },
     "pinnedMessages": {
       "title": "Pinned Messages",
