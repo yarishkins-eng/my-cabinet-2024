@@ -130,6 +130,12 @@ export default function AdminBroadcastDetail() {
   });
 
   const isRunning = broadcast && ['queued', 'in_progress', 'cancelling'].includes(broadcast.status);
+  const categoryLabel =
+    broadcast?.category === 'news'
+      ? t('admin.broadcasts.categoryNews')
+      : broadcast?.category === 'promo'
+        ? t('admin.broadcasts.categoryPromo')
+        : t('admin.broadcasts.categorySystem');
 
   if (!broadcastId || isNaN(broadcastId)) {
     navigate('/admin/broadcasts');
@@ -226,7 +232,15 @@ export default function AdminBroadcastDetail() {
       {/* Target */}
       <div className="rounded-xl border border-dark-700 bg-dark-800/50 p-4">
         <p className="mb-1 text-sm text-dark-400">{t('admin.broadcasts.filter')}</p>
-        <p className="font-medium text-dark-100">{broadcast.target_type}</p>
+        <p className="font-medium text-dark-100">{broadcast.target_label}</p>
+        <p className="mt-2 text-sm text-dark-400">
+          {t('admin.broadcasts.category')}: {categoryLabel}
+        </p>
+        {broadcast.completed_at && (
+          <p className="mt-1 text-sm text-dark-400">
+            {t('admin.broadcasts.completedAt')}: {new Date(broadcast.completed_at).toLocaleString()}
+          </p>
+        )}
       </div>
 
       {/* Telegram Message */}
@@ -290,10 +304,10 @@ export default function AdminBroadcastDetail() {
       </div>
 
       {/* Stop button */}
-      {isRunning && broadcast.status !== 'cancelling' && (
+      {isRunning && (
         <button
           onClick={() => stopMutation.mutate(broadcast.id)}
-          disabled={stopMutation.isPending}
+          disabled={broadcast.status === 'cancelling' || stopMutation.isPending}
           className="flex w-full items-center justify-center gap-2 rounded-lg border border-error-500/30 bg-error-500/20 px-4 py-2 text-sm text-error-400 transition-colors hover:bg-error-500/30 disabled:opacity-50"
         >
           <StopIcon />

@@ -27,6 +27,7 @@ import {
 import { getApiErrorMessage } from '@/utils/api-error';
 import { useNotify } from '@/platform/hooks/useNotify';
 import { useNavigationGuardStore } from '@/store/navigationGuard';
+import { useNativeDialog } from '@/platform/hooks/useNativeDialog';
 
 const DEFINITE_PRECOMMIT_STATUSES = new Set([400, 401, 403, 422]);
 
@@ -52,6 +53,7 @@ export default function AdminBroadcastCreate() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const notify = useNotify();
+  const { confirm: confirmDialog } = useNativeDialog();
   const setNavigationBlocked = useNavigationGuardStore((state) => state.setBlocked);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -100,6 +102,7 @@ export default function AdminBroadcastCreate() {
 
   // Submitting state for dual send
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isConfirming, setIsConfirming] = useState(false);
   const [submissionError, setSubmissionError] = useState<string | null>(null);
   const [acceptedTelegramId, setAcceptedTelegramId] = useState<number | null>(null);
   const [outcomeUnknown, setOutcomeUnknown] = useState(false);
@@ -108,9 +111,10 @@ export default function AdminBroadcastCreate() {
   // Preview modals
   const [showTelegramPreview, setShowTelegramPreview] = useState(false);
   const [showEmailPreview, setShowEmailPreview] = useState(false);
+  const [renderedTelegramText, setRenderedTelegramText] = useState('');
+  const [previewSeparatesMediaText, setPreviewSeparatesMediaText] = useState(false);
 
-  const previewMediaTypeForModal: 'photo' | 'video' | null =
-    mediaType === 'photo' || mediaType === 'video' ? mediaType : null;
+  const previewMediaTypeForModal = uploadedFileId ? mediaType : null;
 
   const previewButtonRows = useMemo(() => {
     const rows: { text: string; url?: string; callback_data?: string }[][] = [];
@@ -336,8 +340,9 @@ export default function AdminBroadcastCreate() {
 
     setMediaFile(file);
     setMediaType(detectedType);
+    setUploadedFileId(null);
 
-    if (detectedType === 'photo') {
+    if (detectedType === 'photo' || detectedType === 'video') {
       if (mediaPreviewRef.current) URL.revokeObjectURL(mediaPreviewRef.current);
       const url = URL.createObjectURL(file);
       mediaPreviewRef.current = url;
@@ -350,9 +355,20 @@ export default function AdminBroadcastCreate() {
     try {
       const result = await adminBroadcastsApi.uploadMedia(file, detectedType);
       setUploadedFileId(result.file_id);
-    } catch {
+    } catch (error) {
+      if (mediaPreviewRef.current) {
+        URL.revokeObjectURL(mediaPreviewRef.current);
+        mediaPreviewRef.current = null;
+      }
       setMediaFile(null);
       setMediaPreview(null);
+      setUploadedFileId(null);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      notify.error(
+        t('admin.broadcasts.mediaUploadFailed', {
+          error: getApiErrorMessage(error, t('admin.broadcasts.mediaUploadFailedFallback')),
+        }),
+      );
     } finally {
       setIsUploading(false);
     }
@@ -467,11 +483,68 @@ export default function AdminBroadcastCreate() {
 
   const bothChannels = telegramEnabled && emailEnabled;
 
+  const handleTelegramPreview = async () => {
+    if (!telegramTarget || !messageText.trim() || isUploading) return;
+    try {
+      const result = await telegramPreviewMutation.mutateAsync({
+        target: telegramTarget,
+        category,
+        message_text: messageText,
+        has_media: Boolean(uploadedFileId),
+      });
+      setRenderedTelegramText(result.rendered_message_text || '');
+      setPreviewSeparatesMediaText(Boolean(result.media_caption_separate));
+      setShowTelegramPreview(true);
+    } catch (error) {
+      notify.error(
+        t('admin.broadcasts.previewRenderFailed', {
+          error: getApiErrorMessage(error, t('admin.broadcasts.previewRenderFailedFallback')),
+        }),
+      );
+    }
+  };
+
   // Submit
   const handleSubmit = async () => {
     if (!canSubmit || outcomeUnknown || submitGuardRef.current) return;
     submitGuardRef.current = true;
+    setIsConfirming(true);
     setSubmissionError(null);
+
+    const confirmationLines: string[] = [];
+    if (telegramEnabled && acceptedTelegramId === null) {
+      confirmationLines.push(
+        `Telegram: ${selectedTelegramFilter?.label || telegramTarget} — ${telegramRecipientsCount ?? 0}`,
+      );
+    }
+    if (emailEnabled) {
+      confirmationLines.push(
+        `Email: ${selectedEmailFilter?.label || emailTarget} — ${emailRecipientsCount ?? 0}`,
+      );
+    }
+    const categoryLabel =
+      category === 'news'
+        ? t('admin.broadcasts.categoryNews')
+        : category === 'promo'
+          ? t('admin.broadcasts.categoryPromo')
+          : t('admin.broadcasts.categorySystem');
+    let confirmed = false;
+    try {
+      confirmed = await confirmDialog(
+        `${t('admin.broadcasts.sendConfirmIntro')}\n\n${confirmationLines.join('\n')}\n${t('admin.broadcasts.category')}: ${categoryLabel}`,
+        t('admin.broadcasts.sendConfirmTitle'),
+      );
+    } catch {
+      submitGuardRef.current = false;
+      notify.error(t('admin.broadcasts.sendConfirmFailed'));
+      return;
+    } finally {
+      setIsConfirming(false);
+    }
+    if (!confirmed) {
+      submitGuardRef.current = false;
+      return;
+    }
     setNavigationBlocked(true);
 
     // Single channel — use existing createMutation with navigation to detail
@@ -578,7 +651,7 @@ export default function AdminBroadcastCreate() {
   const emailRecipientsCount =
     emailEnabled && emailPreviewMatches ? (emailPreviewMutation.data?.count ?? null) : null;
 
-  const isPending = createMutation.isPending || isSubmitting;
+  const isPending = createMutation.isPending || isSubmitting || isConfirming;
   const formLocked = isPending || outcomeUnknown;
   const telegramLocked = formLocked || acceptedTelegramId !== null;
 
@@ -762,8 +835,8 @@ export default function AdminBroadcastCreate() {
             </h2>
             <button
               type="button"
-              onClick={() => setShowTelegramPreview(true)}
-              disabled={messageText.trim().length === 0}
+              onClick={() => void handleTelegramPreview()}
+              disabled={messageText.trim().length === 0 || !telegramTarget || isUploading}
               className="rounded-lg border border-dark-700 bg-dark-800 px-3 py-1.5 text-sm text-dark-300 transition-colors hover:border-dark-600 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
             >
               {t('admin.broadcasts.preview', 'Предпросмотр')}
@@ -828,12 +901,15 @@ export default function AdminBroadcastCreate() {
                     <XIcon className="h-5 w-5" />
                   </button>
                 </div>
-                {mediaPreview && (
+                {mediaPreview && mediaType === 'photo' && (
                   <img
                     src={mediaPreview}
                     alt="Preview"
                     className="mt-3 max-h-48 rounded-lg object-cover"
                   />
+                )}
+                {mediaPreview && mediaType === 'video' && (
+                  <video src={mediaPreview} controls className="mt-3 max-h-48 rounded-lg" />
                 )}
                 {isUploading && (
                   <div className="mt-2 flex items-center gap-2 text-sm text-accent-400">
@@ -1177,9 +1253,11 @@ export default function AdminBroadcastCreate() {
       <TelegramPreview
         open={showTelegramPreview}
         onClose={() => setShowTelegramPreview(false)}
-        text={messageText}
+        text={renderedTelegramText}
         mediaUrl={mediaPreview}
         mediaType={previewMediaTypeForModal}
+        mediaName={mediaFile?.name}
+        separateMediaText={previewSeparatesMediaText}
         buttons={previewButtonRows}
       />
       <EmailPreview

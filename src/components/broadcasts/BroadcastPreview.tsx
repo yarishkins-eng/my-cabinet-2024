@@ -14,7 +14,9 @@ interface TelegramPreviewProps {
   onClose: () => void;
   text: string;
   mediaUrl?: string | null;
-  mediaType?: 'photo' | 'video' | null;
+  mediaType?: 'photo' | 'video' | 'document' | null;
+  mediaName?: string | null;
+  separateMediaText?: boolean;
   buttons?: PreviewButton[][];
 }
 
@@ -45,9 +47,17 @@ const TG_TAGS = new Set([
   'code',
   'pre',
   'a',
+  'blockquote',
   'tg-spoiler',
   'span',
 ]);
+
+function decodeCanonicalEntities(value: string): string {
+  return value.replace(
+    /&(amp|lt|gt|quot|#x27);/g,
+    (entity) => ({ '&amp;': '&', '&lt;': '<', '&gt;': '>', '&quot;': '"', '&#x27;': "'" })[entity]!,
+  );
+}
 
 function tokenize(input: string): Token[] {
   const tokens: Token[] = [];
@@ -70,7 +80,7 @@ function tokenize(input: string): Token[] {
         let href: string | undefined;
         if (tag === 'a' && m[3]) {
           const hrefMatch = m[3].match(/href\s*=\s*"([^"]*)"|href\s*=\s*'([^']*)'/i);
-          href = hrefMatch ? hrefMatch[1] || hrefMatch[2] : undefined;
+          href = hrefMatch ? decodeCanonicalEntities(hrefMatch[1] || hrefMatch[2]) : undefined;
         }
         tokens.push({ kind: 'open', tag, href });
       }
@@ -82,7 +92,8 @@ function tokenize(input: string): Token[] {
 }
 
 function renderText(value: string, key: number): ReactNode {
-  const parts = value.split(/\n/);
+  const decoded = decodeCanonicalEntities(value);
+  const parts = decoded.split(/\n/);
   return parts.flatMap((p, i) => (i === 0 ? [p] : [<br key={`nl-${key}-${i}`} />, p]));
 }
 
@@ -131,6 +142,12 @@ function wrap(frame: Frame, key: number): ReactNode {
         </a>
       );
     }
+    case 'blockquote':
+      return (
+        <blockquote key={k} className="my-1 border-l-2 border-white/50 pl-2">
+          {frame.children}
+        </blockquote>
+      );
     case 'tg-spoiler':
     case 'span':
       return <span key={k}>{frame.children}</span>;
@@ -182,10 +199,13 @@ export function TelegramPreview({
   text,
   mediaUrl,
   mediaType,
+  mediaName,
+  separateMediaText = false,
   buttons,
 }: TelegramPreviewProps) {
   const { t } = useTranslation();
   const rendered = useMemo(() => tokensToReact(tokenize(text)), [text]);
+  const hasSeparateText = Boolean(separateMediaText && mediaType);
   const dialogRef = useFocusTrap<HTMLDivElement>(open, { onEscape: onClose });
   if (!open) return null;
   return createPortal(
@@ -227,16 +247,28 @@ export function TelegramPreview({
             {mediaUrl && mediaType === 'video' && (
               <video src={mediaUrl} controls className="mb-2 max-h-72 w-full rounded-lg" />
             )}
-            {text ? (
+            {mediaType === 'document' && (
+              <div className="mb-2 rounded-lg bg-[#1f3f5c] px-3 py-2 text-sm">
+                📎 {mediaName || t('admin.broadcasts.document', 'Документ')}
+              </div>
+            )}
+            {text && !hasSeparateText ? (
               <div className="whitespace-pre-wrap break-words text-[15px] leading-snug">
                 {rendered}
               </div>
-            ) : (
+            ) : !hasSeparateText && !mediaUrl ? (
               <div className="text-sm italic text-white/60">
                 {t('admin.broadcasts.previewEmpty', '— пусто —')}
               </div>
-            )}
+            ) : null}
           </div>
+          {hasSeparateText && (
+            <div className="ml-auto mt-2 max-w-[90%] rounded-2xl rounded-tr-md bg-[#2b5278] p-3 text-white shadow">
+              <div className="whitespace-pre-wrap break-words text-[15px] leading-snug">
+                {rendered}
+              </div>
+            </div>
+          )}
           {buttons && buttons.length > 0 && (
             <div className="mt-2 space-y-1">
               {buttons.map((row, ri) => (
