@@ -181,6 +181,26 @@ afterEach(() => {
 });
 
 describe('РС-10: отказы создания рассылки видны и повтор не создаёт дубль', () => {
+  it('передаёт backend-фильтр «Тест: только мне» без расширения target', async () => {
+    getFilters.mockResolvedValueOnce({
+      filters: [{ key: 'self', label: 'Тест: только мне', count: 1, group: 'basic' }],
+      tariff_filters: [],
+      custom_filters: [],
+    });
+    preview.mockResolvedValueOnce({ target: 'self', count: 1 });
+    createCombined.mockResolvedValueOnce(broadcast(5));
+
+    renderPage();
+    await fillTelegram('Тест: только мне');
+
+    expect(preview.mock.calls[0][0]).toEqual({ target: 'self', category: 'system' });
+    fireEvent.click(screen.getByRole('button', { name: 'admin.broadcasts.send' }));
+    await waitFor(() => expect(createCombined).toHaveBeenCalledTimes(1));
+    expect(createCombined.mock.calls[0][0]).toEqual(
+      expect.objectContaining({ channel: 'telegram', target: 'self', category: 'system' }),
+    );
+  });
+
   it.each([400, 401, 403, 422])(
     'показывает причину однозначного HTTP %i и разрешает исправленный повтор',
     async (status) => {
