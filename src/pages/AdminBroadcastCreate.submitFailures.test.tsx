@@ -157,6 +157,9 @@ async function enableAndFillEmail(label = 'Все Email') {
   fireEvent.change(screen.getByPlaceholderText('admin.broadcasts.emailContentPlaceholder'), {
     target: { value: '<p>Письмо</p>' },
   });
+  // Гарантия «уходит только то, что вы видели» теперь держится и для писем: раньше письмо
+  // можно было отправить, ни разу не открыв предпросмотр, и первым его видел получатель.
+  fireEvent.click(screen.getAllByRole('button', { name: 'Предпросмотр' }).at(-1)!);
   await waitFor(() =>
     expect(
       (screen.getByRole('button', { name: 'admin.broadcasts.send' }) as HTMLButtonElement).disabled,
@@ -303,7 +306,10 @@ describe('РС-10: отказы создания рассылки видны и 
     );
   });
 
-  it.each([400, 401, 403, 422])(
+  // 409 — отказ забора повторов РС-14г. Мутация «убрать 409 из набора» пережила весь файл,
+  // пока его тут не было: без него отказ уходил в ветку «исход неизвестен» и запирал форму
+  // насмерть ровно там, где сервер гарантированно ничего не создал.
+  it.each([400, 401, 403, 409, 422])(
     'показывает причину однозначного HTTP %i и разрешает исправленный повтор',
     async (status) => {
       createCombined
@@ -989,5 +995,55 @@ describe('РС-10: отказы создания рассылки видны и 
     // И «только мне» больше не соседняя строка: между ними встал заголовок группы.
     const rendered = screen.getAllByText(/Тест: только мне|Все активные с Telegram/);
     expect(rendered).toHaveLength(2);
+  });
+
+  it('РС-14б: письмо тоже нельзя отправить непросмотренным', async () => {
+    renderPage();
+    await fillEmailOnly();
+    const sendButton = () =>
+      screen.getByRole('button', { name: 'admin.broadcasts.send' }) as HTMLButtonElement;
+    expect(sendButton().disabled).toBe(false);
+
+    fireEvent.change(screen.getByPlaceholderText('admin.broadcasts.emailContentPlaceholder'), {
+      target: { value: '<p>Совсем другое письмо</p>' },
+    });
+
+    await waitFor(() => expect(sendButton().disabled).toBe(true));
+    await settle();
+    expect(createCombined).not.toHaveBeenCalled();
+  });
+
+  it('РС-14б: правка ТЕМЫ письма тоже гасит «Отправить»', async () => {
+    renderPage();
+    await fillEmailOnly();
+
+    fireEvent.change(screen.getByPlaceholderText('admin.broadcasts.emailSubjectPlaceholder'), {
+      target: { value: 'Другая тема' },
+    });
+
+    await waitFor(() =>
+      expect(
+        (screen.getByRole('button', { name: 'admin.broadcasts.send' }) as HTMLButtonElement)
+          .disabled,
+      ).toBe(true),
+    );
+  });
+
+  it('РС-14е: у ПОЧТЫ «все» тоже последней строкой, а не первой', async () => {
+    // У почты нет цели «только мне» — сухой прогон письма сделать нечем, поэтому цена
+    // промаха там выше. Порядок держался только на том, что ключ оказался последним
+    // в словаре сервера: одна вставка после него молча вернула бы риск.
+    getEmailFilters.mockResolvedValueOnce({
+      filters: [
+        { key: 'email_only', label: 'Только почта', count: 4, group: 'auth_type' },
+        { key: 'all_email', label: 'Все с подтверждённым email', count: 13, group: 'broad' },
+      ],
+    });
+    renderPage();
+    fireEvent.click(screen.getByRole('button', { name: 'admin.broadcasts.enableEmail' }));
+    fireEvent.click(await screen.findByText('admin.broadcasts.selectEmailFilterPlaceholder'));
+
+    const rows = screen.getAllByText(/Только почта|Все с подтверждённым email/);
+    expect(rows[rows.length - 1].textContent).toContain('Все с подтверждённым email');
   });
 });

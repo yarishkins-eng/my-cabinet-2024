@@ -34,6 +34,23 @@ import { useDestructiveConfirm } from '@/platform/hooks/useNativeDialog';
 // Без него отказ уходил в ветку «исход неизвестен»: экран показывал самое страшное своё
 // сообщение («не повторяйте, идите смотрите историю») ровно там, где сервер гарантированно
 // ничего не создал, и запирал форму насмерть — `outcomeUnknown` нигде не сбрасывается.
+// Снять по краям ровно те символы, что снимает питоновский `.strip()` на сервере.
+// JS `.trim()` не знает про U+001C..U+001F и U+0085, поэтому кабинет отбивал адрес,
+// который сервер молча почистил бы и принял: забор оказывался СТРОЖЕ зеркала, законная
+// кнопка не добавлялась, и узнать почему было негде. Списком кодов, а не регуляркой:
+// управляющие символы в регулярном выражении запрещены правилом линтера.
+const PYTHON_ONLY_SPACE = new Set([0x1c, 0x1d, 0x1e, 0x1f, 0x85]);
+
+const stripLikePython = (value: string): string => {
+  const strippable = (ch: string) =>
+    /\s/u.test(ch) || PYTHON_ONLY_SPACE.has(ch.codePointAt(0) ?? -1);
+  let start = 0;
+  let end = value.length;
+  while (start < end && strippable(value[start])) start += 1;
+  while (end > start && strippable(value[end - 1])) end -= 1;
+  return value.slice(start, end);
+};
+
 const DEFINITE_PRECOMMIT_STATUSES = new Set([400, 401, 403, 409, 422]);
 
 const isDefiniteClientRejection = (error: unknown) =>
@@ -123,6 +140,13 @@ export default function AdminBroadcastCreate() {
   // поправить текст на B и отправить B, ни разу не увидев его каноническим; подтверждение
   // текст тоже не показывает. Здесь помним, ЧТО именно было показано, и гасим «Отправить»,
   // пока показанное не совпадает с тем, что уйдёт.
+  // Гарантия «уходит только то, что вы видели» должна держаться и для писем. Она держалась
+  // только для Телеграма, и человек, привыкший «экран не даст отправить непроверенное»,
+  // перенёс бы это правило на письма и ошибся: первым, кто увидит письмо, был бы получатель.
+  const [previewedEmailContent, setPreviewedEmailContent] = useState<{
+    subject: string;
+    html: string;
+  } | null>(null);
   const [previewedTelegramContent, setPreviewedTelegramContent] = useState<{
     text: string;
     mediaId: string;
@@ -453,7 +477,7 @@ export default function AdminBroadcastCreate() {
       // внутри доезжала до Телеграма и отбивалась BUTTON_URL_INVALID у КАЖДОГО получателя —
       // «0 доставлено» по всей аудитории. Зеркало серверной проверки в schemas/broadcasts.py:
       // запрещённые символы, непустой адрес после схемы, хост с точкой для https.
-      const url = newButtonActionValue.trim();
+      const url = stripLikePython(newButtonActionValue);
       if (!/^https:\/\/|^tg:\/\//.test(url)) return false;
       // Точное зеркало серверных категорий Unicode (Cc/Cf/Zs/Zl/Zp). Ручной список кодов
       // не был зеркалом: мимо него проходили мягкий перенос U+00AD (классический след
@@ -565,8 +589,17 @@ export default function AdminBroadcastCreate() {
       previewedTelegramContent.text === telegramContentFingerprint.text &&
       previewedTelegramContent.mediaId === telegramContentFingerprint.mediaId &&
       previewedTelegramContent.buttons === telegramContentFingerprint.buttons);
+  const emailContentPreviewed =
+    !emailEnabled ||
+    (previewedEmailContent !== null &&
+      previewedEmailContent.subject === emailSubject &&
+      previewedEmailContent.html === emailContent);
   const canSubmit = Boolean(
-    isValid && previewReady && previewHasRecipients && telegramContentPreviewed,
+    isValid &&
+    previewReady &&
+    previewHasRecipients &&
+    telegramContentPreviewed &&
+    emailContentPreviewed,
   );
 
   const bothChannels = telegramEnabled && emailEnabled;
@@ -1187,7 +1220,10 @@ export default function AdminBroadcastCreate() {
             </h2>
             <button
               type="button"
-              onClick={() => setShowEmailPreview(true)}
+              onClick={() => {
+                setPreviewedEmailContent({ subject: emailSubject, html: emailContent });
+                setShowEmailPreview(true);
+              }}
               disabled={emailContent.trim().length === 0}
               className="rounded-lg border border-dark-700 bg-dark-800 px-3 py-1.5 text-sm text-dark-300 transition-colors hover:border-dark-600 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
             >
@@ -1295,19 +1331,26 @@ export default function AdminBroadcastCreate() {
         </div>
       )}
 
-      {!telegramContentPreviewed && isValid && !previewPending && !previewFailed && (
-        <div
-          role="status"
-          className="rounded-lg border border-warning-500/40 bg-warning-500/10 p-4 text-sm text-warning-300"
-        >
-          {/* Два разных состояния, и путать их нельзя: «ещё ни разу не смотрел» — это КАЖДАЯ
+      {(!telegramContentPreviewed || !emailContentPreviewed) &&
+        isValid &&
+        !previewPending &&
+        !previewFailed && (
+          <div
+            role="status"
+            className="rounded-lg border border-warning-500/40 bg-warning-500/10 p-4 text-sm text-warning-300"
+          >
+            {/* Два разных состояния, и путать их нельзя: «ещё ни разу не смотрел» — это КАЖДАЯ
               рассылка с самого начала, и говорить там «изменились после предпросмотра» значит
               врать человеку про его собственные действия первой же фразой на экране. */}
-          {previewedTelegramContent === null
-            ? t('admin.broadcasts.previewRequired')
-            : t('admin.broadcasts.previewOutdated')}
-        </div>
-      )}
+            {(
+              telegramContentPreviewed
+                ? previewedEmailContent === null
+                : previewedTelegramContent === null
+            )
+              ? t('admin.broadcasts.previewRequired')
+              : t('admin.broadcasts.previewOutdated')}
+          </div>
+        )}
 
       {previewReady && !previewHasRecipients && !previewPending && !previewFailed && (
         <div
