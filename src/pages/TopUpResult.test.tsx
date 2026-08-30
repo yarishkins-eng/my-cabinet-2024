@@ -605,7 +605,7 @@ describe('TopUpResult — экран перестаёт врать про ден
     vi.mocked(balanceApi.getPendingPayment).mockResolvedValue(paidWithVerdict(true));
 
     renderResult('?method=platega&status=success');
-    await screen.findByText('balance.topUpResult.success');
+    await screen.findByText('balance.topUpResult.successWithStep');
     await settle();
 
     expect(screen.getByText('balance.topUpResult.purchaseStepPending')).toBeTruthy();
@@ -625,7 +625,7 @@ describe('TopUpResult — экран перестаёт врать про ден
     vi.mocked(balanceApi.getPendingPayment).mockResolvedValue(paidWithVerdict(true));
 
     renderResult('?method=platega&status=success');
-    await screen.findByText('balance.topUpResult.success');
+    await screen.findByText('balance.topUpResult.successWithStep');
     await settle();
 
     fireEvent.click(screen.getAllByRole('button')[0]);
@@ -633,6 +633,39 @@ describe('TopUpResult — экран перестаёт врать про ден
     await waitFor(() =>
       expect(screen.getByTestId('location').textContent).toBe('/subscription/purchase'),
     );
+  });
+
+  // 🔴 Ветка, которую независимо назвали ТРИ линзы ревью: человек пришёл с обычного
+  // покупочного экрана (метка `returnTo` есть, метки кассы нет). Двери к покупке тут
+  // намеренно нет — тем же путём сюда попадает тот, кто шёл докупить устройства или трафик,
+  // и предлагать ему подписку было бы подменой его же намерения. Проверяем ОБА утверждения
+  // сразу: правду говорим, второй кнопки не рисуем, выход остаётся на Главную.
+  it('пришедшему с обычной покупки говорит правду, но двери к тарифам не открывает', async () => {
+    seedPendingInfo('/subscription/devices');
+    vi.mocked(balanceApi.getPendingPayment).mockResolvedValue(paidWithVerdict(true));
+
+    renderResult('?method=platega&status=success');
+    await screen.findByText('balance.topUpResult.successWithStep');
+    await settle();
+
+    expect(screen.getByText('balance.topUpResult.purchaseStepPending')).toBeTruthy();
+    const buttons = screen.getAllByRole('button');
+    expect(buttons).toHaveLength(1);
+    expect(buttons[0].textContent).toBe('balance.topUpResult.goToHome');
+  });
+
+  // 🔴 Заголовок и галочка — те самые два элемента, которые клиент 106 прочитала как
+  // «сделка закрыта». Сторож на подпись под ними не заметил бы, если бы заголовок остался
+  // прежним: оговорка мелким шрифтом под жирным «Баланс пополнен!» — это не починка.
+  it('меняет и ЗАГОЛОВОК, а не только подпись под ним', async () => {
+    seedPendingInfo(null);
+    vi.mocked(balanceApi.getPendingPayment).mockResolvedValue(paidWithVerdict(true));
+
+    renderResult('?method=platega&status=success');
+    await screen.findByText('balance.topUpResult.successWithStep');
+    await settle();
+
+    expect(screen.queryByText('balance.topUpResult.success')).toBeNull();
   });
 
   // 🔴 Второй двери там, где дверь уже есть, быть не должно. У пришедшего с кассы кнопка
@@ -643,7 +676,7 @@ describe('TopUpResult — экран перестаёт врать про ден
     vi.mocked(balanceApi.getPendingPayment).mockResolvedValue(paidWithVerdict(true));
 
     renderResult('?method=platega&status=success');
-    await screen.findByText('balance.topUpResult.success');
+    await screen.findByText('balance.topUpResult.successWithStep');
     await settle();
 
     expect(screen.getByText('balance.topUpResult.purchaseStepPending')).toBeTruthy();
