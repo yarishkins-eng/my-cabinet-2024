@@ -1046,4 +1046,23 @@ describe('РС-10: отказы создания рассылки видны и 
     const rows = screen.getAllByText(/Только почта|Все с подтверждённым email/);
     expect(rows[rows.length - 1].textContent).toContain('Все с подтверждённым email');
   });
+
+  it('РС-14д: предупреждение о делении показывается ТОЛЬКО когда оно правда', async () => {
+    renderPage();
+    await fillTelegram('Все Telegram', 'Короткий текст');
+    // Без вложения деление не грозит, даже если текст длинный — предупреждать не о чем.
+    expect(screen.queryByText('admin.broadcasts.mediaCaptionSplitHint')).toBeNull();
+
+    fireEvent.change(screen.getByPlaceholderText('admin.broadcasts.messageTextPlaceholder'), {
+      target: { value: 'я'.repeat(1500) },
+    });
+    await settle();
+    expect(screen.queryByText('admin.broadcasts.mediaCaptionSplitHint')).toBeNull();
+  });
+
+  it('РС-14д: подсказки про пределы и про кнопки видны на экране', async () => {
+    renderPage();
+    await screen.findByText('admin.broadcasts.mediaHint');
+    expect(screen.getByText('admin.broadcasts.customButtonsHint')).toBeTruthy();
+  });
 });

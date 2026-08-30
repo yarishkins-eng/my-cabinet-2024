@@ -960,7 +960,7 @@ export default function AdminBroadcastCreate() {
               type="button"
               onClick={() => void handleTelegramPreview()}
               disabled={messageText.trim().length === 0 || !telegramTarget || isUploading}
-              className="rounded-lg border border-dark-700 bg-dark-800 px-3 py-1.5 text-sm text-dark-300 transition-colors hover:border-dark-600 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+              className="btn-primary px-3 py-1.5 text-sm"
             >
               {t('admin.broadcasts.preview', 'Предпросмотр')}
             </button>
@@ -995,13 +995,25 @@ export default function AdminBroadcastCreate() {
               className="input min-h-[150px] resize-y"
             />
             <div className="mt-1 text-right text-xs text-dark-400">{messageText.length}/4000</div>
+            {/* Живое предупреждение вместо общей фразы: пока текст короче подписи, человека
+                не о чем предупреждать, а когда длиннее — важно сказать заранее, что уйдёт
+                ДВУМЯ сообщениями, иначе это выглядит как поломка уже после отправки. */}
+            {Boolean(uploadedFileId) && messageText.length > 1024 && (
+              <p
+                role="status"
+                className="mt-2 rounded-lg border border-accent-500/40 bg-accent-500/10 p-3 text-xs text-accent-200"
+              >
+                {t('admin.broadcasts.mediaCaptionSplitHint', { limit: 1024 })}
+              </p>
+            )}
           </div>
 
           {/* Media upload */}
           <div>
-            <label className="mb-2 block text-sm font-medium text-dark-300">
+            <label className="mb-1 block text-sm font-medium text-dark-300">
               {t('admin.broadcasts.media')}
             </label>
+            <p className="mb-2 text-xs text-dark-400">{t('admin.broadcasts.mediaHint')}</p>
             {mediaFile ? (
               <div className="rounded-lg border border-dark-700 bg-dark-800 p-4">
                 <div className="flex items-center justify-between">
@@ -1085,9 +1097,10 @@ export default function AdminBroadcastCreate() {
 
           {/* Custom buttons */}
           <div>
-            <label className="mb-2 block text-sm font-medium text-dark-300">
+            <label className="mb-1 block text-sm font-medium text-dark-300">
               {t('admin.broadcasts.customButtons')}
             </label>
+            <p className="mb-2 text-xs text-dark-400">{t('admin.broadcasts.customButtonsHint')}</p>
 
             {/* Existing custom buttons */}
             {customButtons.length > 0 && (
@@ -1225,7 +1238,7 @@ export default function AdminBroadcastCreate() {
                 setShowEmailPreview(true);
               }}
               disabled={emailContent.trim().length === 0}
-              className="rounded-lg border border-dark-700 bg-dark-800 px-3 py-1.5 text-sm text-dark-300 transition-colors hover:border-dark-600 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+              className="btn-primary px-3 py-1.5 text-sm"
             >
               {t('admin.broadcasts.preview', 'Предпросмотр')}
             </button>
