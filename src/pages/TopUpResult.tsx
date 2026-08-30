@@ -102,14 +102,47 @@ function PendingState({
 function SuccessState({
   amountKopeks,
   returnTo,
+  purchaseStepPending,
 }: {
   amountKopeks: number | null;
   returnTo: string | null;
+  purchaseStepPending: boolean;
 }) {
   const { t } = useTranslation();
   const navigate = useNavigate();
 
   const checkoutReturn = resolveCheckoutReturn(returnTo);
+
+  // 🔴 Этап ДВ-3 (мина IC). До него экран говорил всем одно: «Ваш баланс успешно пополнен.
+  // Средства уже доступны» — и в ветке без адреса возврата давал единственную кнопку на
+  // баланс. Клиент 106 прочитала это как «сделка закрыта» и осталась без подписки при
+  // деньгах на счету; её слова владельцу — «я закинула деньги и думала, что баланс
+  // пополнен». Этап ДВ-2 убрал ту же ложь из ЧАТА, но этот экран человек видит РАНЬШЕ
+  // сообщения бота: возврат кнопкой платёжной системы открывает мини-приложение прямо здесь.
+  //
+  // ⛔ Кому говорить, решает НЕ этот файл. Флаг приходит от бота и считается той же
+  // функцией, что молчит в чате (`topup_pending_purchase_hint`): она молчит при свежей
+  // метке автопокупки, при включённом автоплатеже и у подписчика с запасом больше порога.
+  // Свой список условий здесь стал бы вторым и разъехался бы с чатом.
+  //
+  // ⛔ Текст НЕ повторяет чатовый дословно, и это осознанно. В чате под сообщением одна
+  // кнопка, поэтому там верно «нажмите кнопку ниже и выберите срок». Здесь у экрана ТРИ
+  // ветки выхода, и в одной из них кнопка ведёт на Главную — фраза про «выберите срок»
+  // стала бы там новой ложью вместо старой. Говорим то, что верно во всех трёх.
+  const showPurchaseHint = purchaseStepPending;
+  // Дверь к покупке нужна только там, где её нет вовсе. У ветки кассы своя кнопка
+  // («Вернуться к покупке»), у ветки Главной — Главная, где видно состояние подписки.
+  const needsPurchaseDoor = showPurchaseHint && !checkoutReturn && !returnTo;
+
+  const handleChoosePlan = useCallback(() => {
+    clearTopUpPendingInfo();
+    // ⚠️ Тот же адрес, которым во всём кабинете открывают покупку: `PurchaseCTAButton`,
+    // `Subscriptions`, карточка истёкшей подписки. Своего маршрута не изобретаем.
+    // ⚠️ НАЗВАННАЯ ГРАНИЦА: при включённом мультитарифе продление существующей подписки
+    // живёт на `/subscriptions/:id/renew`. Сегодня мультитариф выключен; экран покупки по
+    // этому адресу работает в обоих режимах, поэтому лишний запрос сюда не тащим.
+    navigate('/subscription/purchase', { replace: true });
+  }, [navigate]);
 
   const handleDone = useCallback(() => {
     // Уходим с известным исходом — вот теперь запись больше не нужна.
@@ -137,17 +170,43 @@ function SuccessState({
 
       <div>
         <h1 className="text-xl font-bold text-dark-50">{t('balance.topUpResult.success')}</h1>
-        <p className="mt-2 text-sm text-dark-400">{t('balance.topUpResult.successDesc')}</p>
+        {/* ⚠️ Цвет НЕ трогаем намеренно. Предупреждающие токены (`warning-*`) в светлой теме
+            не переопределены: янтарный на шампани даёт нечитаемый контраст — на этом уже
+            обожглись этапом РС-14д. Заметность даёт не цвет, а знак в начале строки (так же,
+            как в чате) и сменившаяся главная кнопка. */}
+        <p className="mt-2 text-sm text-dark-400">
+          {showPurchaseHint
+            ? t('balance.topUpResult.purchaseStepPending')
+            : t('balance.topUpResult.successDesc')}
+        </p>
       </div>
 
       {amountKopeks != null && amountKopeks > 0 && (
         <AmountDisplay amountKopeks={amountKopeks} label={t('balance.topUpResult.topUpAmount')} />
       )}
 
+      {/* 🔴 Этап ДВ-3. Ветка, где выхода не было вовсе: человек пополнил баланс не из
+          покупки, и единственная кнопка вела на баланс — то есть на экран, который ничего не
+          оформляет. Теперь главная кнопка ведёт туда, где подписку выбирают, а прежняя
+          остаётся тихой второй. У двух других веток свои двери, и их не трогаем. */}
+      {needsPurchaseDoor && (
+        <button
+          type="button"
+          onClick={handleChoosePlan}
+          className="flex min-h-[44px] w-full items-center justify-center gap-2 rounded-xl bg-accent-500 px-6 py-3 text-sm font-medium text-white transition-colors hover:bg-accent-400"
+        >
+          {t('balance.topUpResult.choosePlan')}
+        </button>
+      )}
+
       <button
         type="button"
         onClick={handleDone}
-        className="flex w-full items-center justify-center gap-2 rounded-xl bg-accent-500 px-6 py-3 text-sm font-medium text-white transition-colors hover:bg-accent-400"
+        className={
+          needsPurchaseDoor
+            ? 'flex min-h-[44px] w-full items-center justify-center gap-2 rounded-xl bg-dark-800/50 px-6 py-3 text-sm font-medium text-dark-200 transition-colors hover:bg-dark-700/50'
+            : 'flex w-full items-center justify-center gap-2 rounded-xl bg-accent-500 px-6 py-3 text-sm font-medium text-white transition-colors hover:bg-accent-400'
+        }
       >
         {/* 🔴 Этап Б-1: для кассы «Перейти к подписке» — ложь ровно в ту секунду, когда деньги
             уже взяты: подписки ещё нет, пополнение ничего не оформило.
@@ -495,6 +554,19 @@ export default function TopUpResult() {
   const resolvedPaid = serverSaysPaid || (!canAskServer && isRedirectSuccess);
   const resolvedFailed = !resolvedPaid && (serverSaysFailed || isRedirectFailed);
 
+  // 🔴 Этап ДВ-3. Остался ли за человеком шаг «оформить подписку». Отвечает СЕРВЕР — той же
+  // функцией, что молчит в чате с этапа ДВ-2, и молчит она по метке автопокупки, по
+  // автоплатежу и по запасу подписки. Здесь второго списка условий нет намеренно.
+  //
+  // ⛔ Отсутствие поля — это «молчим», а не «неизвестно». Кабинет выкладывается ПЕРВЫМ, и
+  // сутки живёт против старого бота, который поля не отдаёт: обещать оставшийся шаг тому,
+  // за кого деньги потратит автопокупка, опаснее, чем оставить прежний текст.
+  //
+  // ⛔ И спрашиваем только там, где сервер вообще отвечал. Исход, известный лишь из адреса
+  // (`isRedirectSuccess` при молчащем сервере), про оставшийся шаг не знает ничего — такую
+  // метку после этапа В-1 умеет собрать кто угодно.
+  const purchaseStepPending = Boolean(effectivePayment?.purchase_step_pending);
+
   // 🔴 Этап В-1. Память гасим ТОЛЬКО когда ЭТОТ ЖЕ исход подтвердил сервер.
   //
   // Исход, пришедший лишь из адреса, — это слово, сказанное снаружи. После В-1 такой адрес
@@ -569,7 +641,11 @@ export default function TopUpResult() {
         aria-atomic="true"
       >
         {resolvedPaid ? (
-          <SuccessState amountKopeks={amountKopeks} returnTo={returnTo} />
+          <SuccessState
+            amountKopeks={amountKopeks}
+            returnTo={returnTo}
+            purchaseStepPending={purchaseStepPending}
+          />
         ) : resolvedFailed ? (
           <FailedState amountKopeks={amountKopeks} returnTo={returnTo} />
         ) : pollTimedOut ? (

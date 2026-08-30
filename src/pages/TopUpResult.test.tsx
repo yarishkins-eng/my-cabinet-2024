@@ -551,3 +551,104 @@ describe('TopUpResult — возврат на кассу после пополн
     );
   });
 });
+
+describe('TopUpResult — экран перестаёт врать про деньги (этап ДВ-3, мина IC)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    sessionStorage.clear();
+    localStorage.clear();
+  });
+  afterEach(cleanup);
+
+  /** Оплаченный счёт с вердиктом бота про оставшийся шаг. */
+  function paidWithVerdict(purchaseStepPending: boolean | undefined): PendingPayment {
+    return { ...paidPayment(), purchase_step_pending: purchaseStepPending };
+  }
+
+  // 🔴 ГЛАВНЫЙ СТОРОЖ ПОРЯДКА ВЫКЛАДКИ. Кабинет уезжает на боевой ПЕРВЫМ и сутки живёт против
+  // старого бота, который поля не отдаёт вовсе. Молчание в этом случае — не вежливость, а
+  // защита: обещать оставшийся шаг тому, за кого деньги потратит автопокупка или автоплатёж,
+  // значит толкнуть человека купить ВТОРОЙ период поверх оплаченного.
+  it('без поля от бота показывает ПРЕЖНИЙ текст и не заводит новой кнопки', async () => {
+    seedPendingInfo(null);
+    vi.mocked(balanceApi.getPendingPayment).mockResolvedValue(paidWithVerdict(undefined));
+
+    renderResult('?method=platega&status=success');
+    await screen.findByText('balance.topUpResult.success');
+    await settle();
+
+    expect(screen.getByText('balance.topUpResult.successDesc')).toBeTruthy();
+    expect(screen.queryByText('balance.topUpResult.purchaseStepPending')).toBeNull();
+    // Точное число, а не «больше нуля»: так ловится собственное непонимание экрана.
+    const buttons = screen.getAllByRole('button');
+    expect(buttons).toHaveLength(1);
+    expect(buttons[0].textContent).toBe('balance.topUpResult.goToBalance');
+  });
+
+  // 🔴 Молчит чат — молчит и экран. Вердикт один на две поверхности; если бы кабинет решал
+  // сам, подписчик с запасом читал бы «оформите подписку» там, где бот справедливо молчит.
+  it('когда бот молчит, экран оставляет прежний текст', async () => {
+    seedPendingInfo(null);
+    vi.mocked(balanceApi.getPendingPayment).mockResolvedValue(paidWithVerdict(false));
+
+    renderResult('?method=platega&status=success');
+    await screen.findByText('balance.topUpResult.success');
+    await settle();
+
+    expect(screen.getByText('balance.topUpResult.successDesc')).toBeTruthy();
+    expect(screen.getAllByRole('button')).toHaveLength(1);
+  });
+
+  // 🔴 Ветка клиента 106: пополнил не из покупки, выхода к подписке не было вовсе.
+  it('называет оставшийся шаг и даёт дверь к подписке тому, у кого её не было', async () => {
+    seedPendingInfo(null);
+    vi.mocked(balanceApi.getPendingPayment).mockResolvedValue(paidWithVerdict(true));
+
+    renderResult('?method=platega&status=success');
+    await screen.findByText('balance.topUpResult.success');
+    await settle();
+
+    expect(screen.getByText('balance.topUpResult.purchaseStepPending')).toBeTruthy();
+    expect(screen.queryByText('balance.topUpResult.successDesc')).toBeNull();
+
+    const buttons = screen.getAllByRole('button');
+    expect(buttons).toHaveLength(2);
+    // Порядок значим: главной становится дверь к подписке, прежняя уходит второй и тихой.
+    expect(buttons[0].textContent).toBe('balance.topUpResult.choosePlan');
+    expect(buttons[1].textContent).toBe('balance.topUpResult.goToBalance');
+  });
+
+  // 🔴 Дверь обязана ВЕСТИ туда, что обещает подпись. Проверяем действие, а не надпись:
+  // подпись без перехода — это ровно та ложь, которую этап убирает.
+  it('дверь к подписке действительно открывает экран покупки', async () => {
+    seedPendingInfo(null);
+    vi.mocked(balanceApi.getPendingPayment).mockResolvedValue(paidWithVerdict(true));
+
+    renderResult('?method=platega&status=success');
+    await screen.findByText('balance.topUpResult.success');
+    await settle();
+
+    fireEvent.click(screen.getAllByRole('button')[0]);
+
+    await waitFor(() =>
+      expect(screen.getByTestId('location').textContent).toBe('/subscription/purchase'),
+    );
+  });
+
+  // 🔴 Второй двери там, где дверь уже есть, быть не должно. У пришедшего с кассы кнопка
+  // «Вернуться к покупке» ведёт к его собственному выбору срока и устройств — увести его
+  // на общий экран тарифов значило бы потерять то, что он уже набрал.
+  it('пришедшему с кассы новой кнопки не рисует, но правду говорит', async () => {
+    seedPendingInfo(CHECKOUT_RETURN);
+    vi.mocked(balanceApi.getPendingPayment).mockResolvedValue(paidWithVerdict(true));
+
+    renderResult('?method=platega&status=success');
+    await screen.findByText('balance.topUpResult.success');
+    await settle();
+
+    expect(screen.getByText('balance.topUpResult.purchaseStepPending')).toBeTruthy();
+    const buttons = screen.getAllByRole('button');
+    expect(buttons).toHaveLength(1);
+    expect(buttons[0].textContent).toBe('balance.topUpResult.backToOrder');
+  });
+});

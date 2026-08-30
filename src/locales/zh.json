@@ -738,6 +738,8 @@
       "topUpAmount": "充值金额",
       "success": "充值成功！",
       "successDesc": "您的余额已成功充值，资金现已可用。",
+      "purchaseStepPending": "⚠️ 余额已到账，但订阅不会自动付款，仍需您手动开通。",
+      "choosePlan": "选择订阅",
       "failed": "付款失败",
       "failedDesc": "很遗憾，付款未完成。请重试或选择其他付款方式。",
       "timeout": "处理时间较长",
