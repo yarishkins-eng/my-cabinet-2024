@@ -875,6 +875,7 @@
     "deposit": "Пополнение",
     "withdrawal": "Списание",
     "subscriptionPayment": "Оплата подписки",
+    "providerReceipt": "Оплата картой",
     "referralReward": "Реферальный бонус",
     "minAmount": "Мин.",
     "maxAmount": "Макс.",

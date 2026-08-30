@@ -847,6 +847,7 @@
     "deposit": "Deposit",
     "withdrawal": "Withdrawal",
     "subscriptionPayment": "Subscription Payment",
+    "providerReceipt": "Card payment",
     "referralReward": "Referral Reward",
     "minAmount": "Min.",
     "maxAmount": "Max.",

@@ -661,6 +661,7 @@
     "deposit": "واریز",
     "withdrawal": "برداشت",
     "subscriptionPayment": "پرداخت اشتراک",
+    "providerReceipt": "پرداخت با کارت",
     "referralReward": "پاداش معرفی",
     "minAmount": "حداقل",
     "maxAmount": "حداکثر",
