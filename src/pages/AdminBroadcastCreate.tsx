@@ -27,9 +27,31 @@ import {
 import { getApiErrorMessage } from '@/utils/api-error';
 import { useNotify } from '@/platform/hooks/useNotify';
 import { useNavigationGuardStore } from '@/store/navigationGuard';
-import { useNativeDialog } from '@/platform/hooks/useNativeDialog';
+import { useDestructiveConfirm } from '@/platform/hooks/useNativeDialog';
 
-const DEFINITE_PRECOMMIT_STATUSES = new Set([400, 401, 403, 422]);
+// 🔴 409 добавлен РС-14г. Забор повторов — ЕДИНСТВЕННЫЙ источник 409 в маршрутах рассылок
+// (`admin_broadcasts.py`), и он всегда срабатывает ДО записи в историю и до запуска воркера.
+// Без него отказ уходил в ветку «исход неизвестен»: экран показывал самое страшное своё
+// сообщение («не повторяйте, идите смотрите историю») ровно там, где сервер гарантированно
+// ничего не создал, и запирал форму насмерть — `outcomeUnknown` нигде не сбрасывается.
+// Снять по краям ровно те символы, что снимает питоновский `.strip()` на сервере.
+// JS `.trim()` не знает про U+001C..U+001F и U+0085, поэтому кабинет отбивал адрес,
+// который сервер молча почистил бы и принял: забор оказывался СТРОЖЕ зеркала, законная
+// кнопка не добавлялась, и узнать почему было негде. Списком кодов, а не регуляркой:
+// управляющие символы в регулярном выражении запрещены правилом линтера.
+const PYTHON_ONLY_SPACE = new Set([0x1c, 0x1d, 0x1e, 0x1f, 0x85]);
+
+const stripLikePython = (value: string): string => {
+  const strippable = (ch: string) =>
+    /\s/u.test(ch) || PYTHON_ONLY_SPACE.has(ch.codePointAt(0) ?? -1);
+  let start = 0;
+  let end = value.length;
+  while (start < end && strippable(value[start])) start += 1;
+  while (end > start && strippable(value[end - 1])) end -= 1;
+  return value.slice(start, end);
+};
+
+const DEFINITE_PRECOMMIT_STATUSES = new Set([400, 401, 403, 409, 422]);
 
 const isDefiniteClientRejection = (error: unknown) =>
   axios.isAxiosError(error) &&
@@ -46,6 +68,10 @@ const FILTER_GROUP_LABEL_KEYS: Record<string, string> = {
   source: 'admin.broadcasts.filterGroups.source',
   tariff: 'admin.broadcasts.filterGroups.tariff',
   email: 'admin.broadcasts.filterGroups.email',
+  // РС-14е: «Все» вынесена в свою группу — она больше не соседняя строка с «только мне»
+  broad: 'admin.broadcasts.filterGroups.broad',
+  // Заголовка не было вовсе — пользователю показывался сырой ключ `auth_type`.
+  auth_type: 'admin.broadcasts.filterGroups.authType',
 };
 
 export default function AdminBroadcastCreate() {
@@ -53,7 +79,11 @@ export default function AdminBroadcastCreate() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const notify = useNotify();
-  const { confirm: confirmDialog } = useNativeDialog();
+  // Необратимая отправка 300+ людям стояла на системном сером «OK» без заголовка, а
+  // остановка ОДНОЙ кампании (РС-14д) получила красную кнопку с текстом — читалось как
+  // «стоп страшнее отправки». Тот же хук закрывает это и доносит заголовок: `_title`
+  // выбрасывает только `confirm()`, а `popup()` его передаёт.
+  const confirmDialog = useDestructiveConfirm();
   const setNavigationBlocked = useNavigationGuardStore((state) => state.setBlocked);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -105,6 +135,23 @@ export default function AdminBroadcastCreate() {
   const [isConfirming, setIsConfirming] = useState(false);
   const [submissionError, setSubmissionError] = useState<string | null>(null);
   const [acceptedTelegramId, setAcceptedTelegramId] = useState<number | null>(null);
+  // 🔴 РС-14б (мина HM). `telegramPreviewMatches` сверяет только аудиторию и категорию —
+  // текст он не сверяет вовсе. Значит предпросмотр можно было открыть на тексте A, закрыть,
+  // поправить текст на B и отправить B, ни разу не увидев его каноническим; подтверждение
+  // текст тоже не показывает. Здесь помним, ЧТО именно было показано, и гасим «Отправить»,
+  // пока показанное не совпадает с тем, что уйдёт.
+  // Гарантия «уходит только то, что вы видели» должна держаться и для писем. Она держалась
+  // только для Телеграма, и человек, привыкший «экран не даст отправить непроверенное»,
+  // перенёс бы это правило на письма и ошибся: первым, кто увидит письмо, был бы получатель.
+  const [previewedEmailContent, setPreviewedEmailContent] = useState<{
+    subject: string;
+    html: string;
+  } | null>(null);
+  const [previewedTelegramContent, setPreviewedTelegramContent] = useState<{
+    text: string;
+    mediaId: string;
+    buttons: string;
+  } | null>(null);
   const [outcomeUnknown, setOutcomeUnknown] = useState(false);
   const submitGuardRef = useRef(false);
 
@@ -236,6 +283,33 @@ export default function AdminBroadcastCreate() {
       if (!groups[group]) groups[group] = [];
       groups[group].push(f);
     });
+
+    // 🔴 РС-14е доводится до конца. Сервер отдаёт «Все активные с Telegram» последней, но
+    // экран дописывает после неё тарифные и кастомные фильтры — и «Вся база» оказывалась
+    // десятой строкой из двадцати, между «По трафику» и «По тарифу». Промах пальцем вверх
+    // с тарифного фильтра (а тарифные кампании — рабочая лошадка) снова попадал в неё.
+    // Порядок ключей объекта здесь и есть порядок групп на экране, поэтому переносим в хвост.
+    // Запасной путь на случай, когда бот ещё не выложен: пункт е разрезан по ДВУМ
+    // репозиториям с независимыми деплоями (кабинет 1-2 мин, бот 7-10). Если группу
+    // `broad` сервер ещё не присылает, уводим «Все» в хвост сами — иначе правка была бы
+    // молчаливым no-op ровно в те минуты, когда кабинет уже новый, а бот ещё старый.
+    const broadKey = Object.values(groups).some((list) => list.some((f) => f.key === 'all'))
+      ? 'broad'
+      : null;
+    if (broadKey && !groups.broad) {
+      Object.entries(groups).forEach(([name, list]) => {
+        const moved = list.filter((f) => f.key === 'all');
+        if (moved.length === 0) return;
+        groups[name] = list.filter((f) => f.key !== 'all');
+        if (groups[name].length === 0) delete groups[name];
+        groups.broad = [...(groups.broad ?? []), ...moved];
+      });
+    }
+    if (groups.broad) {
+      const broad = groups.broad;
+      delete groups.broad;
+      groups.broad = broad;
+    }
 
     return groups;
   }, [filtersData]);
@@ -399,7 +473,24 @@ export default function AdminBroadcastCreate() {
   const isNewButtonValid = useMemo(() => {
     if (!newButtonLabel.trim() || !newButtonActionValue.trim()) return false;
     if (newButtonActionType === 'url') {
-      return /^https:\/\/|^tg:\/\//.test(newButtonActionValue.trim());
+      // РС-14а. Прежняя проверка смотрела только на начало адреса, поэтому ссылка с пробелом
+      // внутри доезжала до Телеграма и отбивалась BUTTON_URL_INVALID у КАЖДОГО получателя —
+      // «0 доставлено» по всей аудитории. Зеркало серверной проверки в schemas/broadcasts.py:
+      // запрещённые символы, непустой адрес после схемы, хост с точкой для https.
+      const url = stripLikePython(newButtonActionValue);
+      if (!/^https:\/\/|^tg:\/\//.test(url)) return false;
+      // Точное зеркало серверных категорий Unicode (Cc/Cf/Zs/Zl/Zp). Ручной список кодов
+      // не был зеркалом: мимо него проходили мягкий перенос U+00AD (классический след
+      // копипасты из Word и веба), C1-управляющие U+0081/U+0085 и ещё четыре Cf-символа —
+      // сервер их отбивал, а кабинет пропускал, и человек узнавал об этом после подтверждения.
+      if (/[\p{Cc}\p{Cf}\p{Zs}\p{Zl}\p{Zp}]/u.test(url)) return false;
+      const remainder = url.slice(url.indexOf('://') + 3);
+      if (!remainder) return false;
+      if (url.startsWith('https://')) {
+        const host = remainder.split(/[/?#]/)[0];
+        if (!host.includes('.') || host.startsWith('.') || host.endsWith('.')) return false;
+      }
+      return true;
     }
     if (newButtonActionType === 'callback') {
       return new TextEncoder().encode(newButtonActionValue.trim()).length <= 64;
@@ -478,8 +569,38 @@ export default function AdminBroadcastCreate() {
       ? t('admin.broadcasts.channel.email')
       : null,
   ].filter((channel): channel is string => channel !== null);
+  // Отпечаток того, что реально уйдёт. Помнить «есть ли медиа» было мало: заменил картинку
+  // на другую — признак остался тем же, и непросмотренная картинка уходила. Кнопки не
+  // сверялись вовсе, а именно про кнопку со ссылкой РС-14а пишет «BUTTON_URL_INVALID
+  // у каждого получателя». Плашка обещает «текст ИЛИ вложение» — обещание должно быть полным.
+  const telegramContentFingerprint = {
+    text: messageText,
+    mediaId: uploadedFileId ?? '',
+    buttons: JSON.stringify([selectedButtons, customButtons]),
+  };
   const previewFailed = previewFailedChannels.length > 0;
-  const canSubmit = Boolean(isValid && previewReady && previewHasRecipients);
+  // РС-14б: отдельный признак, а не расширение `telegramPreviewMatches` — тот отвечает за
+  // свежесть ЧИСЛА получателей, и подмешивать в него текст значило бы врать в подсказках
+  // «в аудитории никого» и «не удалось посчитать».
+  const telegramContentPreviewed =
+    !telegramEnabled ||
+    acceptedTelegramId !== null ||
+    (previewedTelegramContent !== null &&
+      previewedTelegramContent.text === telegramContentFingerprint.text &&
+      previewedTelegramContent.mediaId === telegramContentFingerprint.mediaId &&
+      previewedTelegramContent.buttons === telegramContentFingerprint.buttons);
+  const emailContentPreviewed =
+    !emailEnabled ||
+    (previewedEmailContent !== null &&
+      previewedEmailContent.subject === emailSubject &&
+      previewedEmailContent.html === emailContent);
+  const canSubmit = Boolean(
+    isValid &&
+    previewReady &&
+    previewHasRecipients &&
+    telegramContentPreviewed &&
+    emailContentPreviewed,
+  );
 
   const bothChannels = telegramEnabled && emailEnabled;
 
@@ -494,6 +615,7 @@ export default function AdminBroadcastCreate() {
       });
       setRenderedTelegramText(result.rendered_message_text || '');
       setPreviewSeparatesMediaText(Boolean(result.media_caption_separate));
+      setPreviewedTelegramContent(telegramContentFingerprint);
       setShowTelegramPreview(true);
     } catch (error) {
       notify.error(
@@ -532,6 +654,7 @@ export default function AdminBroadcastCreate() {
     try {
       confirmed = await confirmDialog(
         `${t('admin.broadcasts.sendConfirmIntro')}\n\n${confirmationLines.join('\n')}\n${t('admin.broadcasts.category')}: ${categoryLabel}`,
+        t('admin.broadcasts.send'),
         t('admin.broadcasts.sendConfirmTitle'),
       );
     } catch {
@@ -1048,6 +1171,15 @@ export default function AdminBroadcastCreate() {
                   maxLength={newButtonActionType === 'callback' ? 64 : 256}
                   className="input"
                 />
+                {/* Забор РС-14а гасил кнопку молча. Невидимый символ из копипасты глазом не
+                    найти: адрес на экране выглядит идеально, а «Добавить» серая без причины. */}
+                {newButtonActionType === 'url' &&
+                  newButtonActionValue.trim().length > 0 &&
+                  !isNewButtonValid && (
+                    <p role="status" className="text-xs text-warning-300">
+                      {t('admin.broadcasts.customButtonUrlInvalid')}
+                    </p>
+                  )}
                 <div className="flex gap-2">
                   <button
                     type="button"
@@ -1088,7 +1220,10 @@ export default function AdminBroadcastCreate() {
             </h2>
             <button
               type="button"
-              onClick={() => setShowEmailPreview(true)}
+              onClick={() => {
+                setPreviewedEmailContent({ subject: emailSubject, html: emailContent });
+                setShowEmailPreview(true);
+              }}
               disabled={emailContent.trim().length === 0}
               className="rounded-lg border border-dark-700 bg-dark-800 px-3 py-1.5 text-sm text-dark-300 transition-colors hover:border-dark-600 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
             >
@@ -1195,6 +1330,27 @@ export default function AdminBroadcastCreate() {
           {t('admin.broadcasts.previewFailed', { channels: previewFailedChannels.join(' / ') })}
         </div>
       )}
+
+      {(!telegramContentPreviewed || !emailContentPreviewed) &&
+        isValid &&
+        !previewPending &&
+        !previewFailed && (
+          <div
+            role="status"
+            className="rounded-lg border border-warning-500/40 bg-warning-500/10 p-4 text-sm text-warning-300"
+          >
+            {/* Два разных состояния, и путать их нельзя: «ещё ни разу не смотрел» — это КАЖДАЯ
+              рассылка с самого начала, и говорить там «изменились после предпросмотра» значит
+              врать человеку про его собственные действия первой же фразой на экране. */}
+            {(
+              telegramContentPreviewed
+                ? previewedEmailContent === null
+                : previewedTelegramContent === null
+            )
+              ? t('admin.broadcasts.previewRequired')
+              : t('admin.broadcasts.previewOutdated')}
+          </div>
+        )}
 
       {previewReady && !previewHasRecipients && !previewPending && !previewFailed && (
         <div

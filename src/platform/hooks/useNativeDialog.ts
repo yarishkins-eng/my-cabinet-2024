@@ -107,7 +107,11 @@ export function useDestructiveConfirm() {
           message,
           buttons: [PopupButtons.cancel(), PopupButtons.destructive('confirm', actionText)],
         });
-        return result === 'confirm';
+        // 🔴 РС-14д. Если нативный попап не открылся (уже открыт другой — например, второй
+        // тап по «Стоп» — или клиент старше Bot API 6.2), адаптер падает в `window.confirm`
+        // и на согласие возвращает 'ok', а не 'confirm'. Человек жал «ОК», действие молча
+        // не выполнялось. Теперь за этим хуком стоит экстренная остановка идущей рассылки.
+        return result === 'confirm' || result === 'ok';
       }
       return dialog.confirm(message, title);
     },

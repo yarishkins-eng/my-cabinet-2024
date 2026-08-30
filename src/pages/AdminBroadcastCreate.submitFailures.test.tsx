@@ -59,6 +59,9 @@ vi.mock('@/platform/hooks/useNotify', () => ({
 
 vi.mock('@/platform/hooks/useNativeDialog', () => ({
   useNativeDialog: () => ({ confirm: confirmDialog }),
+  // Отправка перешла на destructive-подтверждение: красная кнопка с названием действия
+  // и заголовок, который обычный `confirm()` выбрасывает.
+  useDestructiveConfirm: () => confirmDialog,
 }));
 
 vi.mock('react-i18next', async () => {
@@ -120,11 +123,24 @@ async function selectFilter(placeholder: string, label: string) {
   fireEvent.click(await screen.findByRole('button', { name: new RegExp(label) }));
 }
 
-async function fillTelegram(label = 'Все Telegram') {
+async function settle() {
+  // Негативная проверка «не отправилось» проходит мгновенно и на пустом экране.
+  // Прокручиваем несколько тиков, чтобы момент отправки действительно прошёл.
+  await act(async () => {
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+}
+
+async function fillTelegram(label = 'Все Telegram', text = 'Тестовый текст') {
   await selectFilter('admin.broadcasts.selectFilterPlaceholder', label);
   fireEvent.change(screen.getByPlaceholderText('admin.broadcasts.messageTextPlaceholder'), {
-    target: { value: 'Тестовый текст' },
+    target: { value: text },
   });
+  // РС-14б: «Отправить» больше не загорается без предпросмотра ИМЕННО этого текста.
+  // Раньше хватало свежего счётчика получателей — то есть отправить можно было текст,
+  // которого никто не видел каноническим.
+  fireEvent.click(screen.getByRole('button', { name: 'Предпросмотр' }));
   await waitFor(() =>
     expect(
       (screen.getByRole('button', { name: 'admin.broadcasts.send' }) as HTMLButtonElement).disabled,
@@ -141,6 +157,9 @@ async function enableAndFillEmail(label = 'Все Email') {
   fireEvent.change(screen.getByPlaceholderText('admin.broadcasts.emailContentPlaceholder'), {
     target: { value: '<p>Письмо</p>' },
   });
+  // Гарантия «уходит только то, что вы видели» теперь держится и для писем: раньше письмо
+  // можно было отправить, ни разу не открыв предпросмотр, и первым его видел получатель.
+  fireEvent.click(screen.getAllByRole('button', { name: 'Предпросмотр' }).at(-1)!);
   await waitFor(() =>
     expect(
       (screen.getByRole('button', { name: 'admin.broadcasts.send' }) as HTMLButtonElement).disabled,
@@ -287,7 +306,10 @@ describe('РС-10: отказы создания рассылки видны и 
     );
   });
 
-  it.each([400, 401, 403, 422])(
+  // 409 — отказ забора повторов РС-14г. Мутация «убрать 409 из набора» пережила весь файл,
+  // пока его тут не было: без него отказ уходил в ветку «исход неизвестен» и запирал форму
+  // насмерть ровно там, где сервер гарантированно ничего не создал.
+  it.each([400, 401, 403, 409, 422])(
     'показывает причину однозначного HTTP %i и разрешает исправленный повтор',
     async (status) => {
       createCombined
@@ -842,5 +864,186 @@ describe('РС-10: отказы создания рассылки видны и 
       expect(messages.channel.telegram.length).toBeGreaterThan(0);
       expect(messages.channel.email.length).toBeGreaterThan(0);
     }
+  });
+
+  it('РС-14б: правка текста ПОСЛЕ предпросмотра гасит «Отправить» до повторного просмотра', async () => {
+    renderPage();
+    await fillTelegram('Все Telegram', 'Текст A');
+    const sendButton = () =>
+      screen.getByRole('button', { name: 'admin.broadcasts.send' }) as HTMLButtonElement;
+    expect(sendButton().disabled).toBe(false);
+
+    // Ровно сценарий, найденный скептиком приёмки: посмотрели A, заметили опечатку, поправили на B.
+    fireEvent.change(screen.getByPlaceholderText('admin.broadcasts.messageTextPlaceholder'), {
+      target: { value: 'Текст B' },
+    });
+
+    await waitFor(() => expect(sendButton().disabled).toBe(true));
+    expect(screen.getByText('admin.broadcasts.previewOutdated')).toBeTruthy();
+    await settle();
+    expect(createCombined).not.toHaveBeenCalled();
+
+    // И не запирает навсегда: повторный предпросмотр возвращает кнопку.
+    fireEvent.click(screen.getByRole('button', { name: 'Предпросмотр' }));
+    await waitFor(() => expect(sendButton().disabled).toBe(false));
+  });
+
+  it('РС-14б: возврат к ровно тому же тексту не требует нового предпросмотра', async () => {
+    renderPage();
+    await fillTelegram('Все Telegram', 'Текст A');
+    const field = screen.getByPlaceholderText('admin.broadcasts.messageTextPlaceholder');
+
+    fireEvent.change(field, { target: { value: 'Текст B' } });
+    await waitFor(() =>
+      expect(
+        (screen.getByRole('button', { name: 'admin.broadcasts.send' }) as HTMLButtonElement)
+          .disabled,
+      ).toBe(true),
+    );
+    fireEvent.change(field, { target: { value: 'Текст A' } });
+
+    await waitFor(() =>
+      expect(
+        (screen.getByRole('button', { name: 'admin.broadcasts.send' }) as HTMLButtonElement)
+          .disabled,
+      ).toBe(false),
+    );
+  });
+
+  it.each([
+    ['пробел внутри адреса', 'https://пример.рф/акция ?utm=telegram'],
+    ['обрезано до схемы', 'https://'],
+    ['невидимый символ из копипасты', 'https://teplo.example/a\u200b'],
+    ['хост без точки', 'https://localhost/page'],
+    ['tg-схема без адреса', 'tg://'],
+  ])('РС-14а: кнопку со сломанной ссылкой (%s) добавить нельзя', async (_case, broken) => {
+    renderPage();
+    await fillTelegram();
+
+    fireEvent.click(screen.getByRole('button', { name: /addCustomButton/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'admin.broadcasts.customButtonTypeUrl' }));
+    fireEvent.change(screen.getByPlaceholderText('admin.broadcasts.customButtonLabelPlaceholder'), {
+      target: { value: 'Открыть' },
+    });
+    fireEvent.change(screen.getByPlaceholderText('admin.broadcasts.customButtonUrlPlaceholder'), {
+      target: { value: broken },
+    });
+
+    const addButton = screen.getByRole('button', { name: 'common.add' }) as HTMLButtonElement;
+    expect(addButton.disabled).toBe(true);
+  });
+
+  it('РС-14а: рабочая ссылка по-прежнему добавляется — забор не запирает законное', async () => {
+    renderPage();
+    await fillTelegram();
+
+    fireEvent.click(screen.getByRole('button', { name: /addCustomButton/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'admin.broadcasts.customButtonTypeUrl' }));
+    fireEvent.change(screen.getByPlaceholderText('admin.broadcasts.customButtonLabelPlaceholder'), {
+      target: { value: 'Открыть' },
+    });
+    fireEvent.change(screen.getByPlaceholderText('admin.broadcasts.customButtonUrlPlaceholder'), {
+      target: { value: 'https://t.me/teplo_VPN_bot?start=promo' },
+    });
+
+    const addButton = screen.getByRole('button', { name: 'common.add' }) as HTMLButtonElement;
+    expect(addButton.disabled).toBe(false);
+  });
+
+  it('РС-14е: «Вся база» рисуется ПОСЛЕДНЕЙ группой, а не в середине списка', async () => {
+    // Сервер отдаёт «Все» последней, но экран дописывает после неё тарифные и кастомные
+    // фильтры — и она оказывалась десятой строкой из двадцати, рядом с «По тарифу».
+    getFilters.mockResolvedValueOnce({
+      filters: [
+        { key: 'self', label: 'Тест: только мне', count: 1, group: 'basic' },
+        { key: 'zero', label: '0 ГБ за период', count: 5, group: 'traffic' },
+        { key: 'all', label: 'Все активные с Telegram', count: 304, group: 'broad' },
+      ],
+      tariff_filters: [
+        { key: 'tariff_17', label: 'Премиум', tariff_id: 17, count: 3, group: 'tariff' },
+      ],
+      custom_filters: [{ key: 'custom_today', label: 'Сегодня', count: 2, group: 'registration' }],
+    });
+    renderPage();
+    fireEvent.click(await screen.findByText('admin.broadcasts.selectFilterPlaceholder'));
+
+    const headings = screen
+      .getAllByText(/admin\.broadcasts\.filterGroups\./)
+      .map((node) => node.textContent);
+    expect(headings[headings.length - 1]).toBe('admin.broadcasts.filterGroups.broad');
+  });
+
+  it('РС-14е: «Все» уходит в хвост даже если бот ещё не выложен (скос версий)', async () => {
+    // Пункт е разрезан по двум репозиториям с независимыми деплоями. Кабинет выкладывается
+    // за 1-2 минуты, бот за 7-10 — в этом окне сервер ещё присылает старую группировку.
+    getFilters.mockResolvedValueOnce({
+      filters: [
+        { key: 'self', label: 'Тест: только мне', count: 1, group: 'basic' },
+        { key: 'all', label: 'Все активные с Telegram', count: 304, group: 'basic' },
+        { key: 'zero', label: '0 ГБ за период', count: 5, group: 'traffic' },
+      ],
+      tariff_filters: [],
+      custom_filters: [],
+    });
+    renderPage();
+    fireEvent.click(await screen.findByText('admin.broadcasts.selectFilterPlaceholder'));
+
+    const headings = screen
+      .getAllByText(/admin\.broadcasts\.filterGroups\./)
+      .map((node) => node.textContent);
+    expect(headings[headings.length - 1]).toBe('admin.broadcasts.filterGroups.broad');
+    // И «только мне» больше не соседняя строка: между ними встал заголовок группы.
+    const rendered = screen.getAllByText(/Тест: только мне|Все активные с Telegram/);
+    expect(rendered).toHaveLength(2);
+  });
+
+  it('РС-14б: письмо тоже нельзя отправить непросмотренным', async () => {
+    renderPage();
+    await fillEmailOnly();
+    const sendButton = () =>
+      screen.getByRole('button', { name: 'admin.broadcasts.send' }) as HTMLButtonElement;
+    expect(sendButton().disabled).toBe(false);
+
+    fireEvent.change(screen.getByPlaceholderText('admin.broadcasts.emailContentPlaceholder'), {
+      target: { value: '<p>Совсем другое письмо</p>' },
+    });
+
+    await waitFor(() => expect(sendButton().disabled).toBe(true));
+    await settle();
+    expect(createCombined).not.toHaveBeenCalled();
+  });
+
+  it('РС-14б: правка ТЕМЫ письма тоже гасит «Отправить»', async () => {
+    renderPage();
+    await fillEmailOnly();
+
+    fireEvent.change(screen.getByPlaceholderText('admin.broadcasts.emailSubjectPlaceholder'), {
+      target: { value: 'Другая тема' },
+    });
+
+    await waitFor(() =>
+      expect(
+        (screen.getByRole('button', { name: 'admin.broadcasts.send' }) as HTMLButtonElement)
+          .disabled,
+      ).toBe(true),
+    );
+  });
+
+  it('РС-14е: у ПОЧТЫ «все» тоже последней строкой, а не первой', async () => {
+    // У почты нет цели «только мне» — сухой прогон письма сделать нечем, поэтому цена
+    // промаха там выше. Порядок держался только на том, что ключ оказался последним
+    // в словаре сервера: одна вставка после него молча вернула бы риск.
+    getEmailFilters.mockResolvedValueOnce({
+      filters: [
+        { key: 'email_only', label: 'Только почта', count: 4, group: 'auth_type' },
+        { key: 'all_email', label: 'Все с подтверждённым email', count: 13, group: 'broad' },
+      ],
+    });
+    renderPage();
+    fireEvent.click(screen.getByRole('button', { name: 'admin.broadcasts.enableEmail' }));
+    fireEvent.click(await screen.findByText('admin.broadcasts.selectEmailFilterPlaceholder'));
+
+    const rows = screen.getAllByText(/Только почта|Все с подтверждённым email/);
+    expect(rows[rows.length - 1].textContent).toContain('Все с подтверждённым email');
   });
 });
