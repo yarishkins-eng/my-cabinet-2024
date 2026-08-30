@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { adminBroadcastsApi, type BroadcastChannel } from '../api/adminBroadcasts';
 import { AdminBackButton } from '../components/admin';
+import { useDestructiveConfirm } from '../platform/hooks/useNativeDialog';
 import {
   DocumentIcon,
   EmailIcon,
@@ -93,6 +94,7 @@ function StatusBadge({ status }: { status: string }) {
 
 export default function AdminBroadcastDetail() {
   const { t } = useTranslation();
+  const confirmStop = useDestructiveConfirm();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { id } = useParams<{ id: string }>();
@@ -306,7 +308,15 @@ export default function AdminBroadcastDetail() {
       {/* Stop button */}
       {isRunning && (
         <button
-          onClick={() => stopMutation.mutate(broadcast.id)}
+          onClick={async () => {
+            // РС-14д: то же подтверждение, что и в ленте — продолжить остановленную нечем.
+            const confirmed = await confirmStop(
+              t('admin.broadcasts.stopConfirm'),
+              t('admin.broadcasts.stop'),
+              t('admin.broadcasts.stopConfirmTitle'),
+            );
+            if (confirmed) stopMutation.mutate(broadcast.id);
+          }}
           disabled={broadcast.status === 'cancelling' || stopMutation.isPending}
           className="flex w-full items-center justify-center gap-2 rounded-lg border border-error-500/30 bg-error-500/20 px-4 py-2 text-sm text-error-400 transition-colors hover:bg-error-500/30 disabled:opacity-50"
         >

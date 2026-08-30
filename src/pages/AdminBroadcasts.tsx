@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { adminBroadcastsApi } from '../api/adminBroadcasts';
 import { usePlatform } from '../platform/hooks/usePlatform';
+import { useDestructiveConfirm } from '../platform/hooks/useNativeDialog';
 import {
   BackIcon,
   BroadcastIcon,
@@ -69,6 +70,7 @@ export default function AdminBroadcasts() {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const { capabilities } = usePlatform();
+  const confirmStop = useDestructiveConfirm();
   const queryClient = useQueryClient();
 
   const [page, setPage] = useState(0);
@@ -211,9 +213,18 @@ export default function AdminBroadcasts() {
                     <button
                       type="button"
                       aria-label={t('admin.broadcasts.stop')}
-                      onClick={(event) => {
+                      onClick={async (event) => {
+                        // 🔴 РС-14д. Кнопка стоит в ленте вплотную к процентам, а карточка вся
+                        // кликабельна: с телефона палец мажет. Продолжить остановленную кампанию
+                        // нечем — чтобы дослать, надо создать новую, и получившие получат второе
+                        // письмо. Необратимое действие обязано переспрашивать, как отправка.
                         event.stopPropagation();
-                        stopMutation.mutate(broadcast.id);
+                        const confirmed = await confirmStop(
+                          t('admin.broadcasts.stopConfirm'),
+                          t('admin.broadcasts.stop'),
+                          t('admin.broadcasts.stopConfirmTitle'),
+                        );
+                        if (confirmed) stopMutation.mutate(broadcast.id);
                       }}
                       disabled={broadcast.status === 'cancelling' || stopMutation.isPending}
                       className="rounded-lg border border-error-500/30 bg-error-500/20 p-2 text-error-400 hover:bg-error-500/30 disabled:opacity-50"

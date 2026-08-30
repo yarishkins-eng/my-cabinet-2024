@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MemoryRouter } from 'react-router';
 
@@ -11,8 +11,15 @@ vi.mock('../api/adminBroadcasts', () => ({
   adminBroadcastsApi: { list, stop },
 }));
 
+const confirmDialog = vi.fn();
+
 vi.mock('../platform/hooks/usePlatform', () => ({
-  usePlatform: () => ({ capabilities: { hasBackButton: true } }),
+  // РС-14д: «Стоп» стал необратимым действием с подтверждением, поэтому фейку платформы
+  // теперь нужен и диалог — без него хук подтверждения падает на пустом `dialog`.
+  usePlatform: () => ({
+    capabilities: { hasBackButton: true, hasNativeDialogs: false },
+    dialog: { confirm: confirmDialog, alert: vi.fn(), popup: vi.fn() },
+  }),
 }));
 
 vi.mock('react-i18next', () => ({
@@ -34,9 +41,20 @@ function renderPage() {
   );
 }
 
+async function settle() {
+  // Негативная проверка проходит мгновенно и на пустом экране, поэтому ей нужен
+  // прокрут нескольких тиков: иначе она подтверждает «не вызвано» до того, как могло быть вызвано.
+  await act(async () => {
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+}
+
 beforeEach(() => {
   list.mockReset();
   stop.mockReset();
+  confirmDialog.mockReset();
+  confirmDialog.mockResolvedValue(true);
   list.mockResolvedValue({
     total: 3,
     limit: 20,
@@ -115,5 +133,29 @@ describe('РС-12: история рассылок', () => {
     expect((stopButtons[1] as HTMLButtonElement).disabled).toBe(true);
     fireEvent.click(stopButtons[0]);
     await waitFor(() => expect(stop.mock.calls[0]?.[0]).toBe(17));
+  });
+
+  it('РС-14д: «Стоп» в ленте не срабатывает без подтверждения', async () => {
+    renderPage();
+    await screen.findByText('Регистрация за неделю');
+
+    confirmDialog.mockResolvedValueOnce(false);
+    fireEvent.click(screen.getAllByRole('button', { name: 'admin.broadcasts.stop' })[0]);
+
+    await waitFor(() => expect(confirmDialog).toHaveBeenCalledTimes(1));
+    // Улика, что момент прошёл: диалог отработал, а остановка так и не ушла.
+    await settle();
+    expect(stop).not.toHaveBeenCalled();
+  });
+
+  it('РС-14д: после согласия остановка уходит — забор не запирает кнопку насовсем', async () => {
+    renderPage();
+    await screen.findByText('Регистрация за неделю');
+
+    confirmDialog.mockResolvedValueOnce(true);
+    fireEvent.click(screen.getAllByRole('button', { name: 'admin.broadcasts.stop' })[0]);
+
+    await waitFor(() => expect(stop).toHaveBeenCalled());
+    expect(stop.mock.calls[0][0]).toBe(17);
   });
 });
