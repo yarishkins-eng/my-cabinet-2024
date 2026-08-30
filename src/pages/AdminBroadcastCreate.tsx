@@ -960,7 +960,7 @@ export default function AdminBroadcastCreate() {
               type="button"
               onClick={() => void handleTelegramPreview()}
               disabled={messageText.trim().length === 0 || !telegramTarget || isUploading}
-              className="rounded-lg bg-accent-500 px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-accent-600 disabled:cursor-not-allowed disabled:opacity-50"
+              className="btn-primary px-3 py-1.5 text-sm"
             >
               {t('admin.broadcasts.preview', 'Предпросмотр')}
             </button>
@@ -999,7 +999,10 @@ export default function AdminBroadcastCreate() {
                 не о чем предупреждать, а когда длиннее — важно сказать заранее, что уйдёт
                 ДВУМЯ сообщениями, иначе это выглядит как поломка уже после отправки. */}
             {Boolean(uploadedFileId) && messageText.length > 1024 && (
-              <p role="status" className="mt-1 text-xs text-warning-300">
+              <p
+                role="status"
+                className="mt-2 rounded-lg border border-accent-500/40 bg-accent-500/10 p-3 text-xs text-accent-200"
+              >
                 {t('admin.broadcasts.mediaCaptionSplitHint', { limit: 1024 })}
               </p>
             )}
@@ -1235,7 +1238,7 @@ export default function AdminBroadcastCreate() {
                 setShowEmailPreview(true);
               }}
               disabled={emailContent.trim().length === 0}
-              className="rounded-lg bg-accent-500 px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-accent-600 disabled:cursor-not-allowed disabled:opacity-50"
+              className="btn-primary px-3 py-1.5 text-sm"
             >
               {t('admin.broadcasts.preview', 'Предпросмотр')}
             </button>

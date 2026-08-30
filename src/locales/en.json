@@ -2019,9 +2019,9 @@
       "previewOutdated": "The text or attachment changed after the preview. Press “Preview” again — sending unreviewed content is blocked.",
       "previewRequired": "Open the preview before sending — only what you have seen goes out.",
       "customButtonUrlInvalid": "This address will not work: use a full https://site.com/page or tg://… address, with no spaces or hidden characters. If you pasted it, type it by hand.",
-      "mediaHint": "Image up to 10 MB, video up to 50 MB. 🔴 With an attachment the text is capped at 1024 characters — anything longer goes as a second message. The preview shows this in advance.",
-      "mediaCaptionSplitHint": "The text is longer than {{limit}} characters — with an attachment it will go as a SECOND message: image first, then text. That is expected, not an error.",
-      "customButtonsHint": "Link — a full https://site.com/page or tg://… address, no spaces. Action — only from the ready list above: a custom action cannot be invented, and a typo in one leaves every recipient with a spinner."
+      "mediaHint": "Image, video or document — up to 10 MB. 🔴 With an attachment the text is capped at 1024 characters: anything longer goes as a second message. The preview shows this in advance.",
+      "mediaCaptionSplitHint": "The text is longer than {{limit}} characters — with an attachment it goes as TWO messages: the attachment first, then the text. That is expected, not an error.",
+      "customButtonsHint": "Link — a full https://site.com/page or tg://… address, no spaces. Callback — a jump inside the bot; only the ones behind the ready buttons above work (for example back_to_menu). An invented jump is rejected by the server before anything is sent."
     },
     "pinnedMessages": {
       "title": "Pinned Messages",
