@@ -95,6 +95,11 @@ export interface UserTransactionItem {
   payment_method: string | null;
   is_completed: boolean;
   created_at: string;
+  /** 🔴 Этап ДВ-3, мина ID. Номер заказа жил только внутри английской подписи и исчез
+   *  вместе с её переводом. Владелец читал его прямо со строки карточки клиента, а нужен
+   *  он ровно тогда, когда дорого: спор, возврат, чарджбэк. Поле необязательное —
+   *  старый бэкенд его не отдаёт, и строка просто рисуется без номера. */
+  external_id?: string | null;
 }
 
 export interface UserReferralInfo {
