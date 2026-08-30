@@ -311,7 +311,7 @@ export default function AdminBroadcastDetail() {
           onClick={async () => {
             // РС-14д: то же подтверждение, что и в ленте — продолжить остановленную нечем.
             const confirmed = await confirmStop(
-              t('admin.broadcasts.stopConfirm'),
+              `#${broadcast.id} · ${broadcast.target_label || broadcast.target_type} · ${broadcast.sent_count}/${broadcast.total_count}\n\n${t('admin.broadcasts.stopConfirm')}`,
               t('admin.broadcasts.stop'),
               t('admin.broadcasts.stopConfirmTitle'),
             );

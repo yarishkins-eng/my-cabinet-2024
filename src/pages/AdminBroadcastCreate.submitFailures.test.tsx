@@ -59,6 +59,9 @@ vi.mock('@/platform/hooks/useNotify', () => ({
 
 vi.mock('@/platform/hooks/useNativeDialog', () => ({
   useNativeDialog: () => ({ confirm: confirmDialog }),
+  // Отправка перешла на destructive-подтверждение: красная кнопка с названием действия
+  // и заголовок, который обычный `confirm()` выбрасывает.
+  useDestructiveConfirm: () => confirmDialog,
 }));
 
 vi.mock('react-i18next', async () => {
@@ -939,5 +942,28 @@ describe('РС-10: отказы создания рассылки видны и 
 
     const addButton = screen.getByRole('button', { name: 'common.add' }) as HTMLButtonElement;
     expect(addButton.disabled).toBe(false);
+  });
+
+  it('РС-14е: «Вся база» рисуется ПОСЛЕДНЕЙ группой, а не в середине списка', async () => {
+    // Сервер отдаёт «Все» последней, но экран дописывает после неё тарифные и кастомные
+    // фильтры — и она оказывалась десятой строкой из двадцати, рядом с «По тарифу».
+    getFilters.mockResolvedValueOnce({
+      filters: [
+        { key: 'self', label: 'Тест: только мне', count: 1, group: 'basic' },
+        { key: 'zero', label: '0 ГБ за период', count: 5, group: 'traffic' },
+        { key: 'all', label: 'Все активные с Telegram', count: 304, group: 'broad' },
+      ],
+      tariff_filters: [
+        { key: 'tariff_17', label: 'Премиум', tariff_id: 17, count: 3, group: 'tariff' },
+      ],
+      custom_filters: [{ key: 'custom_today', label: 'Сегодня', count: 2, group: 'registration' }],
+    });
+    renderPage();
+    fireEvent.click(await screen.findByText('admin.broadcasts.selectFilterPlaceholder'));
+
+    const headings = screen
+      .getAllByText(/admin\.broadcasts\.filterGroups\./)
+      .map((node) => node.textContent);
+    expect(headings[headings.length - 1]).toBe('admin.broadcasts.filterGroups.broad');
   });
 });

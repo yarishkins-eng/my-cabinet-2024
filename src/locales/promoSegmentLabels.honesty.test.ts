@@ -22,6 +22,15 @@ describe('РС-14ж: честные подписи сегментов промо
     expect(label).not.toMatch(/баланс|balance|موجودی|余额/);
   });
 
+  it.each(Object.keys(LOCALES))('%s: «zero» не обещает ОПЛАТУ', (lang) => {
+    // Первая правка РС-14ж заменила ложь про баланс на ложь про оплату: предикат смотрит
+    // `s.is_active`, а `is_active` (models.py:2527) = «статус ACTIVE и срок не вышел» и про
+    // деньги не знает вовсе. Действующий пробный период тоже `is_active`, поэтому сегмент
+    // состоит в основном из триальщиков, которые ничего не платили.
+    const label = LOCALES[lang].admin.promoOffers.segments.zero.toLowerCase();
+    expect(label).not.toMatch(/оплат|платил|paid|pay|پرداخت|付费|付費/);
+  });
+
   it.each(Object.keys(LOCALES))('%s: «zero» и «lowBalance» — разные подписи', (lang) => {
     const segments = LOCALES[lang].admin.promoOffers.segments;
     expect(segments.zero).not.toBe(segments.lowBalance);

@@ -1949,7 +1949,8 @@
         "source": "By source",
         "tariff": "By tariff",
         "email": "Email users",
-        "broad": "Everyone — use with care"
+        "broad": "Everyone — use with care",
+        "authType": "By sign-in method"
       },
       "channel": {
         "telegram": "Telegram",
@@ -2015,7 +2016,9 @@
       "mediaUploadFailedFallback": "upload failed",
       "stopConfirm": "Stop this broadcast? It cannot be resumed: to reach the rest you would create a new campaign, and people who already got it would get it twice.",
       "stopConfirmTitle": "Stop broadcast",
-      "previewOutdated": "The text or attachment changed after the preview. Press “Preview” again — sending unreviewed content is blocked."
+      "previewOutdated": "The text or attachment changed after the preview. Press “Preview” again — sending unreviewed content is blocked.",
+      "previewRequired": "Open the preview before sending — only what you have seen goes out.",
+      "customButtonUrlInvalid": "This address will not work: use a full address like https://site.com/page, with no spaces or hidden characters. If you pasted it, type it by hand."
     },
     "pinnedMessages": {
       "title": "Pinned Messages",
@@ -3687,7 +3690,7 @@
         "trialEnding": "Trial ending",
         "expiring": "Subscription expiring",
         "expired": "Expired subscription",
-        "zero": "Paid but never connected",
+        "zero": "Active subscription, 0 GB this period",
         "autopayFailed": "Autopay failed",
         "lowBalance": "Low balance",
         "inactive30d": "Inactive 30 days",

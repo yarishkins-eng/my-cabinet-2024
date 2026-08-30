@@ -1623,7 +1623,8 @@
         "activity": "按活动",
         "source": "按来源",
         "tariff": "按套餐",
-        "broad": "全部用户 — 请谨慎"
+        "broad": "全部用户 — 请谨慎",
+        "authType": "按登录方式"
       },
       "enableTelegram": "Telegram",
       "enableEmail": "Email",
@@ -1664,7 +1665,9 @@
       "telegramSection": "Telegram 群发",
       "stopConfirm": "停止此次群发？无法从中断处继续：要发给其余用户需新建活动，已收到的人会再收到一次。",
       "stopConfirmTitle": "停止群发",
-      "previewOutdated": "预览之后文本或附件已更改。请再次点击\"预览\"，未经查看的内容不能发送。"
+      "previewOutdated": "预览之后文本或附件已更改。请再次点击\"预览\"，未经查看的内容不能发送。",
+      "previewRequired": "发送前请先打开预览——只有您看过的内容才会发出。",
+      "customButtonUrlInvalid": "该地址无法使用：需要完整地址，例如 https://site.com/page，不能有空格或隐藏字符。"
     },
     "pinnedMessages": {
       "title": "置顶消息",
@@ -3155,7 +3158,7 @@
         "trialEnding": "试用即将结束",
         "expiring": "订阅即将到期",
         "expired": "已过期订阅",
-        "zero": "已付费但从未连接",
+        "zero": "有效订阅，本期 0 GB",
         "autopayFailed": "自动支付失败",
         "lowBalance": "余额不足",
         "inactive30d": "30天未活跃",

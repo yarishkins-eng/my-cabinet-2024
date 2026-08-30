@@ -219,8 +219,10 @@ export default function AdminBroadcasts() {
                         // нечем — чтобы дослать, надо создать новую, и получившие получат второе
                         // письмо. Необратимое действие обязано переспрашивать, как отправка.
                         event.stopPropagation();
+                        // Диалог обязан назвать, ЧТО останавливаем: в ленте может идти
+                        // несколько кампаний, и одинаковый текст не даёт заметить промах.
                         const confirmed = await confirmStop(
-                          t('admin.broadcasts.stopConfirm'),
+                          `#${broadcast.id} · ${broadcast.target_label || broadcast.target_type} · ${broadcast.sent_count}/${broadcast.total_count}\n\n${t('admin.broadcasts.stopConfirm')}`,
                           t('admin.broadcasts.stop'),
                           t('admin.broadcasts.stopConfirmTitle'),
                         );

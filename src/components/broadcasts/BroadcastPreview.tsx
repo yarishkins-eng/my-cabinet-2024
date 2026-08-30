@@ -219,7 +219,11 @@ export function TelegramPreview({
         aria-modal="true"
         aria-label={t('admin.broadcasts.preview', 'Предпросмотр Telegram')}
         tabIndex={-1}
-        className="w-full max-w-md rounded-2xl bg-[#17212b] p-4 shadow-2xl"
+        // 🔴 РС-14 (ревью): РС-14б сделал предпросмотр ОБЯЗАТЕЛЬНЫМ, и модалка стала воротами.
+        // Без ограничения высоты длинное сообщение (до 4000 знаков + фото + до 10 рядов кнопок)
+        // вылезало за экран телефона и не докручивалось — `position: fixed` не скроллится.
+        // То есть пройти через ворота зряче было физически нельзя.
+        className="max-h-[calc(100vh-2rem)] w-full max-w-md overflow-y-auto rounded-2xl bg-[#17212b] p-4 shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="mb-3 flex items-center justify-between">
