@@ -618,6 +618,39 @@ describe('TopUpResult — экран перестаёт врать про ден
     expect(buttons[1].textContent).toBe('balance.topUpResult.goToBalance');
   });
 
+  // 🔴 Нашёл скептик волны 2 мутацией: я убрал условный класс у прежней кнопки — и все
+  // 33 сторожа остались зелёными. Порядок в разметке они проверяли, а ИЕРАРХИЮ нет, то есть
+  // «две одинаково яркие кнопки подряд» прошли бы мимо. Проверяем свойство: там, где рядом
+  // появилась дверь к подписке, прежняя кнопка обязана перестать быть акцентной.
+  it('рядом с дверью к подписке прежняя кнопка становится тихой', async () => {
+    seedPendingInfo(null);
+    vi.mocked(balanceApi.getPendingPayment).mockResolvedValue(paidWithVerdict(true));
+
+    renderResult('?method=platega&status=success');
+    await screen.findByText('balance.topUpResult.successWithStep');
+    await settle();
+
+    const [primary, secondary] = screen.getAllByRole('button');
+    expect(primary.className).toContain('bg-accent-500');
+    expect(secondary.className).not.toContain('bg-accent-500');
+  });
+
+  // 🔴 И обратная половина того же свойства: когда двери нет, единственная кнопка обязана
+  // ОСТАТЬСЯ акцентной. Без этой проверки сторож выше проходил бы и на правке, которая
+  // просто выкрасила все кнопки экрана в серое.
+  it('без двери единственная кнопка остаётся акцентной', async () => {
+    seedPendingInfo(null);
+    vi.mocked(balanceApi.getPendingPayment).mockResolvedValue(paidWithVerdict(false));
+
+    renderResult('?method=platega&status=success');
+    await screen.findByText('balance.topUpResult.success');
+    await settle();
+
+    const buttons = screen.getAllByRole('button');
+    expect(buttons).toHaveLength(1);
+    expect(buttons[0].className).toContain('bg-accent-500');
+  });
+
   // 🔴 Дверь обязана ВЕСТИ туда, что обещает подпись. Проверяем действие, а не надпись:
   // подпись без перехода — это ровно та ложь, которую этап убирает.
   it('дверь к подписке действительно открывает экран покупки', async () => {
