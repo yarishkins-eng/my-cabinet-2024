@@ -120,11 +120,24 @@ async function selectFilter(placeholder: string, label: string) {
   fireEvent.click(await screen.findByRole('button', { name: new RegExp(label) }));
 }
 
-async function fillTelegram(label = 'Все Telegram') {
+async function settle() {
+  // Негативная проверка «не отправилось» проходит мгновенно и на пустом экране.
+  // Прокручиваем несколько тиков, чтобы момент отправки действительно прошёл.
+  await act(async () => {
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+}
+
+async function fillTelegram(label = 'Все Telegram', text = 'Тестовый текст') {
   await selectFilter('admin.broadcasts.selectFilterPlaceholder', label);
   fireEvent.change(screen.getByPlaceholderText('admin.broadcasts.messageTextPlaceholder'), {
-    target: { value: 'Тестовый текст' },
+    target: { value: text },
   });
+  // РС-14б: «Отправить» больше не загорается без предпросмотра ИМЕННО этого текста.
+  // Раньше хватало свежего счётчика получателей — то есть отправить можно было текст,
+  // которого никто не видел каноническим.
+  fireEvent.click(screen.getByRole('button', { name: 'Предпросмотр' }));
   await waitFor(() =>
     expect(
       (screen.getByRole('button', { name: 'admin.broadcasts.send' }) as HTMLButtonElement).disabled,
@@ -842,5 +855,88 @@ describe('РС-10: отказы создания рассылки видны и 
       expect(messages.channel.telegram.length).toBeGreaterThan(0);
       expect(messages.channel.email.length).toBeGreaterThan(0);
     }
+  });
+
+  it('РС-14б: правка текста ПОСЛЕ предпросмотра гасит «Отправить» до повторного просмотра', async () => {
+    renderPage();
+    await fillTelegram('Все Telegram', 'Текст A');
+    const sendButton = () =>
+      screen.getByRole('button', { name: 'admin.broadcasts.send' }) as HTMLButtonElement;
+    expect(sendButton().disabled).toBe(false);
+
+    // Ровно сценарий, найденный скептиком приёмки: посмотрели A, заметили опечатку, поправили на B.
+    fireEvent.change(screen.getByPlaceholderText('admin.broadcasts.messageTextPlaceholder'), {
+      target: { value: 'Текст B' },
+    });
+
+    await waitFor(() => expect(sendButton().disabled).toBe(true));
+    expect(screen.getByText('admin.broadcasts.previewOutdated')).toBeTruthy();
+    await settle();
+    expect(createCombined).not.toHaveBeenCalled();
+
+    // И не запирает навсегда: повторный предпросмотр возвращает кнопку.
+    fireEvent.click(screen.getByRole('button', { name: 'Предпросмотр' }));
+    await waitFor(() => expect(sendButton().disabled).toBe(false));
+  });
+
+  it('РС-14б: возврат к ровно тому же тексту не требует нового предпросмотра', async () => {
+    renderPage();
+    await fillTelegram('Все Telegram', 'Текст A');
+    const field = screen.getByPlaceholderText('admin.broadcasts.messageTextPlaceholder');
+
+    fireEvent.change(field, { target: { value: 'Текст B' } });
+    await waitFor(() =>
+      expect(
+        (screen.getByRole('button', { name: 'admin.broadcasts.send' }) as HTMLButtonElement)
+          .disabled,
+      ).toBe(true),
+    );
+    fireEvent.change(field, { target: { value: 'Текст A' } });
+
+    await waitFor(() =>
+      expect(
+        (screen.getByRole('button', { name: 'admin.broadcasts.send' }) as HTMLButtonElement)
+          .disabled,
+      ).toBe(false),
+    );
+  });
+
+  it.each([
+    ['пробел внутри адреса', 'https://пример.рф/акция ?utm=telegram'],
+    ['обрезано до схемы', 'https://'],
+    ['невидимый символ из копипасты', 'https://teplo.example/a\u200b'],
+    ['хост без точки', 'https://localhost/page'],
+  ])('РС-14а: кнопку со сломанной ссылкой (%s) добавить нельзя', async (_case, broken) => {
+    renderPage();
+    await fillTelegram();
+
+    fireEvent.click(screen.getByRole('button', { name: /addCustomButton/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'admin.broadcasts.customButtonTypeUrl' }));
+    fireEvent.change(screen.getByPlaceholderText('admin.broadcasts.customButtonLabelPlaceholder'), {
+      target: { value: 'Открыть' },
+    });
+    fireEvent.change(screen.getByPlaceholderText('admin.broadcasts.customButtonUrlPlaceholder'), {
+      target: { value: broken },
+    });
+
+    const addButton = screen.getByRole('button', { name: 'common.add' }) as HTMLButtonElement;
+    expect(addButton.disabled).toBe(true);
+  });
+
+  it('РС-14а: рабочая ссылка по-прежнему добавляется — забор не запирает законное', async () => {
+    renderPage();
+    await fillTelegram();
+
+    fireEvent.click(screen.getByRole('button', { name: /addCustomButton/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'admin.broadcasts.customButtonTypeUrl' }));
+    fireEvent.change(screen.getByPlaceholderText('admin.broadcasts.customButtonLabelPlaceholder'), {
+      target: { value: 'Открыть' },
+    });
+    fireEvent.change(screen.getByPlaceholderText('admin.broadcasts.customButtonUrlPlaceholder'), {
+      target: { value: 'https://t.me/teplo_VPN_bot?start=promo' },
+    });
+
+    const addButton = screen.getByRole('button', { name: 'common.add' }) as HTMLButtonElement;
+    expect(addButton.disabled).toBe(false);
   });
 });

@@ -46,6 +46,8 @@ const FILTER_GROUP_LABEL_KEYS: Record<string, string> = {
   source: 'admin.broadcasts.filterGroups.source',
   tariff: 'admin.broadcasts.filterGroups.tariff',
   email: 'admin.broadcasts.filterGroups.email',
+  // РС-14е: «Все» вынесена в свою группу — она больше не соседняя строка с «только мне»
+  broad: 'admin.broadcasts.filterGroups.broad',
 };
 
 export default function AdminBroadcastCreate() {
@@ -105,6 +107,15 @@ export default function AdminBroadcastCreate() {
   const [isConfirming, setIsConfirming] = useState(false);
   const [submissionError, setSubmissionError] = useState<string | null>(null);
   const [acceptedTelegramId, setAcceptedTelegramId] = useState<number | null>(null);
+  // 🔴 РС-14б (мина HM). `telegramPreviewMatches` сверяет только аудиторию и категорию —
+  // текст он не сверяет вовсе. Значит предпросмотр можно было открыть на тексте A, закрыть,
+  // поправить текст на B и отправить B, ни разу не увидев его каноническим; подтверждение
+  // текст тоже не показывает. Здесь помним, ЧТО именно было показано, и гасим «Отправить»,
+  // пока показанное не совпадает с тем, что уйдёт.
+  const [previewedTelegramContent, setPreviewedTelegramContent] = useState<{
+    text: string;
+    hasMedia: boolean;
+  } | null>(null);
   const [outcomeUnknown, setOutcomeUnknown] = useState(false);
   const submitGuardRef = useRef(false);
 
@@ -399,7 +410,37 @@ export default function AdminBroadcastCreate() {
   const isNewButtonValid = useMemo(() => {
     if (!newButtonLabel.trim() || !newButtonActionValue.trim()) return false;
     if (newButtonActionType === 'url') {
-      return /^https:\/\/|^tg:\/\//.test(newButtonActionValue.trim());
+      // РС-14а. Прежняя проверка смотрела только на начало адреса, поэтому ссылка с пробелом
+      // внутри доезжала до Телеграма и отбивалась BUTTON_URL_INVALID у КАЖДОГО получателя —
+      // «0 доставлено» по всей аудитории. Зеркало серверной проверки в schemas/broadcasts.py:
+      // запрещённые символы, непустой адрес после схемы, хост с точкой для https.
+      const url = newButtonActionValue.trim();
+      if (!/^https:\/\/|^tg:\/\//.test(url)) return false;
+      // По кодам, а не регуляркой: управляющие символы в регулярном выражении запрещены
+      // правилом линтера, а `\s` в одиночку не видит невидимые U+200B и U+FEFF.
+      const hasForbiddenChar = Array.from(url).some((ch) => {
+        const code = ch.codePointAt(0) ?? 0;
+        if (code < 0x20 || code === 0x7f) return true;
+        if (/\s/.test(ch)) return true;
+        return (
+          code === 0x00a0 ||
+          (code >= 0x200b && code <= 0x200f) ||
+          code === 0x2028 ||
+          code === 0x2029 ||
+          code === 0x202f ||
+          code === 0x205f ||
+          code === 0x2060 ||
+          code === 0xfeff
+        );
+      });
+      if (hasForbiddenChar) return false;
+      const remainder = url.slice(url.indexOf('://') + 3);
+      if (!remainder) return false;
+      if (url.startsWith('https://')) {
+        const host = remainder.split(/[/?#]/)[0];
+        if (!host.includes('.') || host.startsWith('.') || host.endsWith('.')) return false;
+      }
+      return true;
     }
     if (newButtonActionType === 'callback') {
       return new TextEncoder().encode(newButtonActionValue.trim()).length <= 64;
@@ -479,7 +520,18 @@ export default function AdminBroadcastCreate() {
       : null,
   ].filter((channel): channel is string => channel !== null);
   const previewFailed = previewFailedChannels.length > 0;
-  const canSubmit = Boolean(isValid && previewReady && previewHasRecipients);
+  // РС-14б: отдельный признак, а не расширение `telegramPreviewMatches` — тот отвечает за
+  // свежесть ЧИСЛА получателей, и подмешивать в него текст значило бы врать в подсказках
+  // «в аудитории никого» и «не удалось посчитать».
+  const telegramContentPreviewed =
+    !telegramEnabled ||
+    acceptedTelegramId !== null ||
+    (previewedTelegramContent !== null &&
+      previewedTelegramContent.text === messageText &&
+      previewedTelegramContent.hasMedia === Boolean(uploadedFileId));
+  const canSubmit = Boolean(
+    isValid && previewReady && previewHasRecipients && telegramContentPreviewed,
+  );
 
   const bothChannels = telegramEnabled && emailEnabled;
 
@@ -494,6 +546,7 @@ export default function AdminBroadcastCreate() {
       });
       setRenderedTelegramText(result.rendered_message_text || '');
       setPreviewSeparatesMediaText(Boolean(result.media_caption_separate));
+      setPreviewedTelegramContent({ text: messageText, hasMedia: Boolean(uploadedFileId) });
       setShowTelegramPreview(true);
     } catch (error) {
       notify.error(
@@ -1193,6 +1246,12 @@ export default function AdminBroadcastCreate() {
           className="rounded-lg border border-error-500/40 bg-error-500/10 p-4 text-sm text-error-300"
         >
           {t('admin.broadcasts.previewFailed', { channels: previewFailedChannels.join(' / ') })}
+        </div>
+      )}
+
+      {!telegramContentPreviewed && isValid && !previewPending && !previewFailed && (
+        <div className="rounded-xl border border-warning-500/30 bg-warning-500/10 p-3 text-sm text-warning-200">
+          {t('admin.broadcasts.previewOutdated')}
         </div>
       )}
 

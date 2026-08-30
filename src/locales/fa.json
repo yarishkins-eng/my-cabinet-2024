@@ -1545,7 +1545,8 @@
         "registration": "بر اساس ثبت نام",
         "activity": "بر اساس فعالیت",
         "source": "بر اساس منبع",
-        "tariff": "بر اساس تعرفه"
+        "tariff": "بر اساس تعرفه",
+        "broad": "همه کاربران — با احتیاط"
       },
       "enableTelegram": "Telegram",
       "enableEmail": "Email",
@@ -1583,7 +1584,10 @@
       "selectChannel": "کانال ارسال",
       "selectEmailFilter": "مخاطبان ایمیل را انتخاب کنید",
       "selectEmailFilterPlaceholder": "فیلتر را انتخاب کنید...",
-      "telegramSection": "ارسال انبوه تلگرام"
+      "telegramSection": "ارسال انبوه تلگرام",
+      "stopConfirm": "این ارسال متوقف شود؟ ادامه از محل توقف ممکن نیست: برای بقیه باید کمپین جدید بسازید و کسانی که دریافت کرده‌اند دوباره دریافت می‌کنند.",
+      "stopConfirmTitle": "توقف ارسال",
+      "previewOutdated": "متن یا پیوست پس از پیش‌نمایش تغییر کرد. دوباره «پیش‌نمایش» را بزنید."
     },
     "pinnedMessages": {
       "title": "Pinned Messages",
@@ -3153,7 +3157,7 @@
         "trialEnding": "پایان دوره آزمایشی",
         "expiring": "اشتراک در حال انقضا",
         "expired": "اشتراک منقضی شده",
-        "zero": "موجودی صفر",
+        "zero": "پرداخت کرده اما هرگز متصل نشده",
         "autopayFailed": "خطای پرداخت خودکار",
         "lowBalance": "موجودی کم",
         "inactive30d": "30 روز غیرفعال",

@@ -1622,7 +1622,8 @@
         "registration": "按注册",
         "activity": "按活动",
         "source": "按来源",
-        "tariff": "按套餐"
+        "tariff": "按套餐",
+        "broad": "全部用户 — 请谨慎"
       },
       "enableTelegram": "Telegram",
       "enableEmail": "Email",
@@ -1660,7 +1661,10 @@
       "selectChannel": "群发渠道",
       "selectEmailFilter": "选择邮件受众",
       "selectEmailFilterPlaceholder": "选择筛选器...",
-      "telegramSection": "Telegram 群发"
+      "telegramSection": "Telegram 群发",
+      "stopConfirm": "停止此次群发？无法从中断处继续：要发给其余用户需新建活动，已收到的人会再收到一次。",
+      "stopConfirmTitle": "停止群发",
+      "previewOutdated": "预览之后文本或附件已更改。请再次点击\"预览\"，未经查看的内容不能发送。"
     },
     "pinnedMessages": {
       "title": "置顶消息",
@@ -3151,7 +3155,7 @@
         "trialEnding": "试用即将结束",
         "expiring": "订阅即将到期",
         "expired": "已过期订阅",
-        "zero": "零余额",
+        "zero": "已付费但从未连接",
         "autopayFailed": "自动支付失败",
         "lowBalance": "余额不足",
         "inactive30d": "30天未活跃",

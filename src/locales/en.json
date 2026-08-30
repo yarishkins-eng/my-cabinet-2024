@@ -1948,7 +1948,8 @@
         "activity": "By activity",
         "source": "By source",
         "tariff": "By tariff",
-        "email": "Email users"
+        "email": "Email users",
+        "broad": "Everyone — use with care"
       },
       "channel": {
         "telegram": "Telegram",
@@ -2011,7 +2012,10 @@
       "previewRenderFailed": "Could not prepare the exact preview: {{error}}",
       "previewRenderFailedFallback": "Telegram markup validation failed",
       "mediaUploadFailed": "Media was not uploaded: {{error}} The previous file was removed from the form.",
-      "mediaUploadFailedFallback": "upload failed"
+      "mediaUploadFailedFallback": "upload failed",
+      "stopConfirm": "Stop this broadcast? It cannot be resumed: to reach the rest you would create a new campaign, and people who already got it would get it twice.",
+      "stopConfirmTitle": "Stop broadcast",
+      "previewOutdated": "The text or attachment changed after the preview. Press “Preview” again — sending unreviewed content is blocked."
     },
     "pinnedMessages": {
       "title": "Pinned Messages",
@@ -3683,7 +3687,7 @@
         "trialEnding": "Trial ending",
         "expiring": "Subscription expiring",
         "expired": "Expired subscription",
-        "zero": "Zero balance",
+        "zero": "Paid but never connected",
         "autopayFailed": "Autopay failed",
         "lowBalance": "Low balance",
         "inactive30d": "Inactive 30 days",
