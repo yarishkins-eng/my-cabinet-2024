@@ -1667,7 +1667,10 @@
       "stopConfirmTitle": "停止群发",
       "previewOutdated": "预览之后文本或附件已更改。请再次点击\"预览\"，未经查看的内容不能发送。",
       "previewRequired": "发送前请先打开预览——只有您看过的内容才会发出。",
-      "customButtonUrlInvalid": "该地址无法使用：需要完整的 https://site.com/page 或 tg://… 地址，不能有空格或隐藏字符。"
+      "customButtonUrlInvalid": "该地址无法使用：需要完整的 https://site.com/page 或 tg://… 地址，不能有空格或隐藏字符。",
+      "mediaHint": "图片最大 10 MB，视频最大 50 MB。🔴 带附件时正文限 1024 字符——超出部分将作为第二条消息发送。预览会提前显示。",
+      "mediaCaptionSplitHint": "正文超过 {{limit}} 字符——带附件时将作为第二条消息发送：先图片，后正文。这是正常的，不是错误。",
+      "customButtonsHint": "链接——完整地址 https://site.com/page 或 tg://…，不能有空格。动作——只能从上方现成列表中选择。"
     },
     "pinnedMessages": {
       "title": "置顶消息",
