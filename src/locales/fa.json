@@ -1590,7 +1590,7 @@
       "stopConfirmTitle": "توقف ارسال",
       "previewOutdated": "متن یا پیوست پس از پیش‌نمایش تغییر کرد. دوباره «پیش‌نمایش» را بزنید — ارسال محتوای بررسی‌نشده مسدود است.",
       "previewRequired": "پیش از ارسال، پیش‌نمایش را باز کنید — فقط چیزی ارسال می‌شود که دیده‌اید.",
-      "customButtonUrlInvalid": "این نشانی کار نمی‌کند: نشانی کامل مانند https://site.com/page بدون فاصله و نویسه‌های پنهان لازم است."
+      "customButtonUrlInvalid": "این نشانی کار نمی‌کند: نشانی کامل https://site.com/page یا tg://… بدون فاصله و نویسه‌های پنهان لازم است."
     },
     "pinnedMessages": {
       "title": "Pinned Messages",

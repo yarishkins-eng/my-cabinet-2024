@@ -2018,7 +2018,7 @@
       "stopConfirmTitle": "Stop broadcast",
       "previewOutdated": "The text or attachment changed after the preview. Press “Preview” again — sending unreviewed content is blocked.",
       "previewRequired": "Open the preview before sending — only what you have seen goes out.",
-      "customButtonUrlInvalid": "This address will not work: use a full address like https://site.com/page, with no spaces or hidden characters. If you pasted it, type it by hand."
+      "customButtonUrlInvalid": "This address will not work: use a full https://site.com/page or tg://… address, with no spaces or hidden characters. If you pasted it, type it by hand."
     },
     "pinnedMessages": {
       "title": "Pinned Messages",

@@ -966,4 +966,28 @@ describe('РС-10: отказы создания рассылки видны и 
       .map((node) => node.textContent);
     expect(headings[headings.length - 1]).toBe('admin.broadcasts.filterGroups.broad');
   });
+
+  it('РС-14е: «Все» уходит в хвост даже если бот ещё не выложен (скос версий)', async () => {
+    // Пункт е разрезан по двум репозиториям с независимыми деплоями. Кабинет выкладывается
+    // за 1-2 минуты, бот за 7-10 — в этом окне сервер ещё присылает старую группировку.
+    getFilters.mockResolvedValueOnce({
+      filters: [
+        { key: 'self', label: 'Тест: только мне', count: 1, group: 'basic' },
+        { key: 'all', label: 'Все активные с Telegram', count: 304, group: 'basic' },
+        { key: 'zero', label: '0 ГБ за период', count: 5, group: 'traffic' },
+      ],
+      tariff_filters: [],
+      custom_filters: [],
+    });
+    renderPage();
+    fireEvent.click(await screen.findByText('admin.broadcasts.selectFilterPlaceholder'));
+
+    const headings = screen
+      .getAllByText(/admin\.broadcasts\.filterGroups\./)
+      .map((node) => node.textContent);
+    expect(headings[headings.length - 1]).toBe('admin.broadcasts.filterGroups.broad');
+    // И «только мне» больше не соседняя строка: между ними встал заголовок группы.
+    const rendered = screen.getAllByText(/Тест: только мне|Все активные с Telegram/);
+    expect(rendered).toHaveLength(2);
+  });
 });

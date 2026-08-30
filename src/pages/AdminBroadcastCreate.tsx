@@ -265,6 +265,22 @@ export default function AdminBroadcastCreate() {
     // десятой строкой из двадцати, между «По трафику» и «По тарифу». Промах пальцем вверх
     // с тарифного фильтра (а тарифные кампании — рабочая лошадка) снова попадал в неё.
     // Порядок ключей объекта здесь и есть порядок групп на экране, поэтому переносим в хвост.
+    // Запасной путь на случай, когда бот ещё не выложен: пункт е разрезан по ДВУМ
+    // репозиториям с независимыми деплоями (кабинет 1-2 мин, бот 7-10). Если группу
+    // `broad` сервер ещё не присылает, уводим «Все» в хвост сами — иначе правка была бы
+    // молчаливым no-op ровно в те минуты, когда кабинет уже новый, а бот ещё старый.
+    const broadKey = Object.values(groups).some((list) => list.some((f) => f.key === 'all'))
+      ? 'broad'
+      : null;
+    if (broadKey && !groups.broad) {
+      Object.entries(groups).forEach(([name, list]) => {
+        const moved = list.filter((f) => f.key === 'all');
+        if (moved.length === 0) return;
+        groups[name] = list.filter((f) => f.key !== 'all');
+        if (groups[name].length === 0) delete groups[name];
+        groups.broad = [...(groups.broad ?? []), ...moved];
+      });
+    }
     if (groups.broad) {
       const broad = groups.broad;
       delete groups.broad;

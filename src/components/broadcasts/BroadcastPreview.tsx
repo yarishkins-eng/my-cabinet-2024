@@ -284,6 +284,14 @@ export function TelegramPreview({
                       className="flex-1 rounded-md bg-[#1f2c3a] px-3 py-2 text-sm text-blue-300 hover:bg-[#26384a]"
                     >
                       {b.text}
+                      {/* Адрес показываем ЯВНО: предпросмотр обещает «уходит только то, что
+                          вы видели», а весь смысл проверки ссылки в том, что убийца кампании
+                          прячется именно в адресе — на подписи кнопки его не видно. */}
+                      {b.url && (
+                        <span className="mt-0.5 block break-all text-[10px] leading-tight text-blue-400/70">
+                          {b.url}
+                        </span>
+                      )}
                     </button>
                   ))}
                 </div>

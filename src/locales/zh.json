@@ -1667,7 +1667,7 @@
       "stopConfirmTitle": "停止群发",
       "previewOutdated": "预览之后文本或附件已更改。请再次点击\"预览\"，未经查看的内容不能发送。",
       "previewRequired": "发送前请先打开预览——只有您看过的内容才会发出。",
-      "customButtonUrlInvalid": "该地址无法使用：需要完整地址，例如 https://site.com/page，不能有空格或隐藏字符。"
+      "customButtonUrlInvalid": "该地址无法使用：需要完整的 https://site.com/page 或 tg://… 地址，不能有空格或隐藏字符。"
     },
     "pinnedMessages": {
       "title": "置顶消息",
