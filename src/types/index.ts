@@ -644,6 +644,11 @@ export interface PendingPayment {
   user_telegram_id?: number;
   user_username?: string | null;
   user_email?: string | null;
+  /** 🔴 Этап ДВ-3. Остался ли за человеком шаг «оформить подписку» после зачисления денег.
+   *  Решает бот — той же функцией, что молчит в чате с этапа ДВ-2. Поле НЕОБЯЗАТЕЛЬНОЕ и
+   *  отсутствие его = «молчим»: кабинет, выложенный раньше бота, обязан показать прежний
+   *  текст, а не обещать оставшийся шаг тому, за кого деньги потратит автопокупка. */
+  purchase_step_pending?: boolean;
 }
 
 export interface ManualCheckResponse {

@@ -262,7 +262,13 @@ export function BalanceTab({
               >
                 <div>
                   <div className="text-sm text-dark-200">{tx.description || tx.type}</div>
-                  <div className="text-xs text-dark-500">{formatDate(tx.created_at)}</div>
+                  {/* 🔴 Этап ДВ-3, мина ID. Номер заказа читался прямо из английской подписи,
+                      пока она была машинной. Перевели — и связать деньги с заказом глазами
+                      стало нечем. Возвращаем отдельной строкой: тут владелец, а не клиент. */}
+                  <div className="text-xs text-dark-500">
+                    {formatDate(tx.created_at)}
+                    {tx.external_id ? ` · ${tx.external_id}` : ''}
+                  </div>
                 </div>
                 <div className={tx.amount_kopeks >= 0 ? 'text-success-400' : 'text-error-400'}>
                   {tx.amount_kopeks >= 0 ? '+' : ''}

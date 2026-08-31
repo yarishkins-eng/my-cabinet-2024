@@ -114,6 +114,11 @@ export default function Balance() {
         return 'badge-warning';
       case 'WITHDRAWAL':
         return 'badge-error';
+      // 🔴 Этап ДВ-3. Приход от банка по прямой оплате картой. Значок зелёный, как у любого
+      // прихода: деньги действительно пришли, просто не на кошелёк, а сразу за подписку —
+      // и об этом говорит подпись самой записи, а не цвет.
+      case 'PROVIDER_RECEIPT':
+        return 'badge-success';
       default:
         return 'badge-neutral';
     }
@@ -129,6 +134,10 @@ export default function Balance() {
         return t('balance.referralReward');
       case 'WITHDRAWAL':
         return t('balance.withdrawal');
+      // 🔴 Этап ДВ-3. Без этой ветки значок печатал сырой тип — человек читал в своей истории
+      // слово `provider_receipt`. Проверено на боевом: такие записи есть у 19 человек.
+      case 'PROVIDER_RECEIPT':
+        return t('balance.providerReceipt');
       default:
         return type;
     }

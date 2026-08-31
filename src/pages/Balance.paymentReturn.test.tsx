@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { cleanup, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router';
 
@@ -99,5 +99,49 @@ describe('Balance — возврат от платёжной системы', ()
         '/balance/top-up/result?status=success',
       ),
     );
+  });
+});
+
+describe('Balance — история операций читается человеком (этап ДВ-3)', () => {
+  beforeEach(() => vi.clearAllMocks());
+  afterEach(cleanup);
+
+  // 🔴 До этой ветки значок печатал СЫРОЙ тип: человек читал в своей истории слово
+  // `provider_receipt`. Проверено на боевом — такие записи есть у 19 человек, и это половина
+  // проводки за подписку, купленную картой. Стережём свойство: на экране не должно быть
+  // машинного имени типа, а подпись обязана прийти из локали.
+  it('приход от банка подписан по-человечески, а не сырым типом', async () => {
+    const { balanceApi } = await import('../api/balance');
+    vi.mocked(balanceApi.getTransactions).mockResolvedValue({
+      items: [
+        {
+          id: 1,
+          type: 'provider_receipt',
+          amount_kopeks: 119900,
+          amount_rubles: 1199,
+          description: 'Платёж картой получен: подписка на 6 месяцев, лимит устройств 2',
+          payment_method: 'platega',
+          is_completed: true,
+          created_at: new Date(0).toISOString(),
+          completed_at: null,
+        },
+      ],
+      total: 1,
+      page: 1,
+      pages: 1,
+    } as never);
+
+    renderBalance('');
+
+    // 🔴 История операций в кабинете СВЁРНУТА по умолчанию — её надо раскрыть. Сторож,
+    // написанный без этого клика, не находил бы вообще ничего и легко сошёл бы за
+    // «текста нет, значит всё хорошо».
+    fireEvent.click(await screen.findByText('balance.transactionHistory'));
+
+    await screen.findByText('balance.providerReceipt');
+    expect(screen.queryByText('provider_receipt')).toBeNull();
+    expect(
+      screen.getByText('Платёж картой получен: подписка на 6 месяцев, лимит устройств 2'),
+    ).toBeTruthy();
   });
 });
