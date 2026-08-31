@@ -25,9 +25,10 @@ const FIELD_STEP: Record<keyof AutoMessageParams, number> = {
   trigger_days: 1,
 };
 
-/** Границы совпадают с серверными. Сервер всё равно проверяет сам — это только удобство. */
-const FIELD_RANGE: Record<keyof AutoMessageParams, [number, number]> = {
-  discount_percent: [0, 50],
+/** Запасные границы. Настоящие приходят с сервера в `limits`: пол «через сколько
+ *  дней» у разных сообщений разный, и зашитая здесь единица врала бы третьей волне. */
+const FALLBACK_RANGE: Record<keyof AutoMessageParams, [number, number]> = {
+  discount_percent: [1, 50],
   valid_hours: [1, 168],
   trigger_days: [1, 60],
 };
@@ -161,9 +162,27 @@ export default function AdminAutoMessageDetail() {
             <BackIcon />
           </button>
         )}
-        <div>
+        <div className="min-w-0">
           <h1 className="text-xl font-semibold text-dark-100">{data.title}</h1>
           <p className="text-sm text-dark-400">{data.when}</p>
+          <div className="mt-1.5 flex flex-wrap gap-1.5">
+            <span
+              className={`rounded px-2 py-0.5 text-[11px] ${
+                data.state === 'quiet'
+                  ? 'bg-dark-700 text-dark-400'
+                  : 'bg-success-500/15 text-success-400'
+              }`}
+            >
+              {data.state === 'quiet'
+                ? t('admin.autoMessages.state.quiet')
+                : t('admin.autoMessages.state.live')}
+            </span>
+            {(data.quiet_reason || data.note) && (
+              <span className="rounded bg-dark-700 px-2 py-0.5 text-[11px] text-dark-400">
+                {data.quiet_reason ?? data.note}
+              </span>
+            )}
+          </div>
         </div>
       </div>
 
@@ -217,12 +236,15 @@ export default function AdminAutoMessageDetail() {
             <div className="mb-3 text-[11px] uppercase tracking-wider text-dark-500">
               {t('admin.autoMessages.detail.when')}
             </div>
-            {!editable ? (
+            {data.control !== 'toggle' ? (
               <p className="text-sm text-dark-400">{t('admin.autoMessages.locked.hint')}</p>
+            ) : !editable || Object.keys(draft ?? {}).length === 0 ? (
+              <p className="text-sm text-dark-400">{t('admin.autoMessages.detail.switchOnly')}</p>
             ) : (
               <>
                 {(Object.keys(draft) as (keyof AutoMessageParams)[]).map((field) => {
-                  const [min, max] = FIELD_RANGE[field];
+                  const [min, max] =
+                    (data.limits?.[field] as [number, number]) ?? FALLBACK_RANGE[field];
                   return (
                     <div
                       key={field}
@@ -295,7 +317,9 @@ export default function AdminAutoMessageDetail() {
             <div className="mb-3 text-[11px] uppercase tracking-wider text-dark-500">
               {t('admin.autoMessages.detail.history')}
             </div>
-            {data.history.length === 0 ? (
+            {data.sent_count === null ? (
+              <p className="text-sm text-dark-400">{t('admin.autoMessages.history.notCounted')}</p>
+            ) : data.history.length === 0 ? (
               <p className="text-sm text-dark-400">{t('admin.autoMessages.empty')}</p>
             ) : (
               <div className="overflow-x-auto">
@@ -335,7 +359,14 @@ export default function AdminAutoMessageDetail() {
                 </table>
               </div>
             )}
-            <p className="mt-3 text-xs text-dark-500">{data.history_note}</p>
+            {data.sent_count !== null && (
+              <p className="mt-3 text-xs text-dark-500">{data.history_note}</p>
+            )}
+            {data.control === 'toggle' && (
+              <p className="mt-3 text-xs text-dark-500">
+                {t('admin.autoMessages.detail.futureOnly')}
+              </p>
+            )}
           </div>
         </div>
       </div>

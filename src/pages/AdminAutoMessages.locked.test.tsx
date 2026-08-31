@@ -40,6 +40,7 @@ function item(overrides: Record<string, unknown> = {}) {
     sent_count: 8,
     claimed_count: 3,
     claim_tracked: true,
+    limits: { discount_percent: [1, 50], valid_hours: [1, 168] },
     ...overrides,
   };
 }
@@ -107,10 +108,11 @@ describe('AdminAutoMessages: честность управления', () => {
     list.mockResolvedValue(payload([item({ control: 'locked', enabled: null })]));
     renderPage();
 
-    await waitFor(() => expect(screen.getByText('admin.autoMessages.master.on')).toBeTruthy());
+    await waitFor(() => expect(screen.getByText('admin.autoMessages.master.where')).toBeTruthy());
     // Ни одного переключателя: общий живёт в настройках бота и отсюда не меняется.
     expect(screen.queryAllByRole('switch')).toHaveLength(0);
-    expect(screen.getByText('admin.autoMessages.master.where')).toBeTruthy();
+    // Статус показан текстом, а не органом управления — блок разбит на несколько узлов.
+    expect(document.body.textContent).toContain('admin.autoMessages.master.on');
   });
 
   it('уточнение к работающему сообщению не выдаётся за причину молчания', async () => {

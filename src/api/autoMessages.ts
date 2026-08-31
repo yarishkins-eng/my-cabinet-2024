@@ -28,6 +28,9 @@ export interface AutoMessageItem {
   sent_count: number | null;
   claimed_count: number | null;
   claim_tracked: boolean;
+  /** Границы полей ИМЕННО этого сообщения. Зашивать их на экране нельзя: пол
+   *  «через сколько дней» у разных сообщений разный. */
+  limits: Record<string, [number, number]> | null;
 }
 
 export interface AutoMessageSummary {
