@@ -2337,7 +2337,7 @@
         "name": "名称",
         "namePlaceholder": "例如：Instagram 广告",
         "startParameter": "标签（start 参数）",
-        "startParameterHint": "仅限拉丁字母、数字、_ 和 -",
+        "startParameterHint": "仅限拉丁字母、数字、_ 和 -。⚠️ 客户会在自己的聊天中看到该标记，请勿写入内部名称或预算。",
         "bonusType": "奖励类型",
         "balanceBonus": "余额奖励",
         "trialSubscription": "试用订阅",

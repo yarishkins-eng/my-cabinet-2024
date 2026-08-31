@@ -3242,7 +3242,7 @@
         "name": "Название",
         "namePlaceholder": "Например: Instagram Реклама",
         "startParameter": "Метка (start параметр)",
-        "startParameterHint": "Только латиница, цифры, _ и -",
+        "startParameterHint": "Только латиница, цифры, _ и -. ⚠️ Клиент увидит эту метку в своём чате — не пишите в ней внутреннее название или бюджет.",
         "bonusType": "Тип бонуса",
         "balanceBonus": "Бонус на баланс",
         "trialSubscription": "Пробная подписка",
