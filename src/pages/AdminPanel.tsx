@@ -200,6 +200,12 @@ const sections: AdminSection[] = [
         permission: 'promo_offers:read',
       },
       {
+        name: 'admin.nav.autoMessages',
+        icon: 'mail',
+        to: '/admin/auto-messages',
+        permission: 'auto_messages:read',
+      },
+      {
         name: 'admin.nav.paymentMethods',
         icon: 'wallet',
         to: '/admin/payment-methods',

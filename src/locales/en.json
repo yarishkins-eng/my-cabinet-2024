@@ -1302,6 +1302,7 @@
       "paymentMethods": "Payment Methods",
       "campaigns": "Campaigns",
       "promoOffers": "Promo Offers",
+      "autoMessages": "Auto Messages",
       "promocodes": "Promo Codes",
       "promoGroups": "Discount Groups",
       "trafficUsage": "Traffic Usage",
@@ -3610,6 +3611,64 @@
       },
       "notFound": "User not found",
       "purchaseCount": "Purchases: {{count}}"
+    },
+    "autoMessages": {
+      "title": "Automatic messages",
+      "subtitle": "The bot sends these on its own",
+      "empty": "Nothing has been sent yet",
+      "error": "Could not load. Refresh the page",
+      "confirmOff": "Turn off \u00ab{{title}}\u00bb? Clients will stop receiving it.",
+      "confirmOffAction": "Turn off",
+      "state": { "live": "sending", "quiet": "silent" },
+      "control": {
+        "edit": "editable here",
+        "locked": "no settings",
+        "server": "only a developer can enable it"
+      },
+      "groups": {
+        "trial": "Trial period",
+        "paid": "Paid subscription",
+        "return": "Winning back",
+        "other": "Traffic, money and service"
+      },
+      "tiles": {
+        "sent": "sent",
+        "sentHint": "messages sent",
+        "claimed": "claimed the discount",
+        "live": "sending now",
+        "editable": "editable",
+        "caveat": "Sends are counted from bot records and are erased when a client renews. Claimed discounts are never erased — so the two numbers are not comparable."
+      },
+      "master": {
+        "on": "Reminders and discounts are on",
+        "off": "Reminders and discounts are off",
+        "hint": "Affects {{count}} messages. The rest are unaffected",
+        "where": "Changed in bot settings: this switch is wider than the section — it also silences support reply notifications"
+      },
+      "detail": {
+        "preview": "What the client receives",
+        "noButtons": "This message has no buttons",
+        "when": "When it is sent",
+        "history": "Sending history, last 30 days",
+        "percent": "Discount size",
+        "percentHint": "Multiplied by the promo group discount, not added",
+        "hours": "How long it lasts",
+        "hoursHint": "The same after the client taps Claim",
+        "days": "After how many days",
+        "daysHint": "Counted from the end of the subscription"
+      },
+      "save": {
+        "changed": "{{what}}: {{from}} \u2192 {{to}}",
+        "action": "Save",
+        "cancel": "Cancel",
+        "done": "Saved",
+        "failed": "Could not save. The value is unchanged"
+      },
+      "btn": { "tracked": "click counted", "untracked": "click not counted" },
+      "history": { "when": "When", "who": "Who", "claimed": "Claimed", "yes": "yes", "no": "no" },
+      "locked": {
+        "hint": "This message cannot be managed from the cabinet: it has no settings in the bot"
+      }
     },
     "promoOffers": {
       "title": "Promo Offers",
