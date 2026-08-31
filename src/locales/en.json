@@ -83,9 +83,9 @@
   },
   "campaignBonus": {
     "title": "Bonus activated!",
-    "balance": "You received {{amount}} RUB from campaign \"{{name}}\"",
-    "subscription": "You received a {{days}}-day subscription from campaign \"{{name}}\"",
-    "tariff": "You received tariff \"{{tariff}}\" from campaign \"{{name}}\""
+    "balance": "You received {{amount}} RUB on your balance",
+    "subscription": "You received a {{days}}-day subscription",
+    "tariff": "You received tariff \"{{tariff}}\""
   },
   "wsNotifications": {
     "balance": {

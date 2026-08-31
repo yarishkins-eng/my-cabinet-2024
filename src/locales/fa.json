@@ -76,9 +76,9 @@
   },
   "campaignBonus": {
     "title": "!پاداش فعال شد",
-    "balance": "شما {{amount}} روبل از کمپین «{{name}}» دریافت کردید",
-    "subscription": "شما اشتراک {{days}} روزه از کمپین «{{name}}» دریافت کردید",
-    "tariff": "شما تعرفه «{{tariff}}» از کمپین «{{name}}» دریافت کردید"
+    "balance": "{{amount}} روبل به موجودی شما اضافه شد",
+    "subscription": "اشتراک {{days}} روزه برای شما فعال شد",
+    "tariff": "تعرفه «{{tariff}}» برای شما فعال شد"
   },
   "wsNotifications": {
     "balance": {

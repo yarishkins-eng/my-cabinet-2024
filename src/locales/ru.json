@@ -86,9 +86,9 @@
   },
   "campaignBonus": {
     "title": "Бонус активирован!",
-    "balance": "Вам начислено {{amount}} руб. по акции «{{name}}»",
-    "subscription": "Вам предоставлена подписка на {{days}} дн. по акции «{{name}}»",
-    "tariff": "Вам предоставлен тариф «{{tariff}}» по акции «{{name}}»"
+    "balance": "Вам начислено {{amount}} руб. на баланс",
+    "subscription": "Вам предоставлена подписка на {{days}} дн.",
+    "tariff": "Вам предоставлен тариф «{{tariff}}»"
   },
   "wsNotifications": {
     "balance": {
