@@ -396,6 +396,12 @@ export default function AdminCampaignEdit() {
           <p className="mt-1 text-xs text-dark-500">
             {t('admin.campaigns.form.startParameterHint')}
           </p>
+          {/* 🔴 Только на форме ПРАВКИ: смена метки обнуляет уже размещённые рекламные ссылки —
+              по ним человек молча не получит ни бонуса, ни учёта. На форме создания этот текст
+              был бы ложью, поэтому ключ отдельный, а не общий с подсказкой выше. */}
+          <p className="mt-1 text-xs text-warning-400">
+            {t('admin.campaigns.form.startParameterChangeWarning')}
+          </p>
         </div>
 
         {/* Active toggle */}
