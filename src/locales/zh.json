@@ -76,9 +76,9 @@
   },
   "campaignBonus": {
     "title": "奖励已激活！",
-    "balance": "您从活动「{{name}}」获得了 {{amount}} 卢布",
-    "subscription": "您从活动「{{name}}」获得了 {{days}} 天订阅",
-    "tariff": "您从活动「{{name}}」获得了套餐「{{tariff}}」"
+    "balance": "已向您的余额充值 {{amount}} 卢布",
+    "subscription": "已为您开通 {{days}} 天订阅",
+    "tariff": "已为您开通套餐「{{tariff}}」"
   },
   "wsNotifications": {
     "balance": {
