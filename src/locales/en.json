@@ -1302,6 +1302,7 @@
       "paymentMethods": "Payment Methods",
       "campaigns": "Campaigns",
       "promoOffers": "Promo Offers",
+      "autoMessages": "Auto Messages",
       "promocodes": "Promo Codes",
       "promoGroups": "Discount Groups",
       "trafficUsage": "Traffic Usage",
@@ -3610,6 +3611,83 @@
       },
       "notFound": "User not found",
       "purchaseCount": "Purchases: {{count}}"
+    },
+    "autoMessages": {
+      "title": "Automatic messages",
+      "subtitle": "The bot sends these on its own",
+      "empty": "Nothing has been sent yet",
+      "error": "Could not load. Refresh the page",
+      "confirmOff": "Turn off «{{title}}»? Clients will stop receiving it.",
+      "confirmOffAction": "Turn off",
+      "state": {
+        "live": "on",
+        "quiet": "not sending"
+      },
+      "control": {
+        "edit": "editable here",
+        "locked": "cannot be turned off",
+        "server": "only a developer can enable it"
+      },
+      "groups": {
+        "trial": "Trial period",
+        "paid": "Paid subscription",
+        "return": "Winning back",
+        "other": "Traffic, money and service"
+      },
+      "tiles": {
+        "sent": "sent",
+        "sentHint": "messages sent",
+        "claimed": "claimed the discount",
+        "live": "on right now",
+        "editable": "editable",
+        "caveat": "Sends are counted afresh when a client renews. Claimed discounts are never erased — so the two numbers are not comparable.",
+        "notCounted": "not counted",
+        "dashMeans": "A dash means «we do not count this», not zero: for some messages sends are not recorded anywhere."
+      },
+      "master": {
+        "on": "Reminders and discounts are on",
+        "off": "Reminders and discounts are off",
+        "hint": "Affects {{count}} messages. The rest are unaffected",
+        "where": "Not a section setting but a global switch, shown here only. Change it in Settings → Notifications → User notifications. Besides these messages it also turns off support replies to clients."
+      },
+      "detail": {
+        "preview": "Buttons under the message",
+        "noButtons": "This message has no buttons",
+        "when": "When it is sent",
+        "history": "Sending history, last 30 days",
+        "percent": "Discount size",
+        "percentHint": "Applied on top of the client's own discount, not added to it: with 20 % personal and 15 % here the client pays 68 % of the price, not 65 %.",
+        "hours": "How long it lasts",
+        "hoursHint": "How long the client has to tap Claim, and how long the discount lives after that.",
+        "days": "After how many days",
+        "daysHint": "Counted from the end of the subscription",
+        "futureOnly": "Changes apply to future sends. Clients who already got the discount keep the old percent until it expires.",
+        "switchOnly": "This message has no numeric settings — only on or off, from the section list."
+      },
+      "save": {
+        "changed": "{{what}}: {{from}} → {{to}}",
+        "action": "Save",
+        "cancel": "Cancel",
+        "done": "Saved",
+        "failed": "Could not save. The value is unchanged"
+      },
+      "btn": {
+        "tracked": "click shows up in stats",
+        "untracked": "click does not reach stats"
+      },
+      "history": {
+        "when": "When",
+        "who": "Who",
+        "claimed": "Claimed",
+        "yes": "yes",
+        "no": "no",
+        "notCounted": "Sends of this message are not recorded anywhere — there is no history to show."
+      },
+      "locked": {
+        "hint": "This message cannot be turned off or configured — not here and not anywhere else. It is always sent."
+      },
+      "scope": "Only messages the bot sends on a schedule. Confirmations after a payment or top-up live elsewhere and are not listed here.",
+      "lastCheck": "Last check:"
     },
     "promoOffers": {
       "title": "Promo Offers",

@@ -124,6 +124,8 @@ const AdminPayments = lazyWithRetry(() => import('./pages/AdminPayments'));
 const AdminPaymentMethods = lazyWithRetry(() => import('./pages/AdminPaymentMethods'));
 const AdminPaymentMethodEdit = lazyWithRetry(() => import('./pages/AdminPaymentMethodEdit'));
 const AdminPromoOffers = lazyWithRetry(() => import('./pages/AdminPromoOffers'));
+const AdminAutoMessages = lazyWithRetry(() => import('./pages/AdminAutoMessages'));
+const AdminAutoMessageDetail = lazyWithRetry(() => import('./pages/AdminAutoMessageDetail'));
 const AdminPromoOfferTemplateEdit = lazyWithRetry(
   () => import('./pages/AdminPromoOfferTemplateEdit'),
 );
@@ -1125,6 +1127,26 @@ function App() {
             <PermissionRoute permission="promo_offers:read">
               <LazyPage>
                 <AdminPromoOffers />
+              </LazyPage>
+            </PermissionRoute>
+          }
+        />
+        <Route
+          path="/admin/auto-messages"
+          element={
+            <PermissionRoute permission="auto_messages:read">
+              <LazyPage>
+                <AdminAutoMessages />
+              </LazyPage>
+            </PermissionRoute>
+          }
+        />
+        <Route
+          path="/admin/auto-messages/:id"
+          element={
+            <PermissionRoute permission="auto_messages:read">
+              <LazyPage>
+                <AdminAutoMessageDetail />
               </LazyPage>
             </PermissionRoute>
           }
