@@ -147,6 +147,13 @@ export function BalanceTab({
             className="input"
             maxLength={500}
           />
+          {/* 🔴 РЕК-6А. Поле называлось «Описание (опционально)» и читалось как пометка для себя,
+              а 500 символов из него уходят прямо в историю операций КЛИЕНТА
+              (`admin_users.py` → `Transaction.description` → `Balance.tsx`). Ни строчки об этом
+              на экране не было. Дверь шире метки кампании: там 32 символа латиницей. */}
+          <p className="-mt-1 text-xs text-warning-400">
+            {t('admin.users.detail.balance.descriptionHint')}
+          </p>
           <div className="flex gap-2">
             <button
               onClick={() => handleUpdateBalance(true)}
