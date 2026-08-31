@@ -2842,7 +2842,7 @@
         "name": "Name",
         "namePlaceholder": "E.g.: Instagram Ad",
         "startParameter": "Label (start parameter)",
-        "startParameterHint": "Latin letters, digits, _ and - only. ⚠️ The client sees this tag in their own chat — keep internal names and budgets out of it.",
+        "startParameterHint": "Latin letters, digits, _ and - only. ⚠️ The client sees this label in their own chat — keep internal names and budgets out of it.",
         "bonusType": "Bonus type",
         "balanceBonus": "Balance bonus",
         "trialSubscription": "Trial subscription",
