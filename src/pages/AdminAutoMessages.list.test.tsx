@@ -165,15 +165,56 @@ describe('AdminAutoMessages: список ничего не переключае
     expect(navigate).toHaveBeenCalledWith('/admin/auto-messages/return-wave2');
   });
 
-  it('пара названа прямо в строке списка', async () => {
-    // Иначе после одного нажатия «выключено» появляется на двух строках, и вторую
-    // менеджер не трогал: объяснения этому в списке не было вовсе.
-    list.mockResolvedValue(payload([item({ shares_switch_with: 'Подписка закончилась' })]));
+  it('у погасшей строки написано, что она погасла в паре', async () => {
+    // Отвечает на вопрос «почему их две»: менеджер выключал одно.
+    list.mockResolvedValue(
+      payload([
+        item({ enabled: false, state: 'quiet', shares_switch_with: 'Подписка закончилась' }),
+      ]),
+    );
     renderPage();
 
     await waitFor(() =>
       expect(screen.getByText('admin.autoMessages.pairShort Подписка закончилась')).toBeTruthy(),
     );
+  });
+
+  it('каждая строка сама говорит, работает она или нет', async () => {
+    // 🔴 Прямое требование владельца: не заходя в каждое сообщение, видеть с главной,
+    // что включено, а что нет. Цвет точки — для скорости, слово — чтобы не запоминать
+    // легенду и чтобы озвучка тоже читала смысл.
+    list.mockResolvedValue(
+      payload([
+        item({ id: 'a', title: 'Живое' }),
+        item({
+          id: 'b',
+          title: 'Выключенное',
+          enabled: false,
+          state: 'quiet',
+          quiet_reason: 'выключено в этом разделе',
+        }),
+        item({
+          id: 'c',
+          title: 'Молчит по чужой причине',
+          state: 'quiet',
+          quiet_reason: 'суточных тарифов нет',
+        }),
+      ]),
+    );
+    renderPage();
+
+    await waitFor(() => expect(screen.getByText('Живое')).toBeTruthy());
+    expect(screen.getByText('admin.autoMessages.state.live')).toBeTruthy();
+    expect(screen.getByText('admin.autoMessages.state.off')).toBeTruthy();
+    expect(screen.getByText(/state\.quiet: суточных тарифов нет/)).toBeTruthy();
+
+    // Точка не должна быть единственным носителем смысла.
+    const dots = screen.getAllByRole('img');
+    expect(dots.map((dot) => dot.getAttribute('aria-label'))).toEqual([
+      'admin.autoMessages.dot.live',
+      'admin.autoMessages.dot.off',
+      'admin.autoMessages.dot.quiet',
+    ]);
   });
 
   it('крупное число отправок подписано тем, по скольким оно считано', async () => {
