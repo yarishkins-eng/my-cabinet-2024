@@ -10,6 +10,7 @@ import type {
 } from '../../../api/adminUsers';
 import type { PromoGroup } from '../../../api/promocodes';
 import { ServerIcon } from '@/components/icons';
+import { TestAccountResetCard } from './TestAccountResetCard';
 
 // ──────────────────────────────────────────────────────────────────
 // Local status badge (parent has its own — duplicating here to keep
@@ -86,6 +87,9 @@ export interface InfoTabProps {
   onResetSubscription: () => Promise<void>;
   onDisableUser: () => Promise<void>;
   onFullDeleteUser: () => Promise<void>;
+
+  // Перечитать карточку после обнуления тестового стенда
+  onReloadUser: () => void;
 }
 
 export function InfoTab(props: InfoTabProps) {
@@ -469,6 +473,12 @@ export function InfoTab(props: InfoTabProps) {
             </div>
           )}
         </div>
+      )}
+
+      {/* Тестовый стенд владельца — карточки нет ни у кого, кроме аккаунтов
+          из TEST_ACCOUNT_TELEGRAM_IDS. */}
+      {user.is_test_account && hasPermission('users:delete') && (
+        <TestAccountResetCard userId={user.id} onDone={props.onReloadUser} />
       )}
 
       {/* Actions */}

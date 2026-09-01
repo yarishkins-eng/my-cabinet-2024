@@ -150,6 +150,25 @@ export interface UserDetailResponse {
   account_erasure_state: string | null;
   account_erasure_resolution_code: string | null;
   account_erasure_requested_at: string | null;
+  /** Телеграм стоит в TEST_ACCOUNT_TELEGRAM_IDS на сервере. Только у такого
+   *  аккаунта рисуется кнопка обнуления — сервер проверяет это ещё раз сам. */
+  is_test_account: boolean;
+}
+
+/** План обнуления стенда — он же отчёт после выполнения. */
+export interface TestAccountResetResponse {
+  allowed: boolean;
+  blocked_reason: string | null;
+  done: boolean;
+  balance_kopeks: number;
+  subscription: string | null;
+  orders: number;
+  payments: number;
+  transactions: number;
+  invited_users: number;
+  panel_linked: boolean;
+  panel_deleted: boolean;
+  deleted_rows: Record<string, number>;
 }
 
 export interface UserPanelInfo {
@@ -708,6 +727,13 @@ export const adminUsersApi = {
   // Reset subscription
   resetSubscription: async (userId: number): Promise<{ success: boolean; message: string }> => {
     const response = await apiClient.post(`/cabinet/admin/users/${userId}/reset-subscription`);
+    return response.data;
+  },
+
+  // Обнуление тестового аккаунта. confirm=false НИЧЕГО не меняет и возвращает
+  // план: показ и выполнение идут одним и тем же кодом на сервере.
+  testAccountReset: async (userId: number, confirm: boolean): Promise<TestAccountResetResponse> => {
+    const response = await apiClient.post(`/cabinet/admin/users/${userId}/test-reset`, { confirm });
     return response.data;
   },
 

@@ -948,6 +948,7 @@ export default function AdminUserDetail() {
             onResetSubscription={handleResetSubscription}
             onDisableUser={handleDisableUser}
             onFullDeleteUser={handleFullDeleteUser}
+            onReloadUser={() => void loadUser()}
           />
         )}
 

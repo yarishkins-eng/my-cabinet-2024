@@ -3610,7 +3610,27 @@
         }
       },
       "notFound": "User not found",
-      "purchaseCount": "Purchases: {{count}}"
+      "purchaseCount": "Purchases: {{count}}",
+      "testReset": {
+        "title": "Test stand",
+        "subtitle": "This account is on the server's test list. It can be returned to the state it had before this person existed.",
+        "check": "Reset test account",
+        "confirm": "Yes, reset it",
+        "willDelete": "Will be deleted:",
+        "balance": "Balance",
+        "subscription": "Subscription",
+        "orders": "Orders",
+        "payments": "Payments",
+        "transactions": "Ledger entries",
+        "panel": "In the RemnaWave panel",
+        "panelLinked": "the user will be deleted",
+        "nothing": "none",
+        "invitedStay": "People they invited stay linked to them: {{count}}. Other people's rows are left alone.",
+        "auditStays": "The admin audit trail stays — it is not hidden.",
+        "blockedTitle": "Cannot be reset",
+        "doneTitle": "Done: the account is reset",
+        "doneHint": "Now send /start to the bot from that Telegram — it will register as new, with the trial available again. Old chat messages stay: their buttons point at the past, so start with /start."
+      }
     },
     "autoMessages": {
       "title": "Automatic messages",
