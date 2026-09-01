@@ -5445,7 +5445,7 @@
     "topUpAmount": "Top up {{amount}}",
     "chooseMethodNotice": "Choose a payment method.",
     "reviewBeforeCharge": "Review the total before the charge.",
-    "topUpBalanceApplied": "Your {{balance}} is already deducted from {{total}}",
+    "topUpBalanceApplied": "The top-up is {{total}} minus your balance of {{balance}}.",
     "topUpShortage": "Add {{amount}}",
     "topUpShortageHint": "Pay it and come back — we keep your choice, you just place the order.",
     "continueAndOrder": "Continue and subscribe",
@@ -5544,7 +5544,9 @@
     "unavailable": "Unavailable",
     "endsAt": "Ends",
     "balance": "Balance",
-    "shortage": "Shortfall"
+    "shortage": "Shortfall",
+    "autostartHeldTitle": "We did not open the payment",
+    "autostartHeldText": "Part of the amount is already on your balance. Choose: add the rest, or pay the full price and leave your balance untouched."
   },
   "trialStart": {
     "loadErrorTitle": "Could not open the trial",

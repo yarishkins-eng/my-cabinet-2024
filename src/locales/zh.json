@@ -4883,7 +4883,7 @@
     "topUpAmount": "充值 {{amount}}",
     "chooseMethodNotice": "请选择支付方式。",
     "reviewBeforeCharge": "请在扣款前核对总额。",
-    "topUpBalanceApplied": "您的 {{balance}} 已从 {{total}} 中扣除",
+    "topUpBalanceApplied": "补足金额为 {{total}} 减去您的余额 {{balance}}。",
     "topUpShortage": "补足 {{amount}}",
     "topUpShortageHint": "支付后返回 — 您的选择会保留，只需下单即可。",
     "continueAndOrder": "继续并订阅",
@@ -4982,6 +4982,8 @@
     "unavailable": "不可用",
     "endsAt": "截至",
     "balance": "余额",
-    "shortage": "还差"
+    "shortage": "还差",
+    "autostartHeldTitle": "我们没有直接打开支付",
+    "autostartHeldText": "部分金额已在您的余额中。请选择：补足差额，或支付全款并保留余额不动。"
   }
 }

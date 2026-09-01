@@ -2241,6 +2241,75 @@ describe('DeviceFirstConfigurator interaction safety', () => {
     expect(
       screen.getByRole('button', { name: 'deviceFirst.paymentMethodAmount:450 ₽' }),
     ).toBeTruthy();
+    // 🔴 И экран ОБЪЯСНЯЕТ, почему человек здесь, а не в банке. Три соседние ветки
+    // «не стрелять» ставят сообщение; молчаливой осталась бы только эта, и человек
+    // прочитал бы остановку как поломку.
+    expect(await screen.findByText('deviceFirst.autostartHeldTitle')).toBeTruthy();
+  });
+
+  // 🔴 Верхняя граница. Самый дорогой вход: человек доплатил, вернулся в чат, а там висит
+  // СТАРОЕ сообщение с карточной кнопкой. Раньше «450 < 450» было ложью, счёт выставлялся на
+  // полную цену, и только что положенные деньги оставались лежать — он платил дважды.
+  it('holds the autostart when the balance already covers the whole price', async () => {
+    renderConfigurator({
+      options: { ...options, balance_kopeks: 45000 },
+      initialPath: '/subscription/purchase?period=30&devices=2&method=sbp&autostart=1',
+    });
+
+    await waitFor(() =>
+      expect(screen.getByTestId('location').textContent).toBe('/subscription/purchase'),
+    );
+    expect(deviceFirstApi.nativeLaunchDirect).not.toHaveBeenCalled();
+    expect(await screen.findByText('deviceFirst.autostartHeldTitle')).toBeTruthy();
+  });
+
+  // 🔴 Нижняя граница, и она НЕ симметрична: при копейках на счету доплата равна полной
+  // цене, кнопка уезжает вниз и тихнет, строка про арифметику молчит — остановка дала бы лишний
+  // экран и ноль новой информации. Бот в этом же случае дверь доплаты прячет
+  // (`device_first.py:311`), и кабинет обязан ему не противоречить.
+  it('still invoices when the top-up would cost as much as the full price', async () => {
+    vi.mocked(deviceFirstApi.nativeLaunchDirect).mockReturnValue(new Promise(() => {}));
+
+    renderConfigurator({
+      options: { ...options, balance_kopeks: 50 },
+      initialPath: '/subscription/purchase?period=30&devices=2&method=sbp&autostart=1',
+    });
+
+    await waitFor(() => expect(deviceFirstApi.nativeLaunchDirect).toHaveBeenCalledTimes(1));
+    expect(screen.queryByText('deviceFirst.autostartHeldTitle')).toBeNull();
+  });
+
+  // 🔴 Человек нажал в чате «Карта российского банка». До остановки автозапуска он до экрана
+  // доплаты не доходил вовсе; теперь доходит — и главная кнопка увела бы его в СБП, потому что
+  // способ из адреса не засевался никогда. Проверяем НЕ на СБП: у него число совпало бы
+  // случайно. Карта российского банка — это `11`.
+  it('carries the method chosen in the bot into the top-up address', async () => {
+    vi.mocked(deviceFirstApi.paymentMethods).mockResolvedValue({
+      methods: [
+        { key: 'sbp', provider_code: 2 },
+        { key: 'cards_ru', provider_code: 11 },
+      ],
+    });
+    getBalancePaymentMethods.mockResolvedValue([
+      {
+        id: 'platega',
+        name: 'Platega',
+        is_available: true,
+        min_amount_kopeks: 10000,
+        max_amount_kopeks: 100000000,
+      },
+    ]);
+
+    renderConfigurator({
+      options: { ...options, balance_kopeks: 10000 },
+      initialPath: '/subscription/purchase?period=30&devices=2&method=cards_ru&autostart=1',
+    });
+
+    fireEvent.click(await screen.findByRole('button', { name: 'deviceFirst.topUpShortage:350 ₽' }));
+
+    const target = screen.getByTestId('location').textContent ?? '';
+    const query = new URLSearchParams(target.slice(target.indexOf('?') + 1));
+    expect(query.get('option')).toBe('11');
   });
 
   // 🔴 Сторож РЕК-8б. Связь денег с ценой на экране не была названа ни одной строкой: стояло

@@ -4888,7 +4888,7 @@
     "topUpAmount": "افزودن {{amount}}",
     "chooseMethodNotice": "روش پرداخت را انتخاب کنید.",
     "reviewBeforeCharge": "پیش از کسر، مبلغ نهایی را بررسی کنید.",
-    "topUpBalanceApplied": "مبلغ {{balance}} شما از {{total}} کسر شده است",
+    "topUpBalanceApplied": "مابه‌التفاوت یعنی {{total}} منهای موجودی شما {{balance}}.",
     "topUpShortage": "پرداخت مابه‌التفاوت {{amount}}",
     "topUpShortageHint": "آن را پرداخت کنید و برگردید — انتخاب شما محفوظ می‌ماند و فقط سفارش را ثبت می‌کنید.",
     "continueAndOrder": "ادامه و اشتراک",
@@ -4987,6 +4987,8 @@
     "unavailable": "در دسترس نیست",
     "endsAt": "تا",
     "balance": "موجودی",
-    "shortage": "کسری"
+    "shortage": "کسری",
+    "autostartHeldTitle": "پرداخت را باز نکردیم",
+    "autostartHeldText": "بخشی از مبلغ از قبل در موجودی شماست. انتخاب کنید: باقی‌مانده را پرداخت کنید یا مبلغ کامل را بپردازید و موجودی دست‌نخورده بماند."
   }
 }

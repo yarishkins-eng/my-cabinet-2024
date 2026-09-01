@@ -126,6 +126,9 @@ export function DeviceFirstConfigurator({
   const checkoutUiState = checkout?.ui_state;
   const modalOpen = fixtureCheckout === undefined && checkoutUiState === 'awaiting_payment';
   const [methodKey, setMethodKey] = useState('sbp');
+  // 🔴 РЕК-8а. «Мы не открыли оплату, и вот почему» — состояние живёт до ухода с экрана
+  // подтверждения. Без него остановка автозапуска молчалива, и человек читает её как поломку.
+  const [autostartHeldForWallet, setAutostartHeldForWallet] = useState(false);
   const autostartPeriodParam = searchParams.get('period');
   const autostartDevicesParam = searchParams.get('devices');
   const nativeLaunchMethod = searchParams.get('method');
@@ -936,21 +939,30 @@ export function DeviceFirstConfigurator({
     }
 
     // 🔴 РЕК-8а. ЧЕТВЁРТАЯ ветка «не стрелять», по образцу трёх соседних выше.
-    // У человека, на счету которого лежит ЧАСТЬ цены, автозапуск выставлял счёт на полную
-    // сумму, не показав денежный экран НИ НА КАДР: свои деньги он не видел и выбрать их не
-    // мог. Родившийся так заказ немедленно взводит `funding_mode`, а обратно в пустое тот не
-    // сбрасывается НИКОГДА — после этого дверь доплаты гаснет на обоих экранах чата
-    // (`device_first.py:1010` и `:1127`, наша мина FE), и по времени такой заказ не протухает
-    // (`device_first_checkout_service.py:890`). Замер 01.09: частичный баланс — у 142 клиентов
-    // из 306.
-    // ⚠️ ГРАНИЦА НАЗВАНА: условие ровно «часть суммы есть», без оглядки на то, короче ли
-    // доплата прямой оплаты. Решать это здесь нечем — провайдерский минимум приезжает
-    // отдельным запросом, которого на этом пути может ещё не быть. Сам экран эту разницу уже
-    // учитывает: при доплате не короче прямой оплаты он рисует её тихой, а не первой
-    // (`topUpActionGoesFirst`).
+    // Автозапуск выставлял счёт на ПОЛНУЮ цену, не показав денежный экран НИ НА КАДР: человек
+    // со своими деньгами на счету их не видел и выбрать не мог. Родившийся так заказ немедленно
+    // взводит `funding_mode`, а обратно в пустое тот не сбрасывается НИКОГДА — после этого
+    // дверь доплаты гаснет на обоих экранах чата (`device_first.py:1010` и `:1127`, наша мина
+    // FE), и по времени такой заказ не протухает (`device_first_checkout_service.py:890`).
+    //
+    // 🔴 ПРАВИЛО ТО ЖЕ, ЧТО У БОТА, и это не совпадение: бот прячет дверь доплаты ровно при
+    // `not 0 < top_up < price` (`device_first.py:311`). Держим три случая и ровно три:
+    //   · денег ХВАТАЕТ на всё — держим. Дойти сюда можно только со СТАРОГО сообщения в чате
+    //     (при полном балансе бот карточных кнопок не рисует вовсе), а это ровно тот вход, где
+    //     человек только что доплатил и вернулся: экран предложит «Списать и оформить», и
+    //     второго платежа за ту же подписку не будет. Нашла линза корректности;
+    //   · денег ЧАСТЬ и доплата КОРОЧЕ прямой оплаты — держим, ради этого этап;
+    //   · денег ЧАСТЬ, но доплата равна полной цене (копейки на счету) — НЕ держим. Доплата
+    //     тогда не короче, кнопка на экране уезжает вниз и тихнет, строка про арифметику
+    //     молчит — человек получил бы лишний экран и ноль новой информации. Нашла линза UX.
+    // ⚠️ Минимум провайдера сюда не приезжает (он отдельным запросом), поэтому сравниваем по
+    // округлению до рубля — той половине правила, которая считается прямо здесь.
     const autostartBalanceKopeks = options.balance_kopeks ?? 0;
-    const autostartPartialWallet =
-      autostartBalanceKopeks > 0 && autostartBalanceKopeks < selection.price_kopeks;
+    const autostartShortageKopeks = Math.max(0, selection.price_kopeks - autostartBalanceKopeks);
+    const autostartHold =
+      autostartBalanceKopeks > 0 &&
+      (autostartShortageKopeks === 0 ||
+        Math.ceil(autostartShortageKopeks / 100) * 100 < selection.price_kopeks);
 
     // Validated: mirror the selection locally so a failure lands on an honest
     // confirmation screen, then fire the only automatic financial call. The
@@ -960,10 +972,20 @@ export function DeviceFirstConfigurator({
     setPeriod(periodDays);
     setDevices(deviceLimit);
     setConfirmation(true);
-    // Приземление вместо счёта: экран подтверждения уже умеет показать баланс, недостачу и
-    // доплату, а способы оплаты стоят на нём же — тот, кто шёл платить картой, платит
-    // следующим касанием, но теперь ЗНАЯ про свои деньги.
-    if (autostartPartialWallet) return;
+    if (autostartHold) {
+      // 🔴 Молчаливая остановка — единственная из четырёх веток без единого слова человеку.
+      // Он нажал «Карта · 450 ₽», ждал банк, а получил экран с другим числом на кнопке: без
+      // объяснения это читается как «не сработало», и он жмёт карту второй раз. Три соседние
+      // ветки ставят сообщение — ставим и мы, но не ошибкой: ничего не сломалось.
+      setAutostartHeldForWallet(true);
+      // 🔴 Способ оплаты человек УЖЕ назвал в чате, а `methodKey` жил умолчанием `'sbp'` и из
+      // адреса не засевался никогда. До этой ветки он до экрана доплаты не доходил вовсе;
+      // теперь доходит — и главная кнопка увела бы его в СБП, хотя он выбрал карту
+      // (`checkoutTopUpOptionId` строится из `methodKey`). Засеваем ПРОВЕРЕННЫЙ способ: он
+      // прошёл `availableMethods.includes(method)` строкой выше.
+      setMethodKey(method);
+      return;
+    }
     nativeLaunchMutation.mutate({
       periodDays,
       deviceLimit,
@@ -1579,6 +1601,20 @@ export function DeviceFirstConfigurator({
             />
           ) : (
             <>
+              {/* 🔴 РЕК-8а. Объяснение остановки. НЕ ошибка и не предупреждение: ничего не
+                  сломалось, поэтому спокойный акцентный блок, а не жёлтый. Стоит первым — до
+                  сводки, потому что отвечает на вопрос «почему я здесь, а не в банке». */}
+              {autostartHeldForWallet && (
+                <div
+                  role="status"
+                  className="space-y-1 rounded-xl border border-accent-400/40 bg-accent-500/10 p-4"
+                >
+                  <p className="text-sm font-semibold text-dark-100">
+                    {t('deviceFirst.autostartHeldTitle')}
+                  </p>
+                  <p className="text-sm text-dark-300">{t('deviceFirst.autostartHeldText')}</p>
+                </div>
+              )}
               {repriced && (
                 <div
                   role="status"
