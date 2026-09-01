@@ -478,7 +478,7 @@ export function InfoTab(props: InfoTabProps) {
       {/* Тестовый стенд владельца — карточки нет ни у кого, кроме аккаунтов
           из TEST_ACCOUNT_TELEGRAM_IDS. */}
       {user.is_test_account && hasPermission('users:delete') && (
-        <TestAccountResetCard userId={user.id} onDone={props.onReloadUser} />
+        <TestAccountResetCard key={user.id} userId={user.id} onDone={props.onReloadUser} />
       )}
 
       {/* Actions */}

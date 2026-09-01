@@ -3625,11 +3625,11 @@
         "panel": "In the RemnaWave panel",
         "panelLinked": "the user will be deleted",
         "nothing": "none",
-        "invitedStay": "People they invited stay linked to them: {{count}}. Other people's rows are left alone.",
+        "invitedStay": "People they invited stay linked to them: {{count}}. Their data and the referrer's earnings are left alone.",
         "auditStays": "The admin audit trail stays — it is not hidden.",
         "blockedTitle": "Cannot be reset",
         "doneTitle": "Done: the account is reset",
-        "doneHint": "Now send /start to the bot from that Telegram — it will register as new, with the trial available again. Old chat messages stay: their buttons point at the past, so start with /start."
+        "doneHint": "Now send /start to the bot from that Telegram — it will register as new, with the trial available again. Two warnings. Old chat messages stay and their buttons point at the past, so start with /start. And until that /start the account is hidden from the main cabinet list: look for it under the “Deleted (archive)” filter — that is normal, it was not destroyed."
       }
     },
     "autoMessages": {
