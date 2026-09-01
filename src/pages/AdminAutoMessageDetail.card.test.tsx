@@ -155,14 +155,59 @@ describe('AdminAutoMessageDetail: управление живёт здесь', (
     await waitFor(() => expect(patch).toHaveBeenCalledWith('trial-2h', { warn_hours: 6 }));
   });
 
-  it('час — самое малое, что можно выбрать', async () => {
-    // Бот сверяет подписки раз в час. «15 минут» означало бы, что сообщение
-    // не уйдёт вовсе, — поэтому такого выбора на экране нет.
+  it('два часа — самое малое, что можно выбрать', async () => {
+    // Бот спит час ПОСЛЕ обхода, значит шаг между обходами больше часа, а окно
+    // поиска шириной ровно N. При одном часе часть клиентов не попадёт в него
+    // вовсе — молча. Поэтому ни «1 ч», ни минут на экране нет.
     get.mockResolvedValue(card());
     renderCard();
 
-    await waitFor(() => expect(screen.getByText('1 ч')).toBeTruthy());
+    await waitFor(() => expect(screen.getByText('2 ч')).toBeTruthy());
+    expect(screen.queryByText('1 ч')).toBeNull();
     expect(screen.queryByText('0 ч')).toBeNull();
+  });
+
+  it('молчащее сообщение не выдаётся за работающее', async () => {
+    // 🔴 Список писал «не отправляется», а карточка на той же записи — «включено».
+    // Врал тот экран, куда менеджер зашёл читать подробности.
+    get.mockResolvedValue(
+      card({ state: 'quiet', quiet_reason: 'суточных тарифов не заведено', enabled: true }),
+    );
+    renderCard();
+
+    await waitFor(() =>
+      expect(screen.getByText('admin.autoMessages.detail.notSending')).toBeTruthy(),
+    );
+    expect(screen.getByText('суточных тарифов не заведено')).toBeTruthy();
+  });
+
+  it('подтверждение называет обе стороны пары', async () => {
+    // Умолчать здесь — значит дать выключить «Подписка истекла» тому, кто этого
+    // не хотел: своё предупреждение о последствиях лежит на ДРУГОЙ карточке.
+    get.mockResolvedValue(card({ shares_switch_with: 'Подписка закончилась' }));
+    confirmOff.mockResolvedValue(false);
+    renderCard();
+
+    await waitFor(() => expect(screen.getByRole('switch')).toBeTruthy());
+    fireEvent.click(screen.getByRole('switch'));
+
+    await waitFor(() => expect(confirmOff).toHaveBeenCalled());
+    expect(confirmOff.mock.calls[0][0]).toContain('Подписка закончилась');
+  });
+
+  it('начатая правка числа переживает щелчок тумблером', async () => {
+    // Карточка перезапрашивается после щелчка, приходит новый объект с теми же
+    // числами — и выбранное «6 ч» молча возвращалось к серверным «2 ч».
+    get.mockResolvedValue(card());
+    confirmOff.mockResolvedValue(true);
+    renderCard();
+
+    await waitFor(() => expect(screen.getByText('6 ч')).toBeTruthy());
+    fireEvent.click(screen.getByText('6 ч'));
+    fireEvent.click(screen.getByRole('switch'));
+
+    await waitFor(() => expect(patch).toHaveBeenCalledWith('trial-2h', { enabled: false }));
+    expect(screen.getByText('admin.autoMessages.save.action')).toBeTruthy();
   });
 
   it('«Отменить» возвращает исходное значение и убирает кнопки', async () => {

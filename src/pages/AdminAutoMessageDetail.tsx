@@ -26,14 +26,14 @@ const FIELD_HINTS: Record<Field, string> = {
 
 /** Готовые значения вместо шага. Шаг 12 не давал попасть ни в сутки, ни в двое суток. */
 const FIELD_CHOICES: Partial<Record<Field, number[]>> = {
-  warn_hours: [1, 2, 3, 6, 12, 24, 48],
+  warn_hours: [2, 3, 4, 6, 12, 24, 48],
   valid_hours: [6, 12, 24, 48, 72, 168],
   discount_percent: [5, 10, 15, 20, 25, 30, 40, 50],
 };
 
 /** Запасные границы. Настоящие приходят с сервера в `limits`. */
 const FALLBACK_RANGE: Record<Field, [number, number]> = {
-  warn_hours: [1, 48],
+  warn_hours: [2, 48],
   discount_percent: [1, 50],
   valid_hours: [1, 168],
   trigger_days: [1, 30],
@@ -177,9 +177,13 @@ export default function AdminAutoMessageDetail() {
     enabled: Boolean(id),
   });
 
+  // Сверяемся по ЗНАЧЕНИЯМ, а не по объекту: после щелчка тумблером карточка
+  // перезапрашивается, приходит новый объект с теми же числами — и черновик,
+  // в котором уже выбрано «3 ч», молча возвращался к серверным «2 ч».
+  const paramsSignature = data?.params ? JSON.stringify(data.params) : null;
   useEffect(() => {
-    if (data?.params) setDraft({ ...data.params });
-  }, [data?.params]);
+    if (paramsSignature) setDraft(JSON.parse(paramsSignature) as AutoMessageParams);
+  }, [paramsSignature]);
 
   const serverParams = data?.params ?? null;
   const changedFields: Field[] =
@@ -213,6 +217,9 @@ export default function AdminAutoMessageDetail() {
     mutationFn: (enabled: boolean) => autoMessagesApi.patch(id as string, { enabled }),
     onSuccess: () => {
       setError(null);
+      // Иначе плашка «Сохранено» от правки числа остаётся висеть и читается
+      // как подтверждение выключения, которым она не является.
+      setSaved(false);
       queryClient.invalidateQueries({ queryKey: ['admin-auto-message', id] });
       queryClient.invalidateQueries({ queryKey: ['admin-auto-messages'] });
     },
@@ -245,10 +252,15 @@ export default function AdminAutoMessageDetail() {
 
   const handleToggle = async () => {
     if (data.enabled) {
-      const ok = await confirmOff(
-        t('admin.autoMessages.confirmOff', { title: data.title }),
-        t('admin.autoMessages.confirmOffAction'),
-      );
+      // 🔴 Диалог — последнее, что он прочитает. Умолчать здесь о паре значит
+      // дать выключить «Подписка истекла» человеку, который этого не хотел.
+      const question = data.shares_switch_with
+        ? t('admin.autoMessages.confirmOffPair', {
+            title: data.title,
+            other: data.shares_switch_with,
+          })
+        : t('admin.autoMessages.confirmOff', { title: data.title });
+      const ok = await confirmOff(question, t('admin.autoMessages.confirmOffAction'));
       if (!ok) return;
     }
     toggleMutation.mutate(!data.enabled);
@@ -284,15 +296,33 @@ export default function AdminAutoMessageDetail() {
             />
           ) : null}
           <div className="min-w-0">
+            {/* 🔴 Сначала — отправляется ли сообщение на самом деле. Тумблер «вкл» при
+                молчащем сообщении читается как «клиенты это получают», а они не получают:
+                список на той же записи честно писал «не отправляется», и два экрана
+                одного раздела говорили противоположное. */}
             <div className="text-sm font-semibold text-dark-100">
-              {manageable
-                ? data.enabled
-                  ? t('admin.autoMessages.detail.switchOn')
-                  : t('admin.autoMessages.detail.switchOff')
-                : t('admin.autoMessages.locked.hint')}
+              {quiet
+                ? t('admin.autoMessages.detail.notSending')
+                : manageable
+                  ? data.enabled
+                    ? t('admin.autoMessages.detail.switchOn')
+                    : t('admin.autoMessages.detail.switchOff')
+                  : t('admin.autoMessages.locked.hint')}
             </div>
             {quiet && data.quiet_reason && (
               <div className="mt-0.5 text-xs text-dark-400">{data.quiet_reason}</div>
+            )}
+            {quiet && manageable && (
+              <div className="mt-0.5 text-xs text-dark-500">
+                {data.enabled
+                  ? t('admin.autoMessages.detail.switchOn')
+                  : t('admin.autoMessages.detail.switchOff')}
+              </div>
+            )}
+            {quiet && !manageable && (
+              <div className="mt-0.5 text-xs text-dark-500">
+                {t('admin.autoMessages.locked.hint')}
+              </div>
             )}
             {!quiet && data.note && <div className="mt-0.5 text-xs text-dark-400">{data.note}</div>}
           </div>

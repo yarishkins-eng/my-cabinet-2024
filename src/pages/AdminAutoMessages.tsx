@@ -74,6 +74,13 @@ function MessageRow({ item, onOpen }: { item: AutoMessageItem; onOpen: () => voi
               {item.note}
             </span>
           )}
+          {/* Иначе после одного нажатия «выключено» появляется на двух строках, и
+              вторую менеджер не трогал — объяснения этому в списке не было. */}
+          {item.shares_switch_with && (
+            <span className="rounded bg-dark-700 px-2 py-0.5 text-[11px] text-dark-400">
+              {t('admin.autoMessages.pairShort', { other: item.shares_switch_with })}
+            </span>
+          )}
           {item.control !== 'toggle' && (
             <span className="rounded bg-dark-700 px-2 py-0.5 text-[11px] text-dark-400">
               {t('admin.autoMessages.control.server')}
@@ -162,7 +169,15 @@ export default function AdminAutoMessages() {
       <div className="mb-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
         <div className="rounded-xl border border-dark-700 bg-dark-800 p-4">
           <div className="text-2xl font-bold tabular-nums text-dark-100">{summary.sent_total}</div>
-          <div className="text-xs text-dark-400">{t('admin.autoMessages.tiles.sentHint')}</div>
+          {/* Крупное число — сумма не по всем сообщениям, а только по тем, где бот
+              вообще ведёт счёт. Не сказать этого — то же молчание, что и прежнее
+              «не считаем». */}
+          <div className="text-xs text-dark-400">
+            {t('admin.autoMessages.tiles.sentHint', {
+              counted: items.filter((entry) => entry.sent_count !== null).length,
+              total: items.length,
+            })}
+          </div>
         </div>
         <div className="rounded-xl border border-dark-700 bg-dark-800 p-4">
           <div className="text-2xl font-bold tabular-nums text-accent-400">

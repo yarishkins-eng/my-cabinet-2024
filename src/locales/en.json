@@ -3624,7 +3624,7 @@
         "off": "off"
       },
       "control": {
-        "server": "turns off only together with the bonus itself"
+        "server": "only together with the bonus itself"
       },
       "groups": {
         "trial": "Trial period",
@@ -3634,10 +3634,10 @@
       },
       "tiles": {
         "sent": "sent",
-        "sentHint": "messages sent",
+        "sentHint": "messages sent — the bot keeps count for {{counted}} of {{total}}",
         "claimed": "claimed the discount",
         "live": "on right now",
-        "editable": "editable",
+        "editable": "can be turned off",
         "caveat": "Sends are counted afresh when a client renews. Claimed discounts are never erased — so the two numbers are not comparable."
       },
       "master": {
@@ -3656,13 +3656,14 @@
         "hours": "How long it lasts",
         "hoursHint": "How long the client has to tap Claim, and how long the discount lives after that.",
         "days": "After how many days",
-        "daysHint": "Counted from the moment it ended",
+        "daysHint": "Counted from the date the subscription ended",
         "futureOnly": "Changes apply to future sends. Clients who already got the discount keep the old percent until it expires.",
         "switchOn": "Message is on",
         "switchOff": "Message is off",
         "sharesSwitch": "This switch also turns off «{{other}}» — inside the bot both come from the same place.",
         "warnHours": "How far ahead to warn",
-        "warnHoursHint": "The bot checks subscriptions once an hour, so the message goes out at the next check rather than on the exact minute. Less than an hour is not allowed: a check would not land inside such a window and the message would simply never go out."
+        "warnHoursHint": "The bot checks subscriptions once an hour, so the letter goes out at the next check rather than on the exact minute — and the letter itself shows the client their real remaining time, not this number. Less than two hours is not allowed: the check itself takes time, and a one-hour window would miss some clients entirely.",
+        "notSending": "Not sending right now"
       },
       "save": {
         "changed": "{{what}}: {{from}} → {{to}}",
@@ -3684,10 +3685,12 @@
         "notCounted": "The message is sent, but the bot does not record the sends. There is no way to tell how many there were, here or anywhere else. This is not zero."
       },
       "locked": {
-        "hint": "This message cannot be turned off here: the lever kills the bonus itself, not the message — the client would lose two free days of VPN."
+        "hint": "No switch here: the lever kills the bonus itself, not the letter — turning it off would also cost the client their free days of VPN. It goes on and off only together with the bonus."
       },
       "scope": "Only messages the bot sends on a schedule. Confirmations after a payment or top-up live elsewhere and are not listed here.",
-      "lastCheck": "Last check:"
+      "lastCheck": "Last check:",
+      "confirmOffPair": "Turn off «{{title}}»? «{{other}}» goes silent with it — inside the bot they are one and the same place. Clients stop getting both.",
+      "pairShort": "one switch with «{{other}}»"
     },
     "promoOffers": {
       "title": "Promo Offers",
