@@ -166,6 +166,7 @@ export interface TestAccountResetResponse {
   payments: number;
   transactions: number;
   invited_users: number;
+  tickets: number;
   panel_linked: boolean;
   panel_deleted: boolean;
   deleted_rows: Record<string, number>;

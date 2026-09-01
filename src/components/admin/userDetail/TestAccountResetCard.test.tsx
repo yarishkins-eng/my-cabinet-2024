@@ -32,6 +32,7 @@ const plan = {
   payments: 2,
   transactions: 5,
   invited_users: 2,
+  tickets: 3,
   panel_linked: true,
   panel_deleted: false,
   deleted_rows: {},
@@ -122,6 +123,8 @@ describe('тексты раздела', () => {
       'panelLinked',
       'nothing',
       'invitedStay',
+      'tickets',
+      'ticketsWarn',
       'auditStays',
       'blockedTitle',
       'doneTitle',
@@ -141,6 +144,8 @@ describe('тексты раздела', () => {
     // про чужие строки, которые остаются жить, и обе обязаны там быть.
     expect(ru.invitedStay).toMatch(/не трогаем/i);
     expect(ru.auditStays).toMatch(/остаётся/i);
+    // Переписка с поддержкой исчезает незаметно — экран обязан сказать.
+    expect(ru.ticketsWarn).toMatch(/ответы менеджера/i);
     // И про то, что переписка в Телеграме сервером не управляется.
     expect(ru.doneHint).toMatch(/старые сообщения/i);
     expect(read('en').doneHint).toMatch(/old chat messages/i);

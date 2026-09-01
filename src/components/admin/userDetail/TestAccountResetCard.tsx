@@ -57,6 +57,7 @@ export function TestAccountResetCard({ userId, onDone }: TestAccountResetCardPro
         { label: t('admin.users.testReset.orders'), value: String(plan.orders) },
         { label: t('admin.users.testReset.payments'), value: String(plan.payments) },
         { label: t('admin.users.testReset.transactions'), value: String(plan.transactions) },
+        { label: t('admin.users.testReset.tickets'), value: String(plan.tickets) },
         {
           label: t('admin.users.testReset.panel'),
           value: plan.panel_linked
@@ -106,6 +107,11 @@ export function TestAccountResetCard({ userId, onDone }: TestAccountResetCardPro
               </div>
             ))}
           </div>
+          {plan.tickets > 0 && (
+            <div className="mt-2 border-t border-dark-700 pt-2 text-xs text-warning-300">
+              {t('admin.users.testReset.ticketsWarn')}
+            </div>
+          )}
           {plan.invited_users > 0 && (
             <div className="mt-2 border-t border-dark-700 pt-2 text-xs text-dark-400">
               {t('admin.users.testReset.invitedStay', { count: plan.invited_users })}
