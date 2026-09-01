@@ -4984,6 +4984,8 @@
     "balance": "余额",
     "shortage": "还差",
     "autostartHeldTitle": "我们没有直接打开支付",
+    "autostartHeldCoveredText": "全部金额已在您的余额中——只需下单即可。",
+    "autostartHeldNoTopUpText": "部分金额已在您的余额中，但目前无法充值。请选择支付方式——您的余额将保持不动。",
     "autostartHeldText": "部分金额已在您的余额中。请选择：补足差额，或支付全款并保留余额不动。"
   }
 }

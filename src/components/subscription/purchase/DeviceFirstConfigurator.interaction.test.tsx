@@ -2261,6 +2261,31 @@ describe('DeviceFirstConfigurator interaction safety', () => {
     );
     expect(deviceFirstApi.nativeLaunchDirect).not.toHaveBeenCalled();
     expect(await screen.findByText('deviceFirst.autostartHeldTitle')).toBeTruthy();
+    // 🔴 Текст обязан описывать ТО, ЧТО НА ЭКРАНЕ. Здесь на нём ровно одна кнопка «Списать и
+    // оформить»: ни доплаты, ни способов оплаты. Общая редакция предлагала выбрать из двух,
+    // которых нет, — прогон сценария и критик полноты нашли это независимо.
+    expect(screen.getByText('deviceFirst.autostartHeldCoveredText')).toBeTruthy();
+    expect(screen.queryByText('deviceFirst.autostartHeldText')).toBeNull();
+  });
+
+  // 🔴 Мина EW слово в слово: флаг ставился один раз и не гас ничем, а компонент между
+  // заказами не размонтируется. Скептик волны 2 воспроизвёл это живым прогоном.
+  it('stops explaining the hold once the person walked back to the configuration', async () => {
+    renderConfigurator({
+      options: { ...options, balance_kopeks: 10000 },
+      initialPath: '/subscription/purchase?period=30&devices=2&method=sbp&autostart=1',
+    });
+
+    expect(await screen.findByText('deviceFirst.autostartHeldTitle')).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: 'deviceFirst.changeOptions' }));
+    // Человек САМ открыл подтверждение — на этом проходе никто ничего не удерживал.
+    fireEvent.click(await screen.findByRole('button', { name: 'deviceFirst.review' }));
+
+    expect(
+      await screen.findByRole('button', { name: 'deviceFirst.topUpShortage:350 ₽' }),
+    ).toBeTruthy();
+    expect(screen.queryByText('deviceFirst.autostartHeldTitle')).toBeNull();
   });
 
   // 🔴 Нижняя граница, и она НЕ симметрична: при копейках на счету доплата равна полной

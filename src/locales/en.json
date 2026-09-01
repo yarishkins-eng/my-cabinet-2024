@@ -5546,6 +5546,8 @@
     "balance": "Balance",
     "shortage": "Shortfall",
     "autostartHeldTitle": "We did not open the payment",
+    "autostartHeldCoveredText": "The full amount is already on your balance — all that is left is to place the order.",
+    "autostartHeldNoTopUpText": "Part of the amount is already on your balance, but top-up is unavailable right now. Choose a payment method — your balance stays untouched.",
     "autostartHeldText": "Part of the amount is already on your balance. Choose: add the rest, or pay the full price and leave your balance untouched."
   },
   "trialStart": {
