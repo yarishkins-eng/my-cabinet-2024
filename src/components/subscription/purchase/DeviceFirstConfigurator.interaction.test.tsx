@@ -63,12 +63,20 @@ vi.mock('@/hooks/useCurrency', () => ({
 }));
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
-    t: (key: string, values?: { count?: number; amount?: string }) =>
+    t: (
+      key: string,
+      values?: { count?: number; amount?: string; balance?: string; total?: string },
+    ) =>
       values?.amount
         ? `${key}:${values.amount}`
-        : values?.count === undefined
-          ? key
-          : `${key}:${values.count}`,
+        : // 🔴 РЕК-8б: у строки про арифметику баланса ДВА числа, и оба обязаны доехать.
+          // Без этой ветки мок вернул бы голый ключ, и сторож проверял бы наличие строки,
+          // а не то, какие числа в неё подставлены.
+          values?.balance !== undefined && values?.total !== undefined
+          ? `${key}:${values.balance}:${values.total}`
+          : values?.count === undefined
+            ? key
+            : `${key}:${values.count}`,
   }),
 }));
 
@@ -346,7 +354,11 @@ describe('DeviceFirstConfigurator interaction safety', () => {
       resume_allowed: false,
     });
 
+    // 🔴 РЕК-8а: баланс НОЛЬ задан явно. Автозапуск стреляет только у того, кому выбирать
+    // между своими деньгами и картой не из чего; у человека с частью суммы он теперь
+    // приземляет на денежный экран (свой тест ниже).
     renderConfigurator({
+      options: { ...options, balance_kopeks: 0 },
       initialPath: '/subscription/purchase?period=30&devices=2&method=sbp&autostart=1',
     });
 
@@ -1309,7 +1321,9 @@ describe('DeviceFirstConfigurator interaction safety', () => {
   it('consumes the Telegram fused-launch query once and calls only the fused native endpoint', async () => {
     vi.mocked(deviceFirstApi.nativeLaunchDirect).mockReturnValue(new Promise(() => {}));
 
+    // 🔴 РЕК-8а: баланс НОЛЬ задан явно — см. пояснение у теста диплинка выше.
     renderConfigurator({
+      options: { ...options, balance_kopeks: 0 },
       initialPath: '/subscription/purchase?period=30&devices=2&method=sbp&autostart=1',
     });
 
@@ -2183,7 +2197,9 @@ describe('DeviceFirstConfigurator interaction safety', () => {
       response: { status: 409, data: { detail: { code: 'reprice_required' } } },
     });
 
+    // 🔴 РЕК-8а: баланс НОЛЬ задан явно — см. пояснение у теста диплинка выше.
     renderConfigurator({
+      options: { ...options, balance_kopeks: 0 },
       initialPath: '/subscription/purchase?period=30&devices=2&method=sbp&autostart=1',
     });
 
@@ -2195,6 +2211,66 @@ describe('DeviceFirstConfigurator interaction safety', () => {
       await screen.findByRole('button', { name: 'deviceFirst.paymentMethodAmount:450 ₽' }),
     ).toBeTruthy();
     expect(screen.queryByText('deviceFirst.error')).toBeNull();
+  });
+
+  // ── Этап РЕК-8: деньги на счету перестают быть невидимыми на карточной дороге ────
+
+  // 🔴 Сторож на ГЛАВНОЕ обещание РЕК-8а. Кнопка «Банковская карта» в чате бота — это
+  // web_app-ссылка с `autostart=1`, и по ней кабинет выставлял счёт на ПОЛНУЮ цену, не
+  // показав денежный экран ни на кадр. Человек с частью суммы своих денег не видел и
+  // выбрать их не мог, а родившийся заказ гасил дверь доплаты в чате до конца своей жизни.
+  it('does not invoice a partial wallet from the bot deep link and lands on the money screen', async () => {
+    renderConfigurator({
+      options: { ...options, balance_kopeks: 10000 },
+      initialPath: '/subscription/purchase?period=30&devices=2&method=sbp&autostart=1',
+    });
+
+    // 🔴 Улика, что момент автозапуска ПРОШЁЛ, а не «ещё не наступил»: одноразовые параметры
+    // снимает тот же эффект, который решает, стрелять или нет. Без неё проверка «не вызвано»
+    // проходила бы мгновенно и не доказывала ничего.
+    await waitFor(() =>
+      expect(screen.getByTestId('location').textContent).toBe('/subscription/purchase'),
+    );
+    expect(deviceFirstApi.nativeLaunchDirect).not.toHaveBeenCalled();
+    expect(deviceFirstApi.payDirect).not.toHaveBeenCalled();
+    // Человек стоит на денежном экране: недостача названа доплатой, а способ оплаты, ради
+    // которого он шёл, лежит тут же — в одно касание. Суммы зашиты литералами: 450 − 100.
+    expect(
+      await screen.findByRole('button', { name: 'deviceFirst.topUpShortage:350 ₽' }),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole('button', { name: 'deviceFirst.paymentMethodAmount:450 ₽' }),
+    ).toBeTruthy();
+  });
+
+  // 🔴 Сторож РЕК-8б. Связь денег с ценой на экране не была названа ни одной строкой: стояло
+  // слово «Баланс», и вычитание человек должен был делать в уме.
+  it('names the balance arithmetic under the top-up button', async () => {
+    renderConfigurator({ options: { ...options, balance_kopeks: 10000 } });
+
+    fireEvent.click(screen.getByRole('button', { name: 'deviceFirst.review' }));
+
+    // Оба числа зашиты литералами: свои 100 ₽ и полная цена 450 ₽, а НЕ доплата 350 ₽ —
+    // строка объясняет, откуда взялось число на кнопке, а не повторяет его.
+    expect(await screen.findByText('deviceFirst.topUpBalanceApplied:100 ₽:450 ₽')).toBeTruthy();
+  });
+
+  // 🔴 И граница: когда минимум провайдера поднял счёт выше честной недостачи, на карточке
+  // уже стоит объяснение про остаток. Третье число превратило бы подсказку в ребус, поэтому
+  // строка про арифметику в этом случае молчит.
+  it('stays silent about the arithmetic when the invoice exceeds the honest shortage', async () => {
+    // 449,50 ₽ на счету против 450 ₽ цены: честная недостача — 50 копеек, а счёт округляется
+    // вверх до рубля. Числа на карточке расходятся, и объяснение про остаток там уже стоит.
+    renderConfigurator({ options: { ...options, balance_kopeks: 44950 } });
+
+    fireEvent.click(screen.getByRole('button', { name: 'deviceFirst.review' }));
+
+    // Улика, что мы на нужном экране и доплата предложена — иначе «строки нет» доказывало бы
+    // только то, что экран не открылся.
+    expect(
+      await screen.findByRole('button', { name: 'deviceFirst.topUpShortage:1 ₽' }),
+    ).toBeTruthy();
+    expect(screen.queryByText(/deviceFirst\.topUpBalanceApplied/)).toBeNull();
   });
 
   // ── Этап Б-1: свой баланс можно пустить в дело в любой момент ──────────────────

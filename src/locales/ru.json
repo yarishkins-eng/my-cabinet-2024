@@ -6010,6 +6010,7 @@
     "topUpAmount": "Пополнить {{amount}}",
     "chooseMethodNotice": "Выберите способ оплаты.",
     "reviewBeforeCharge": "Проверьте итог перед списанием.",
+    "topUpBalanceApplied": "Ваши {{balance}} уже вычтены из {{total}}",
     "topUpShortage": "Доплатить {{amount}}",
     "topUpShortageHint": "Оплатите её и вернитесь — ваш выбор сохранится, останется оформить заказ.",
     "continueAndOrder": "Продолжить и оформить",

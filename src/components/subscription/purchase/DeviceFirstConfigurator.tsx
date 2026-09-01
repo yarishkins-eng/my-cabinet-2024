@@ -935,6 +935,23 @@ export function DeviceFirstConfigurator({
       return;
     }
 
+    // 🔴 РЕК-8а. ЧЕТВЁРТАЯ ветка «не стрелять», по образцу трёх соседних выше.
+    // У человека, на счету которого лежит ЧАСТЬ цены, автозапуск выставлял счёт на полную
+    // сумму, не показав денежный экран НИ НА КАДР: свои деньги он не видел и выбрать их не
+    // мог. Родившийся так заказ немедленно взводит `funding_mode`, а обратно в пустое тот не
+    // сбрасывается НИКОГДА — после этого дверь доплаты гаснет на обоих экранах чата
+    // (`device_first.py:1010` и `:1127`, наша мина FE), и по времени такой заказ не протухает
+    // (`device_first_checkout_service.py:890`). Замер 01.09: частичный баланс — у 142 клиентов
+    // из 306.
+    // ⚠️ ГРАНИЦА НАЗВАНА: условие ровно «часть суммы есть», без оглядки на то, короче ли
+    // доплата прямой оплаты. Решать это здесь нечем — провайдерский минимум приезжает
+    // отдельным запросом, которого на этом пути может ещё не быть. Сам экран эту разницу уже
+    // учитывает: при доплате не короче прямой оплаты он рисует её тихой, а не первой
+    // (`topUpActionGoesFirst`).
+    const autostartBalanceKopeks = options.balance_kopeks ?? 0;
+    const autostartPartialWallet =
+      autostartBalanceKopeks > 0 && autostartBalanceKopeks < selection.price_kopeks;
+
     // Validated: mirror the selection locally so a failure lands on an honest
     // confirmation screen, then fire the only automatic financial call. The
     // fused endpoint verifies the signed Telegram identity before any order
@@ -943,6 +960,10 @@ export function DeviceFirstConfigurator({
     setPeriod(periodDays);
     setDevices(deviceLimit);
     setConfirmation(true);
+    // Приземление вместо счёта: экран подтверждения уже умеет показать баланс, недостачу и
+    // доплату, а способы оплаты стоят на нём же — тот, кто шёл платить картой, платит
+    // следующим касанием, но теперь ЗНАЯ про свои деньги.
+    if (autostartPartialWallet) return;
     nativeLaunchMutation.mutate({
       periodDays,
       deviceLimit,
@@ -961,6 +982,7 @@ export function DeviceFirstConfigurator({
     methods.isLoading,
     nativeLaunchMethod,
     nativeLaunchMutation,
+    options.balance_kopeks,
     priceFor,
   ]);
 
@@ -1273,6 +1295,28 @@ export function DeviceFirstConfigurator({
             })
           : t('deviceFirst.needTopup')}
       </button>
+      {/* 🔴 РЕК-8б. Связь ДЕНЕГ С ЦЕНОЙ на этом экране не была названа ни одной строкой: стояло
+          слово «Баланс» — из банковского приложения, а не «ваши деньги в этой покупке». Человек
+          должен был сам вспомнить, что у него есть N, и сам вычесть его из цены.
+          ⛔ Слово «подарок»/«бонус» здесь НЕ писать: на балансе может лежать сдача, возврат или
+          собственное пополнение, а происхождение денег этот экран не знает — фраза про подарок
+          была бы прямой ложью на денежном экране. Строка говорит про АРИФМЕТИКУ, и она правда
+          для всех.
+          ⛔ И только когда кнопка несёт РОВНО недостачу. Если провайдерский минимум её поднял,
+          на карточке уже стоит объяснение про остаток, и третье число превратило бы подсказку
+          в ребус. */}
+      {hasWallet &&
+        topUpChargeKopeks > 0 &&
+        topUpChargeKopeks === confirmShortageKopeks &&
+        confirmBalanceKopeks !== null &&
+        confirmTotalKopeks !== null && (
+          <p className="text-xs text-dark-400">
+            {t('deviceFirst.topUpBalanceApplied', {
+              balance: formatPrice(confirmBalanceKopeks),
+              total: formatPrice(confirmTotalKopeks),
+            })}
+          </p>
+        )}
       {/* Подпись существует только там, где есть чем доплачивать и куда возвращаться.
           🔴 Волна ревью Б-2 переписала её текст: прежний («Доплатим … и вернёмся сюда списать …»)
           обещал автоматику, которой нет. Возврат делает человек, и после него он нажимает ещё

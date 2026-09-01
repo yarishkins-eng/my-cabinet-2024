@@ -5445,6 +5445,7 @@
     "topUpAmount": "Top up {{amount}}",
     "chooseMethodNotice": "Choose a payment method.",
     "reviewBeforeCharge": "Review the total before the charge.",
+    "topUpBalanceApplied": "Your {{balance}} is already deducted from {{total}}",
     "topUpShortage": "Add {{amount}}",
     "topUpShortageHint": "Pay it and come back — we keep your choice, you just place the order.",
     "continueAndOrder": "Continue and subscribe",

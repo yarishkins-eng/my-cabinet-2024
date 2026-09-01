@@ -4888,6 +4888,7 @@
     "topUpAmount": "افزودن {{amount}}",
     "chooseMethodNotice": "روش پرداخت را انتخاب کنید.",
     "reviewBeforeCharge": "پیش از کسر، مبلغ نهایی را بررسی کنید.",
+    "topUpBalanceApplied": "مبلغ {{balance}} شما از {{total}} کسر شده است",
     "topUpShortage": "پرداخت مابه‌التفاوت {{amount}}",
     "topUpShortageHint": "آن را پرداخت کنید و برگردید — انتخاب شما محفوظ می‌ماند و فقط سفارش را ثبت می‌کنید.",
     "continueAndOrder": "ادامه و اشتراک",
