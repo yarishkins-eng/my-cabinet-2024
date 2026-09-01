@@ -3620,13 +3620,11 @@
       "confirmOff": "Turn off «{{title}}»? Clients will stop receiving it.",
       "confirmOffAction": "Turn off",
       "state": {
-        "live": "on",
-        "quiet": "not sending"
+        "quiet": "not sending",
+        "off": "off"
       },
       "control": {
-        "edit": "editable here",
-        "locked": "cannot be turned off",
-        "server": "only a developer can enable it"
+        "server": "turns off only together with the bonus itself"
       },
       "groups": {
         "trial": "Trial period",
@@ -3640,9 +3638,7 @@
         "claimed": "claimed the discount",
         "live": "on right now",
         "editable": "editable",
-        "caveat": "Sends are counted afresh when a client renews. Claimed discounts are never erased — so the two numbers are not comparable.",
-        "notCounted": "not counted",
-        "dashMeans": "A dash means «we do not count this», not zero: for some messages sends are not recorded anywhere."
+        "caveat": "Sends are counted afresh when a client renews. Claimed discounts are never erased — so the two numbers are not comparable."
       },
       "master": {
         "on": "Reminders and discounts are on",
@@ -3660,9 +3656,13 @@
         "hours": "How long it lasts",
         "hoursHint": "How long the client has to tap Claim, and how long the discount lives after that.",
         "days": "After how many days",
-        "daysHint": "Counted from the end of the subscription",
+        "daysHint": "Counted from the moment it ended",
         "futureOnly": "Changes apply to future sends. Clients who already got the discount keep the old percent until it expires.",
-        "switchOnly": "This message has no numeric settings — only on or off, from the section list."
+        "switchOn": "Message is on",
+        "switchOff": "Message is off",
+        "sharesSwitch": "This switch also turns off «{{other}}» — inside the bot both come from the same place.",
+        "warnHours": "How far ahead to warn",
+        "warnHoursHint": "The bot checks subscriptions once an hour, so the message goes out at the next check rather than on the exact minute. Less than an hour is not allowed: a check would not land inside such a window and the message would simply never go out."
       },
       "save": {
         "changed": "{{what}}: {{from}} → {{to}}",
@@ -3681,10 +3681,10 @@
         "claimed": "Claimed",
         "yes": "yes",
         "no": "no",
-        "notCounted": "Sends of this message are not recorded anywhere — there is no history to show."
+        "notCounted": "The message is sent, but the bot does not record the sends. There is no way to tell how many there were, here or anywhere else. This is not zero."
       },
       "locked": {
-        "hint": "This message cannot be turned off or configured — not here and not anywhere else. It is always sent."
+        "hint": "This message cannot be turned off here: the lever kills the bonus itself, not the message — the client would lose two free days of VPN."
       },
       "scope": "Only messages the bot sends on a schedule. Confirmations after a payment or top-up live elsewhere and are not listed here.",
       "lastCheck": "Last check:"
@@ -5502,7 +5502,7 @@
     "leavingForProvider": "The payment page opens on top of the app — this screen stays where it is. While the invoice is valid, pay and come back here: the order updates itself. It also waits on the Dashboard if you close the mini app.",
     "copyPaymentLink": "Copy link",
     "paymentLinkCopied": "Link copied!",
-    "paymentLinkCopyFailed": "Copying failed — use \u201cGo to payment\u201d",
+    "paymentLinkCopyFailed": "Copying failed — use “Go to payment”",
     "refreshTitle": "Order needs an update",
     "refreshText": "The subscription or price changed. Create a new quote; no unconfirmed charge was made.",
     "paymentMismatchTitle": "Payment needs a check",

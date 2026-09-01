@@ -7,6 +7,8 @@ export type AutoMessageState = 'live' | 'quiet';
 export type AutoMessageGroup = 'trial' | 'paid' | 'return' | 'other';
 
 export interface AutoMessageParams {
+  /** За сколько часов до конца пробного предупредить. Не меньше часа: бот обходит всех раз в час. */
+  warn_hours?: number;
   discount_percent?: number;
   valid_hours?: number;
   trigger_days?: number;
@@ -23,6 +25,10 @@ export interface AutoMessageItem {
   quiet_reason: string | null;
   /** Уточнение к работающему сообщению. Не путать с причиной молчания. */
   note: string | null;
+  /** Название сообщения, которое гасится ТЕМ ЖЕ выключателем. */
+  shares_switch_with: string | null;
+  /** Что случится с клиентом, если выключить. Только там, где последствие настоящее. */
+  warning: string | null;
   params: AutoMessageParams | null;
   /** null — отправки этого сообщения нигде не отмечаются; экран рисует прочерк, а не ноль. */
   sent_count: number | null;
@@ -73,6 +79,7 @@ export interface AutoMessageDetail extends AutoMessageItem {
 
 export interface AutoMessagePatch {
   enabled?: boolean;
+  warn_hours?: number;
   discount_percent?: number;
   valid_hours?: number;
   trigger_days?: number;
