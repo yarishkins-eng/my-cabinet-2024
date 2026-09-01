@@ -3637,7 +3637,7 @@
         "sent": "sent",
         "sentHint": "messages sent — the bot keeps count for {{counted}} of {{total}}",
         "claimed": "claimed the discount",
-        "live": "on right now",
+        "live": "working right now",
         "editable": "have a switch",
         "caveat": "Sends are counted afresh when a client renews. Claimed discounts are never erased — so the two numbers are not comparable."
       },
