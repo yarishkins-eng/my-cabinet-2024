@@ -126,6 +126,9 @@ export function DeviceFirstConfigurator({
   const checkoutUiState = checkout?.ui_state;
   const modalOpen = fixtureCheckout === undefined && checkoutUiState === 'awaiting_payment';
   const [methodKey, setMethodKey] = useState('sbp');
+  // 🔴 РЕК-8а. «Мы не открыли оплату, и вот почему» — состояние живёт до ухода с экрана
+  // подтверждения. Без него остановка автозапуска молчалива, и человек читает её как поломку.
+  const [autostartHeldForWallet, setAutostartHeldForWallet] = useState(false);
   const autostartPeriodParam = searchParams.get('period');
   const autostartDevicesParam = searchParams.get('devices');
   const nativeLaunchMethod = searchParams.get('method');
@@ -220,6 +223,12 @@ export function DeviceFirstConfigurator({
     setExistingPaymentAttempt(null);
     setConfirmAbandon(false);
     setRepriced(false);
+    // 🔴 РЕК-8а. Флаг «мы удержали автозапуск» ставится один раз и без этой строки не гаснет
+    // никогда — то есть повторяет мину EW слово в слово, на восемь строк ниже её же описания.
+    // Живой сценарий, воспроизведённый скептиком: удержали → «Изменить параметры» → человек
+    // руками открыл подтверждение — и читает «Мы не открыли оплату» там, где никто ничего
+    // не удерживал.
+    setAutostartHeldForWallet(false);
     setConfirmation(false);
     setCheckout(null);
     setLegacyDraft(null);
@@ -935,6 +944,39 @@ export function DeviceFirstConfigurator({
       return;
     }
 
+    // 🔴 РЕК-8а. ЧЕТВЁРТАЯ ветка «не стрелять», по образцу трёх соседних выше.
+    // Автозапуск выставлял счёт на ПОЛНУЮ цену, не показав денежный экран НИ НА КАДР: человек
+    // со своими деньгами на счету их не видел и выбрать не мог. Родившийся так заказ немедленно
+    // взводит `funding_mode`, а обратно в пустое тот не сбрасывается НИКОГДА — после этого
+    // дверь доплаты гаснет на обоих экранах чата (`device_first.py:1010` и `:1127`, наша мина
+    // FE), и по времени такой заказ не протухает (`device_first_checkout_service.py:890`).
+    //
+    // 🔴 АРИФМЕТИКА ЗАСЛОНА — та же, что у ботового забора двери доплаты
+    // (`device_first.py:317`, `not 0 < top_up < price`), и покрывает ОБА края одним сравнением:
+    //   · денег хватает на всё — недостача ноль, счёт на доплату ноль, `0 < цена` истинно ⇒
+    //     держим. Дойти сюда можно только со СТАРОГО сообщения в чате (при полном балансе бот
+    //     карточных кнопок не рисует), а это ровно вход «доплатил и вернулся»: экран предложит
+    //     «Списать и оформить», и второго платежа за ту же подписку не будет;
+    //   · денег часть и доплата короче прямой оплаты ⇒ держим, ради этого этап;
+    //   · копейки на счету — округление съедает недостачу до полной цены ⇒ НЕ держим: доплата
+    //     не короче, кнопка на экране уезжает вниз и тихнет, строка про арифметику молчит,
+    //     человек получил бы лишний экран и ноль новой информации.
+    // ⛔ Отдельной ветки на `shortage === 0` тут НЕ надо: мутационный скептик показал, что она
+    // математически неотличима от соседнего сравнения и не ловится ни одним возможным тестом.
+    // ⚠️ ЧЕСТНО ПРО ГРАНИЦУ: это ПОЛОВИНА ботового правила, а не оно целиком. У бота забор
+    // двухчастный — арифметика плюс `_has_order_in_flight`: при живом заказе он дверь доплаты
+    // прячет, потому что доплата кончится `funding_mode_locked`. Здесь про живой заказ мы не
+    // знаем ничего (его не знает и `showTopUpAction`), поэтому человеку с живым карточным
+    // заказом экран покажет дверь, которую бот закрыл. Деньги не теряются — поздняя доплата
+    // ложится на баланс, — но это тупик, и он заведён миной, а не замолчан.
+    // ⚠️ И минимум провайдера сюда не приезжает (он отдельным запросом): сравниваем по
+    // округлению до рубля, той половине, которая считается прямо здесь.
+    const autostartBalanceKopeks = options.balance_kopeks ?? 0;
+    const autostartShortageKopeks = Math.max(0, selection.price_kopeks - autostartBalanceKopeks);
+    const autostartHold =
+      autostartBalanceKopeks > 0 &&
+      Math.ceil(autostartShortageKopeks / 100) * 100 < selection.price_kopeks;
+
     // Validated: mirror the selection locally so a failure lands on an honest
     // confirmation screen, then fire the only automatic financial call. The
     // fused endpoint verifies the signed Telegram identity before any order
@@ -943,6 +985,20 @@ export function DeviceFirstConfigurator({
     setPeriod(periodDays);
     setDevices(deviceLimit);
     setConfirmation(true);
+    if (autostartHold) {
+      // 🔴 Молчаливая остановка — единственная из четырёх веток без единого слова человеку.
+      // Он нажал «Карта · 450 ₽», ждал банк, а получил экран с другим числом на кнопке: без
+      // объяснения это читается как «не сработало», и он жмёт карту второй раз. Три соседние
+      // ветки ставят сообщение — ставим и мы, но не ошибкой: ничего не сломалось.
+      setAutostartHeldForWallet(true);
+      // 🔴 Способ оплаты человек УЖЕ назвал в чате, а `methodKey` жил умолчанием `'sbp'` и из
+      // адреса не засевался никогда. До этой ветки он до экрана доплаты не доходил вовсе;
+      // теперь доходит — и главная кнопка увела бы его в СБП, хотя он выбрал карту
+      // (`checkoutTopUpOptionId` строится из `methodKey`). Засеваем ПРОВЕРЕННЫЙ способ: он
+      // прошёл `availableMethods.includes(method)` строкой выше.
+      setMethodKey(method);
+      return;
+    }
     nativeLaunchMutation.mutate({
       periodDays,
       deviceLimit,
@@ -961,6 +1017,7 @@ export function DeviceFirstConfigurator({
     methods.isLoading,
     nativeLaunchMethod,
     nativeLaunchMutation,
+    options.balance_kopeks,
     priceFor,
   ]);
 
@@ -1273,6 +1330,28 @@ export function DeviceFirstConfigurator({
             })
           : t('deviceFirst.needTopup')}
       </button>
+      {/* 🔴 РЕК-8б. Связь ДЕНЕГ С ЦЕНОЙ на этом экране не была названа ни одной строкой: стояло
+          слово «Баланс» — из банковского приложения, а не «ваши деньги в этой покупке». Человек
+          должен был сам вспомнить, что у него есть N, и сам вычесть его из цены.
+          ⛔ Слово «подарок»/«бонус» здесь НЕ писать: на балансе может лежать сдача, возврат или
+          собственное пополнение, а происхождение денег этот экран не знает — фраза про подарок
+          была бы прямой ложью на денежном экране. Строка говорит про АРИФМЕТИКУ, и она правда
+          для всех.
+          ⛔ И только когда кнопка несёт РОВНО недостачу. Если провайдерский минимум её поднял,
+          на карточке уже стоит объяснение про остаток, и третье число превратило бы подсказку
+          в ребус. */}
+      {hasWallet &&
+        topUpChargeKopeks > 0 &&
+        topUpChargeKopeks === confirmShortageKopeks &&
+        confirmBalanceKopeks !== null &&
+        confirmTotalKopeks !== null && (
+          <p className="text-xs text-dark-400">
+            {t('deviceFirst.topUpBalanceApplied', {
+              balance: formatPrice(confirmBalanceKopeks),
+              total: formatPrice(confirmTotalKopeks),
+            })}
+          </p>
+        )}
       {/* Подпись существует только там, где есть чем доплачивать и куда возвращаться.
           🔴 Волна ревью Б-2 переписала её текст: прежний («Доплатим … и вернёмся сюда списать …»)
           обещал автоматику, которой нет. Возврат делает человек, и после него он нажимает ещё
@@ -1535,6 +1614,36 @@ export function DeviceFirstConfigurator({
             />
           ) : (
             <>
+              {/* 🔴 РЕК-8а. Объяснение остановки. НЕ ошибка и не предупреждение: ничего не
+                  сломалось, поэтому спокойный акцентный блок, а не жёлтый. Стоит первым — до
+                  сводки, потому что отвечает на вопрос «почему я здесь, а не в банке». */}
+              {autostartHeldForWallet && (
+                <div
+                  role="status"
+                  className="space-y-1 rounded-xl border border-accent-400/40 bg-accent-500/10 p-4"
+                >
+                  <p className="text-sm font-semibold text-dark-100">
+                    {t('deviceFirst.autostartHeldTitle')}
+                  </p>
+                  {/* 🔴 Текст обязан описывать ТО, ЧТО НА ЭКРАНЕ, а не общий случай. Первая
+                      редакция говорила «доплатить остаток или заплатить полную цену» всегда — и
+                      врала целиком на самом ценном входе: при полном балансе на экране ровно
+                      одна кнопка «Списать и оформить», ни доплаты, ни способов оплаты там нет
+                      (ветка `walletCoversTotal`). Нашли прогон сценария и критик полноты
+                      независимо. Третья ветка — когда доплачивать не через что: провайдеры
+                      пополнения ответили и ни один не доступен, кнопки доплаты нет, и обещать
+                      её нельзя. */}
+                  <p className="text-sm text-dark-300">
+                    {t(
+                      walletCoversTotal
+                        ? 'deviceFirst.autostartHeldCoveredText'
+                        : topUpAction
+                          ? 'deviceFirst.autostartHeldText'
+                          : 'deviceFirst.autostartHeldNoTopUpText',
+                    )}
+                  </p>
+                </div>
+              )}
               {repriced && (
                 <div
                   role="status"
@@ -1710,6 +1819,10 @@ export function DeviceFirstConfigurator({
                   setConfirmation(false);
                   setRepriced(false);
                   setActionError(null);
+                  // 🔴 РЕК-8а, мина EW. Уход с подтверждения гасит объяснение остановки: иначе
+                  // на СЛЕДУЮЩЕМ подтверждении, открытом руками, человек снова прочитает
+                  // «Мы не открыли оплату» там, где никто ничего не удерживал.
+                  setAutostartHeldForWallet(false);
                 }}
                 className={`min-h-11 w-full rounded-xl px-4 py-2 text-sm text-dark-500 hover:text-dark-300 ${choiceClass}`}
               >

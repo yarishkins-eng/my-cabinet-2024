@@ -63,12 +63,20 @@ vi.mock('@/hooks/useCurrency', () => ({
 }));
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
-    t: (key: string, values?: { count?: number; amount?: string }) =>
+    t: (
+      key: string,
+      values?: { count?: number; amount?: string; balance?: string; total?: string },
+    ) =>
       values?.amount
         ? `${key}:${values.amount}`
-        : values?.count === undefined
-          ? key
-          : `${key}:${values.count}`,
+        : // 🔴 РЕК-8б: у строки про арифметику баланса ДВА числа, и оба обязаны доехать.
+          // Без этой ветки мок вернул бы голый ключ, и сторож проверял бы наличие строки,
+          // а не то, какие числа в неё подставлены.
+          values?.balance !== undefined && values?.total !== undefined
+          ? `${key}:${values.balance}:${values.total}`
+          : values?.count === undefined
+            ? key
+            : `${key}:${values.count}`,
   }),
 }));
 
@@ -346,7 +354,11 @@ describe('DeviceFirstConfigurator interaction safety', () => {
       resume_allowed: false,
     });
 
+    // 🔴 РЕК-8а: баланс НОЛЬ задан явно. Автозапуск стреляет только у того, кому выбирать
+    // между своими деньгами и картой не из чего; у человека с частью суммы он теперь
+    // приземляет на денежный экран (свой тест ниже).
     renderConfigurator({
+      options: { ...options, balance_kopeks: 0 },
       initialPath: '/subscription/purchase?period=30&devices=2&method=sbp&autostart=1',
     });
 
@@ -1309,7 +1321,9 @@ describe('DeviceFirstConfigurator interaction safety', () => {
   it('consumes the Telegram fused-launch query once and calls only the fused native endpoint', async () => {
     vi.mocked(deviceFirstApi.nativeLaunchDirect).mockReturnValue(new Promise(() => {}));
 
+    // 🔴 РЕК-8а: баланс НОЛЬ задан явно — см. пояснение у теста диплинка выше.
     renderConfigurator({
+      options: { ...options, balance_kopeks: 0 },
       initialPath: '/subscription/purchase?period=30&devices=2&method=sbp&autostart=1',
     });
 
@@ -2183,7 +2197,9 @@ describe('DeviceFirstConfigurator interaction safety', () => {
       response: { status: 409, data: { detail: { code: 'reprice_required' } } },
     });
 
+    // 🔴 РЕК-8а: баланс НОЛЬ задан явно — см. пояснение у теста диплинка выше.
     renderConfigurator({
+      options: { ...options, balance_kopeks: 0 },
       initialPath: '/subscription/purchase?period=30&devices=2&method=sbp&autostart=1',
     });
 
@@ -2195,6 +2211,160 @@ describe('DeviceFirstConfigurator interaction safety', () => {
       await screen.findByRole('button', { name: 'deviceFirst.paymentMethodAmount:450 ₽' }),
     ).toBeTruthy();
     expect(screen.queryByText('deviceFirst.error')).toBeNull();
+  });
+
+  // ── Этап РЕК-8: деньги на счету перестают быть невидимыми на карточной дороге ────
+
+  // 🔴 Сторож на ГЛАВНОЕ обещание РЕК-8а. Кнопка «Банковская карта» в чате бота — это
+  // web_app-ссылка с `autostart=1`, и по ней кабинет выставлял счёт на ПОЛНУЮ цену, не
+  // показав денежный экран ни на кадр. Человек с частью суммы своих денег не видел и
+  // выбрать их не мог, а родившийся заказ гасил дверь доплаты в чате до конца своей жизни.
+  it('does not invoice a partial wallet from the bot deep link and lands on the money screen', async () => {
+    renderConfigurator({
+      options: { ...options, balance_kopeks: 10000 },
+      initialPath: '/subscription/purchase?period=30&devices=2&method=sbp&autostart=1',
+    });
+
+    // 🔴 Улика, что момент автозапуска ПРОШЁЛ, а не «ещё не наступил»: одноразовые параметры
+    // снимает тот же эффект, который решает, стрелять или нет. Без неё проверка «не вызвано»
+    // проходила бы мгновенно и не доказывала ничего.
+    await waitFor(() =>
+      expect(screen.getByTestId('location').textContent).toBe('/subscription/purchase'),
+    );
+    expect(deviceFirstApi.nativeLaunchDirect).not.toHaveBeenCalled();
+    expect(deviceFirstApi.payDirect).not.toHaveBeenCalled();
+    // Человек стоит на денежном экране: недостача названа доплатой, а способ оплаты, ради
+    // которого он шёл, лежит тут же — в одно касание. Суммы зашиты литералами: 450 − 100.
+    expect(
+      await screen.findByRole('button', { name: 'deviceFirst.topUpShortage:350 ₽' }),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole('button', { name: 'deviceFirst.paymentMethodAmount:450 ₽' }),
+    ).toBeTruthy();
+    // 🔴 И экран ОБЪЯСНЯЕТ, почему человек здесь, а не в банке. Три соседние ветки
+    // «не стрелять» ставят сообщение; молчаливой осталась бы только эта, и человек
+    // прочитал бы остановку как поломку.
+    expect(await screen.findByText('deviceFirst.autostartHeldTitle')).toBeTruthy();
+  });
+
+  // 🔴 Верхняя граница. Самый дорогой вход: человек доплатил, вернулся в чат, а там висит
+  // СТАРОЕ сообщение с карточной кнопкой. Раньше «450 < 450» было ложью, счёт выставлялся на
+  // полную цену, и только что положенные деньги оставались лежать — он платил дважды.
+  it('holds the autostart when the balance already covers the whole price', async () => {
+    renderConfigurator({
+      options: { ...options, balance_kopeks: 45000 },
+      initialPath: '/subscription/purchase?period=30&devices=2&method=sbp&autostart=1',
+    });
+
+    await waitFor(() =>
+      expect(screen.getByTestId('location').textContent).toBe('/subscription/purchase'),
+    );
+    expect(deviceFirstApi.nativeLaunchDirect).not.toHaveBeenCalled();
+    expect(await screen.findByText('deviceFirst.autostartHeldTitle')).toBeTruthy();
+    // 🔴 Текст обязан описывать ТО, ЧТО НА ЭКРАНЕ. Здесь на нём ровно одна кнопка «Списать и
+    // оформить»: ни доплаты, ни способов оплаты. Общая редакция предлагала выбрать из двух,
+    // которых нет, — прогон сценария и критик полноты нашли это независимо.
+    expect(screen.getByText('deviceFirst.autostartHeldCoveredText')).toBeTruthy();
+    expect(screen.queryByText('deviceFirst.autostartHeldText')).toBeNull();
+  });
+
+  // 🔴 Мина EW слово в слово: флаг ставился один раз и не гас ничем, а компонент между
+  // заказами не размонтируется. Скептик волны 2 воспроизвёл это живым прогоном.
+  it('stops explaining the hold once the person walked back to the configuration', async () => {
+    renderConfigurator({
+      options: { ...options, balance_kopeks: 10000 },
+      initialPath: '/subscription/purchase?period=30&devices=2&method=sbp&autostart=1',
+    });
+
+    expect(await screen.findByText('deviceFirst.autostartHeldTitle')).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: 'deviceFirst.changeOptions' }));
+    // Человек САМ открыл подтверждение — на этом проходе никто ничего не удерживал.
+    fireEvent.click(await screen.findByRole('button', { name: 'deviceFirst.review' }));
+
+    expect(
+      await screen.findByRole('button', { name: 'deviceFirst.topUpShortage:350 ₽' }),
+    ).toBeTruthy();
+    expect(screen.queryByText('deviceFirst.autostartHeldTitle')).toBeNull();
+  });
+
+  // 🔴 Нижняя граница, и она НЕ симметрична: при копейках на счету доплата равна полной
+  // цене, кнопка уезжает вниз и тихнет, строка про арифметику молчит — остановка дала бы лишний
+  // экран и ноль новой информации. Бот в этом же случае дверь доплаты прячет
+  // (`device_first.py:311`), и кабинет обязан ему не противоречить.
+  it('still invoices when the top-up would cost as much as the full price', async () => {
+    vi.mocked(deviceFirstApi.nativeLaunchDirect).mockReturnValue(new Promise(() => {}));
+
+    renderConfigurator({
+      options: { ...options, balance_kopeks: 50 },
+      initialPath: '/subscription/purchase?period=30&devices=2&method=sbp&autostart=1',
+    });
+
+    await waitFor(() => expect(deviceFirstApi.nativeLaunchDirect).toHaveBeenCalledTimes(1));
+    expect(screen.queryByText('deviceFirst.autostartHeldTitle')).toBeNull();
+  });
+
+  // 🔴 Человек нажал в чате «Карта российского банка». До остановки автозапуска он до экрана
+  // доплаты не доходил вовсе; теперь доходит — и главная кнопка увела бы его в СБП, потому что
+  // способ из адреса не засевался никогда. Проверяем НЕ на СБП: у него число совпало бы
+  // случайно. Карта российского банка — это `11`.
+  it('carries the method chosen in the bot into the top-up address', async () => {
+    vi.mocked(deviceFirstApi.paymentMethods).mockResolvedValue({
+      methods: [
+        { key: 'sbp', provider_code: 2 },
+        { key: 'cards_ru', provider_code: 11 },
+      ],
+    });
+    getBalancePaymentMethods.mockResolvedValue([
+      {
+        id: 'platega',
+        name: 'Platega',
+        is_available: true,
+        min_amount_kopeks: 10000,
+        max_amount_kopeks: 100000000,
+      },
+    ]);
+
+    renderConfigurator({
+      options: { ...options, balance_kopeks: 10000 },
+      initialPath: '/subscription/purchase?period=30&devices=2&method=cards_ru&autostart=1',
+    });
+
+    fireEvent.click(await screen.findByRole('button', { name: 'deviceFirst.topUpShortage:350 ₽' }));
+
+    const target = screen.getByTestId('location').textContent ?? '';
+    const query = new URLSearchParams(target.slice(target.indexOf('?') + 1));
+    expect(query.get('option')).toBe('11');
+  });
+
+  // 🔴 Сторож РЕК-8б. Связь денег с ценой на экране не была названа ни одной строкой: стояло
+  // слово «Баланс», и вычитание человек должен был делать в уме.
+  it('names the balance arithmetic under the top-up button', async () => {
+    renderConfigurator({ options: { ...options, balance_kopeks: 10000 } });
+
+    fireEvent.click(screen.getByRole('button', { name: 'deviceFirst.review' }));
+
+    // Оба числа зашиты литералами: свои 100 ₽ и полная цена 450 ₽, а НЕ доплата 350 ₽ —
+    // строка объясняет, откуда взялось число на кнопке, а не повторяет его.
+    expect(await screen.findByText('deviceFirst.topUpBalanceApplied:100 ₽:450 ₽')).toBeTruthy();
+  });
+
+  // 🔴 И граница: когда минимум провайдера поднял счёт выше честной недостачи, на карточке
+  // уже стоит объяснение про остаток. Третье число превратило бы подсказку в ребус, поэтому
+  // строка про арифметику в этом случае молчит.
+  it('stays silent about the arithmetic when the invoice exceeds the honest shortage', async () => {
+    // 449,50 ₽ на счету против 450 ₽ цены: честная недостача — 50 копеек, а счёт округляется
+    // вверх до рубля. Числа на карточке расходятся, и объяснение про остаток там уже стоит.
+    renderConfigurator({ options: { ...options, balance_kopeks: 44950 } });
+
+    fireEvent.click(screen.getByRole('button', { name: 'deviceFirst.review' }));
+
+    // Улика, что мы на нужном экране и доплата предложена — иначе «строки нет» доказывало бы
+    // только то, что экран не открылся.
+    expect(
+      await screen.findByRole('button', { name: 'deviceFirst.topUpShortage:1 ₽' }),
+    ).toBeTruthy();
+    expect(screen.queryByText(/deviceFirst\.topUpBalanceApplied/)).toBeNull();
   });
 
   // ── Этап Б-1: свой баланс можно пустить в дело в любой момент ──────────────────
