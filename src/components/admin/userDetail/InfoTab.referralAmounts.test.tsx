@@ -19,6 +19,8 @@ vi.mock('react-i18next', () => ({
         'admin.bulkActions.columns.spent': 'Потрачено',
       })[key] ?? key,
   }),
+  // InfoTab тянет общий разборщик ошибок, а тот — настоящий i18n.
+  initReactI18next: { type: '3rdParty', init: () => {} },
 }));
 vi.mock('../../../hooks/useCurrency', () => ({
   useCurrency: () => ({ formatWithCurrency: (value: number) => `${value.toFixed(2)} ₽` }),

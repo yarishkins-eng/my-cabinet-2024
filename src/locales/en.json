@@ -3610,7 +3610,29 @@
         }
       },
       "notFound": "User not found",
-      "purchaseCount": "Purchases: {{count}}"
+      "purchaseCount": "Purchases: {{count}}",
+      "testReset": {
+        "title": "Test stand",
+        "subtitle": "This account is on the server's test list. It can be returned to the state it had before this person existed.",
+        "check": "Reset test account",
+        "confirm": "Yes, reset it",
+        "willDelete": "Will be deleted:",
+        "balance": "Balance",
+        "subscription": "Subscription",
+        "orders": "Orders",
+        "payments": "Payments",
+        "transactions": "Ledger entries",
+        "panel": "In the RemnaWave panel",
+        "panelLinked": "the user will be deleted",
+        "nothing": "none",
+        "invitedStay": "People they invited stay linked to them: {{count}}. Their data and the referrer's earnings are left alone.",
+        "auditStays": "The admin audit trail stays — it is not hidden.",
+        "blockedTitle": "Cannot be reset",
+        "doneTitle": "Done: the account is reset",
+        "doneHint": "Now send /start to the bot from that Telegram — it will register as new, with the trial available again. Two warnings. Old chat messages stay and their buttons point at the past, so start with /start. And until that /start the account is hidden from the main cabinet list: look for it under the “Deleted (archive)” filter — that is normal, it was not destroyed.",
+        "tickets": "Support tickets",
+        "ticketsWarn": "The conversations inside those tickets go too, including the manager's replies."
+      }
     },
     "autoMessages": {
       "title": "Automatic messages",
