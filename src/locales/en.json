@@ -3621,7 +3621,8 @@
       "confirmOffAction": "Turn off",
       "state": {
         "quiet": "not sending",
-        "off": "off"
+        "off": "off",
+        "live": "working"
       },
       "control": {
         "server": "turns off only together with the bonus itself"
@@ -3691,7 +3692,12 @@
       "scope": "Only messages the bot sends on a schedule. Confirmations after a payment or top-up live elsewhere and are not listed here.",
       "lastCheck": "Last check:",
       "confirmOffPair": "Turn off «{{title}}»? «{{other}}» goes silent with it — inside the bot they are one and the same place. Clients stop getting both.",
-      "pairShort": "one switch with «{{other}}»"
+      "pairShort": "one switch with «{{other}}»",
+      "dot": {
+        "live": "working",
+        "off": "turned off",
+        "quiet": "not sending right now"
+      }
     },
     "promoOffers": {
       "title": "Promo Offers",

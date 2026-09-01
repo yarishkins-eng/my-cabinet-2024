@@ -33,10 +33,33 @@ function countsSummary(item: AutoMessageItem, t: (key: string) => string): strin
   return parts.length ? parts.join(' · ') : null;
 }
 
+/**
+ * Состояние сообщения — точкой слева.
+ *
+ * 🔴 Прямое требование владельца: с главной должно быть видно, что работает, а что
+ * нет, не заходя в каждое сообщение. Точка нужна для скорости — глаз пробегает колонку
+ * кружков за один проход. Но цвет не может быть единственным носителем: рядом на каждой
+ * строке стоит слово, поэтому легенду запоминать не надо и озвучка тоже читает смысл.
+ */
+function StatusDot({ tone, label }: { tone: 'live' | 'off' | 'quiet'; label: string }) {
+  const color =
+    tone === 'live' ? 'bg-success-400' : tone === 'quiet' ? 'bg-warning-400' : 'bg-dark-500';
+  return (
+    <span
+      role="img"
+      aria-label={label}
+      title={label}
+      className={`mt-1.5 h-2.5 w-2.5 flex-none rounded-full ${color}`}
+    />
+  );
+}
+
 function MessageRow({ item, onOpen }: { item: AutoMessageItem; onOpen: () => void }) {
   const { t } = useTranslation();
   const off = item.enabled === false;
   const quiet = item.state === 'quiet';
+  // Выключил менеджер — серая. Молчит по чужой причине — жёлтая. Иначе зелёная.
+  const tone = off ? 'off' : quiet ? 'quiet' : 'live';
   const params = paramsSummary(item);
   const counts = countsSummary(item, t);
 
@@ -50,6 +73,7 @@ function MessageRow({ item, onOpen }: { item: AutoMessageItem; onOpen: () => voi
         quiet ? 'opacity-60' : ''
       }`}
     >
+      <StatusDot tone={tone} label={t(`admin.autoMessages.dot.${tone}`)} />
       <div className="min-w-0 flex-1">
         <div className={`text-sm font-semibold ${quiet ? 'text-dark-400' : 'text-dark-100'}`}>
           {item.title}
@@ -58,25 +82,32 @@ function MessageRow({ item, onOpen }: { item: AutoMessageItem; onOpen: () => voi
         {params && <div className="mt-0.5 text-xs text-accent-400">{params}</div>}
         {counts && <div className="mt-0.5 text-xs text-dark-500">{counts}</div>}
         <div className="mt-1.5 flex flex-wrap gap-1.5">
-          {off && (
+          {tone === 'off' && (
             <span className="rounded bg-dark-700 px-2 py-0.5 text-[11px] text-dark-300">
               {t('admin.autoMessages.state.off')}
             </span>
           )}
-          {!off && quiet && (
-            <span className="rounded bg-dark-700 px-2 py-0.5 text-[11px] text-dark-400">
+          {tone === 'quiet' && (
+            <span className="rounded bg-warning-500/10 px-2 py-0.5 text-[11px] text-warning-300">
               {t('admin.autoMessages.state.quiet')}
               {item.quiet_reason ? `: ${item.quiet_reason}` : ''}
             </span>
           )}
-          {!off && !quiet && item.note && (
+          {tone === 'live' && (
+            <span className="rounded bg-success-500/10 px-2 py-0.5 text-[11px] text-success-400">
+              {t('admin.autoMessages.state.live')}
+            </span>
+          )}
+          {/* Уточнение — рядом с «работает», а не вместо него: это не причина молчания. */}
+          {tone === 'live' && item.note && (
             <span className="rounded bg-dark-700 px-2 py-0.5 text-[11px] text-dark-400">
               {item.note}
             </span>
           )}
-          {/* Иначе после одного нажатия «выключено» появляется на двух строках, и
-              вторую менеджер не трогал — объяснения этому в списке не было. */}
-          {item.shares_switch_with && (
+          {/* Только у погасших: здесь эта подпись отвечает на вопрос «почему их две».
+              Перед самим нажатием про пару предупреждает диалог подтверждения, а на
+              работающих строках бирка была бы третьей и утяжеляла бы список. */}
+          {tone !== 'live' && item.shares_switch_with && (
             <span className="rounded bg-dark-700 px-2 py-0.5 text-[11px] text-dark-400">
               {t('admin.autoMessages.pairShort', { other: item.shares_switch_with })}
             </span>
