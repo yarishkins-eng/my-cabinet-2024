@@ -228,3 +228,26 @@ describe('AdminAutoMessages: список ничего не переключае
     await waitFor(() => expect(screen.getByText(/tiles\.sentHint 1 2/)).toBeTruthy());
   });
 });
+
+describe('AdminAutoMessages: плитки', () => {
+  beforeEach(() => {
+    list.mockReset();
+    navigate.mockReset();
+  });
+  afterEach(cleanup);
+
+  it('плитка считает работающие, а не включённые', async () => {
+    // 🔴 Владелец увидел «15 из 21 включено сейчас» рядом с «20 с выключателем» и
+    // прочитал это как «пять я выключил». Выключено ноль: те шесть молчат по внешним
+    // причинам. Слово в плитке обязано совпадать со словом в строке — «работает».
+    list.mockResolvedValue(payload([item()]));
+    renderPage();
+
+    await waitFor(() => expect(screen.getByText('admin.autoMessages.tiles.live')).toBeTruthy());
+    const ru = (await import('../locales/ru.json')).default as {
+      admin: { autoMessages: { tiles: { live: string } } };
+    };
+    expect(ru.admin.autoMessages.tiles.live).not.toContain('включено');
+    expect(ru.admin.autoMessages.tiles.live).toContain('работают');
+  });
+});
