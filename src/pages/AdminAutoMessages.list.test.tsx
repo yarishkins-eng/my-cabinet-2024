@@ -26,7 +26,10 @@ vi.mock('../platform/hooks/usePlatform', () => ({
 }));
 
 vi.mock('react-i18next', () => ({
-  useTranslation: () => ({ t: (key: string) => key }),
+  useTranslation: () => ({
+    t: (key: string, vars?: Record<string, unknown>) =>
+      vars ? `${key} ${Object.values(vars).join(' ')}` : key,
+  }),
 }));
 
 import AdminAutoMessages from './AdminAutoMessages';
@@ -160,5 +163,27 @@ describe('AdminAutoMessages: список ничего не переключае
     await waitFor(() => expect(screen.getByText('Скидка на продление')).toBeTruthy());
     fireEvent.click(screen.getByText('Скидка на продление'));
     expect(navigate).toHaveBeenCalledWith('/admin/auto-messages/return-wave2');
+  });
+
+  it('пара названа прямо в строке списка', async () => {
+    // Иначе после одного нажатия «выключено» появляется на двух строках, и вторую
+    // менеджер не трогал: объяснения этому в списке не было вовсе.
+    list.mockResolvedValue(payload([item({ shares_switch_with: 'Подписка закончилась' })]));
+    renderPage();
+
+    await waitFor(() =>
+      expect(screen.getByText('admin.autoMessages.pairShort Подписка закончилась')).toBeTruthy(),
+    );
+  });
+
+  it('крупное число отправок подписано тем, по скольким оно считано', async () => {
+    // Сумма собрана не по всем сообщениям. Молчать об этом — то же самое, что и
+    // прежнее «не считаем», из-за которого начался этот этап.
+    list.mockResolvedValue(
+      payload([item({ sent_count: 8 }), item({ id: 'paid-expired', sent_count: null })]),
+    );
+    renderPage();
+
+    await waitFor(() => expect(screen.getByText(/tiles\.sentHint 1 2/)).toBeTruthy());
   });
 });

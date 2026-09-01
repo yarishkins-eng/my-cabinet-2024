@@ -53,7 +53,7 @@ function card(overrides: Record<string, unknown> = {}) {
     shares_switch_with: null,
     warning: null,
     params: { warn_hours: 2 },
-    limits: { warn_hours: [1, 48] },
+    limits: { warn_hours: [2, 48] },
     buttons: [{ label: '💎 Оформить подписку', target: 'Экран тарифов', tracked: false }],
     sent_count: 12,
     claimed_count: 0,
@@ -165,6 +165,34 @@ describe('AdminAutoMessageDetail: управление живёт здесь', (
     await waitFor(() => expect(screen.getByText('2 ч')).toBeTruthy());
     expect(screen.queryByText('1 ч')).toBeNull();
     expect(screen.queryByText('0 ч')).toBeNull();
+  });
+
+  it('молчание по внешней причине не соседствует со словом «включено»', async () => {
+    // 🔴 Первую правку я сделал так, что рядом вставали «Сейчас не отправляется»
+    // и «Сообщение включено» — противоречие не исчезло, а переехало строкой ниже.
+    get.mockResolvedValue(
+      card({ state: 'quiet', quiet_reason: 'выключено общим переключателем', enabled: true }),
+    );
+    renderCard();
+
+    await waitFor(() =>
+      expect(screen.getByText('admin.autoMessages.detail.notSending')).toBeTruthy(),
+    );
+    expect(screen.getByText('admin.autoMessages.detail.ownSwitchOn')).toBeTruthy();
+    expect(screen.queryByText('admin.autoMessages.detail.switchOn')).toBeNull();
+  });
+
+  it('о собственном выключении не говорится трижды', async () => {
+    get.mockResolvedValue(
+      card({ state: 'quiet', quiet_reason: 'выключено в этом разделе', enabled: false }),
+    );
+    renderCard();
+
+    await waitFor(() =>
+      expect(screen.getByText('admin.autoMessages.detail.notSending')).toBeTruthy(),
+    );
+    expect(screen.queryByText('admin.autoMessages.detail.ownSwitchOn')).toBeNull();
+    expect(screen.queryByText('admin.autoMessages.detail.switchOff')).toBeNull();
   });
 
   it('молчащее сообщение не выдаётся за работающее', async () => {

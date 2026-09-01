@@ -247,6 +247,9 @@ export default function AdminAutoMessageDetail() {
     );
   }
 
+  // Пока идёт любая из двух правок, вторая недоступна: иначе ответы приходят вразнобой
+  // и плашка «Сохранено» всплывает уже после выключения сообщения.
+  const busy = saveMutation.isPending || toggleMutation.isPending;
   const manageable = data.control === 'toggle';
   const quiet = data.state === 'quiet';
 
@@ -260,7 +263,10 @@ export default function AdminAutoMessageDetail() {
             other: data.shares_switch_with,
           })
         : t('admin.autoMessages.confirmOff', { title: data.title });
-      const ok = await confirmOff(question, t('admin.autoMessages.confirmOffAction'));
+      // Нативный диалог Telegram отказывается показывать текст длиннее 256 символов —
+      // и тогда тумблер просто перестаёт работать, без ошибки и без окна. Обрезаем сами.
+      const asked = question.length > 240 ? `${question.slice(0, 239)}…` : question;
+      const ok = await confirmOff(asked, t('admin.autoMessages.confirmOffAction'));
       if (!ok) return;
     }
     toggleMutation.mutate(!data.enabled);
@@ -290,7 +296,7 @@ export default function AdminAutoMessageDetail() {
           {manageable ? (
             <Toggle
               on={Boolean(data.enabled)}
-              disabled={toggleMutation.isPending}
+              disabled={busy}
               label={data.title}
               onClick={handleToggle}
             />
@@ -312,11 +318,13 @@ export default function AdminAutoMessageDetail() {
             {quiet && data.quiet_reason && (
               <div className="mt-0.5 text-xs text-dark-400">{data.quiet_reason}</div>
             )}
-            {quiet && manageable && (
+            {/* Показываем положение своего тумблера ТОЛЬКО когда молчание вызвано не им.
+                Иначе рядом вставали «Сейчас не отправляется» и «Сообщение включено» —
+                то же противоречие, что и раньше, просто переехавшее на строку ниже.
+                А когда выключил он сам, третья строка об этом же — лишнее повторение. */}
+            {quiet && manageable && data.enabled && (
               <div className="mt-0.5 text-xs text-dark-500">
-                {data.enabled
-                  ? t('admin.autoMessages.detail.switchOn')
-                  : t('admin.autoMessages.detail.switchOff')}
+                {t('admin.autoMessages.detail.ownSwitchOn')}
               </div>
             )}
             {quiet && !manageable && (
@@ -455,7 +463,7 @@ export default function AdminAutoMessageDetail() {
                     </button>
                     <button
                       type="button"
-                      disabled={saveMutation.isPending}
+                      disabled={busy}
                       onClick={() =>
                         saveMutation.mutate(
                           Object.fromEntries(
