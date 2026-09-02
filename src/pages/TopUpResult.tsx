@@ -32,9 +32,14 @@ const POLL_INTERVAL_MS = 3_000;
  */
 /**
  * Сколько держим подтверждение перед автоматическим уходом на карточку заказа (РЕК-14.2).
- * Секунда — компромисс: меньше не успевает прочитаться, больше читается как зависание.
+ *
+ * 🔴 Число НЕ «на глаз»: сама галочка дорисовывается только к 0,7 с (`AnimatedCheckmark`,
+ * задержка 0,3 + отрисовка 0,4). При паузе 1,1 с — первая редакция — законченную галочку
+ * человек видел бы 0,4 секунды, то есть ровно то, чего этап обещал НЕ делать. Нашёл критик
+ * полноты. 1,8 с оставляет чуть больше секунды на прочтение — столько владелец и утверждал.
+ * ⛔ Меньше 1,2 с не ставить: галочка не успеет дорисоваться. На это есть сторож.
  */
-const AUTO_RETURN_DELAY_MS = 1100;
+const AUTO_RETURN_DELAY_MS = 1800;
 
 function neutralExit(returnTo: string | null): { path: string; labelKey: string } {
   return returnTo
@@ -229,38 +234,43 @@ function SuccessState({
           тихой строкой: молча подменить экран под пальцем на денежный было бы хуже лишнего
           нажатия. Кнопка остаётся на ВСЕХ остальных дорогах — и там, где сервер не подтвердил,
           и там, где человек пополнял не под покупку. */}
-      {autoLeaving ? (
+      {/* 🔴 РЕК-14.2. Строка объясняет, что экран уезжает сам. ⛔ Кнопку при этом НЕ убираем, и
+          это исправление по итогам ревью: первая редакция оставляла экран вообще без единого
+          нажимаемого элемента, а таймер в свёрнутом вебвью Телеграм умеет задушить. Человек,
+          заплативший 199 ₽, оставался бы там, где нельзя нажать ничего, — это дословно мина EH,
+          за которую этап В-1 уже платил. Кнопка ничего не ломает: ведёт туда же, куда через
+          секунду увезёт таймер. */}
+      {autoLeaving && (
         <p role="status" className="text-sm text-dark-400">
           {t('balance.topUpResult.returningToOrder')}
         </p>
-      ) : (
-        <button
-          type="button"
-          onClick={handleDone}
-          className={
-            needsPurchaseDoor
-              ? 'flex min-h-[44px] w-full items-center justify-center gap-2 rounded-xl bg-dark-800/50 px-6 py-3 text-sm font-medium text-dark-200 transition-colors hover:bg-dark-700/50'
-              : 'flex w-full items-center justify-center gap-2 rounded-xl bg-accent-500 px-6 py-3 text-sm font-medium text-white transition-colors hover:bg-accent-400'
-          }
-        >
-          {/* 🔴 Этап Б-1: для кассы «Перейти к подписке» — ложь ровно в ту секунду, когда деньги
+      )}
+      <button
+        type="button"
+        onClick={handleDone}
+        className={
+          needsPurchaseDoor
+            ? 'flex min-h-[44px] w-full items-center justify-center gap-2 rounded-xl bg-dark-800/50 px-6 py-3 text-sm font-medium text-dark-200 transition-colors hover:bg-dark-700/50'
+            : 'flex w-full items-center justify-center gap-2 rounded-xl bg-accent-500 px-6 py-3 text-sm font-medium text-white transition-colors hover:bg-accent-400'
+        }
+      >
+        {/* 🔴 Этап Б-1: для кассы «Перейти к подписке» — ложь ровно в ту секунду, когда деньги
             уже взяты: подписки ещё нет, пополнение ничего не оформило.
             🔴 Этап В-1 (мина EI): подпись Б-1 брала ключ кассы `deviceFirst.review`, а он же
             подписывает главную кнопку САМОЙ кассы. Человек нажимал «Перейти к оформлению» и
             видел «Перейти к оформлению» второй раз, ниже сгиба, — и не понимал, сработало ли
             первое нажатие. Своя подпись говорит, куда ведёт: назад к его покупке. */}
-          {/* 🔴 Средняя ветка тоже переписана этапом В-1. Она брала ключ уведомлений
+        {/* 🔴 Средняя ветка тоже переписана этапом В-1. Она брала ключ уведомлений
             `successNotification.goToSubscription`, а тот в персидском и китайском говорит
             «перейти к подписке» — при том что кнопка ведёт на Главную, где подписки может
             не быть. Это ровно мина EG, тремя строками ниже места, где EG чинили. Берём тот
             же собственный ключ, что и запасной выход: подпись и назначение сшиты в одном месте. */}
-          {checkoutReturn
-            ? t('balance.topUpResult.backToOrder')
-            : returnTo
-              ? t('balance.topUpResult.goToHome')
-              : t('balance.topUpResult.goToBalance')}
-        </button>
-      )}
+        {checkoutReturn
+          ? t('balance.topUpResult.backToOrder')
+          : returnTo
+            ? t('balance.topUpResult.goToHome')
+            : t('balance.topUpResult.goToBalance')}
+      </button>
     </motion.div>
   );
 }
@@ -624,18 +634,42 @@ export default function TopUpResult() {
   //     любой, включая прямую оплату подписки картой, которая баланса не касается вовсе
   //     (на боевом таких 28 из 158). По нему сумма уехала бы в строку «включая пополнение»,
   //     а баланс остался бы нулевым;
-  //  3. `purchase_step_pending` — сервер сам говорит, что за человеком ещё остался шаг. Если
-  //     деньги в ту же секунду потратила автопокупка после пополнения, вести его на карточку
-  //     заказа незачем: там он прочитает «не хватает» ровно на уплаченную сумму.
   // Сумма — только из ответа сервера. Запасное `pendingInfo.amount_kopeks` (намерение до
   // оплаты, лежит в браузере) для денежной строки не годится.
+  //
+  // 🔴 ТРЕТЬЕГО ЗАБОРА ЗДЕСЬ НЕТ, И ЭТО ИСПРАВЛЕНИЕ, А НЕ УПУЩЕНИЕ. Первая редакция требовала
+  // ещё и `purchase_step_pending`, считая, что это «сервер говорит, что за человеком остался
+  // шаг». **Поле означает не это.** Его считает `topup_pending_purchase_hint`
+  // (`bot-code/app/services/payment/common.py`), и она отвечает на другой вопрос — «называть ли
+  // оставшийся шаг В ЧАТЕ». Она молчит, в частности, у всякого, **у кого уже есть платная
+  // подписка с запасом больше порога**. А на кассу такой человек приходит ПРОДЛЕВАТЬ.
+  // Замер на боевом 02.09.2026: платных подписок с запасом больше трёх дней — **61**, и
+  // **все 11 покупок с 24.08 сделаны людьми, у которых подписка уже была**. То есть забор
+  // выключал бы и переход, и подстрочник почти для всех покупателей разом. Нашёл критик
+  // полноты; проверено чтением функции и двумя запросами к боевому.
+  // ⛔ Не возвращать его «на всякий случай»: он не про деньги, он про текст в чате.
+  // 🟢 Опасение, ради которого он ставился (деньги успела потратить автопокупка), закрыто
+  // ЧЕСТНЕЕ и на другой стороне: подстрочник в сводке заказа рисуется, только если баланс
+  // ВСЁ ЕЩЁ содержит эту доплату. Потратили — строка исчезает сама, врать нечем.
   const autoReturnHref = (() => {
-    if (!serverSaysPaid || !canPollById || !purchaseStepPending) return null;
+    // ⛔ Спрашиваем `paymentStatus`, а НЕ `effectivePayment`. Второй — это `paymentStatus ??
+    // latestPayment`, а `latestPayment` отдаёт «последний платёж этого человека за час», в том
+    // числе прямую оплату заказа картой, которая баланса не касается вовсе (на боевом таких
+    // 29 из 159). `canPollById` рядом проверял лишь ВОЗМОЖНОСТЬ спросить по номеру, а не
+    // происхождение ответа — линза денег показала, что кэш соседнего запроса пролезает даже
+    // при выключенном запросе. Здесь берём ровно ответ по НАШЕМУ номеру.
+    if (!paymentStatus) return null;
+    if (!paymentStatus.is_paid && !isPaidStatus(paymentStatus.status)) return null;
     const target = resolveCheckoutReturn(returnTo);
     if (!target) return null;
-    const paidKopeks = effectivePayment?.amount_kopeks;
+    const paidKopeks = paymentStatus.amount_kopeks;
     if (!paidKopeks || paidKopeks <= 0) return null;
-    return `${target}&topup=${paidKopeks}`;
+    // ⛔ Собираем через `URLSearchParams`, а не приписыванием `&topup=`: чужой `returnTo` мог
+    // принести СВОЙ `topup`, и тогда победило бы ПЕРВОЕ значение — подставленное снаружи, а не
+    // подтверждённое сервером. Нашла линза корректности.
+    const url = new URL(target, 'http://cabinet.invalid');
+    url.searchParams.set('topup', String(paidKopeks));
+    return `${url.pathname}${url.search}`;
   })();
 
   // Пауза нужна не «для красоты»: без неё галочку не видит НИКТО. Автоувод срабатывает ровно
@@ -693,7 +727,11 @@ export default function TopUpResult() {
     if (!resolvedPaid) return;
     if (cleanedUpRef.current) return;
     {
-      cleanedUpRef.current = true;
+      // 🔴 Замок ставим только по слову СЕРВЕРА. Уборка идёт и на успехе из адреса (деньги
+      // почти всегда и правда пришли), но запирать её тем же исходом нельзя: если сервер
+      // промолчал, а потом подтвердил по-настоящему, повторить уборку было бы уже некому —
+      // и в шапку уехал бы дооплатный баланс. Та же мина JG, только с другой стороны.
+      cleanedUpRef.current = serverSaysPaid;
       queryClient.invalidateQueries({ queryKey: ['balance'] });
       queryClient.invalidateQueries({ queryKey: ['transactions'] });
       queryClient.invalidateQueries({
@@ -725,7 +763,7 @@ export default function TopUpResult() {
       queryClient.removeQueries({ queryKey: ['device-first-options'] });
       refreshUser();
     }
-  }, [resolvedPaid, queryClient, refreshUser]);
+  }, [resolvedPaid, serverSaysPaid, queryClient, refreshUser]);
 
   // Haptic feedback on status resolution (fire once)
   // 🔴 Этап В-1: замок хранит, ЧТО именно уже отвиброировали. Раньше это был просто «уже»,

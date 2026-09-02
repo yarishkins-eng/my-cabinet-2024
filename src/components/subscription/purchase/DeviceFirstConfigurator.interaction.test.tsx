@@ -2848,13 +2848,72 @@ describe('DeviceFirstConfigurator interaction safety', () => {
       initialPath: `${TOP_UP_RETURN_PATH}&topup=19900`,
     });
 
+    const subline = await screen.findByText('deviceFirst.balanceIncludesTopUp:199 ₽');
+    // 🔴 Порядок в разметке проверяем ЯВНО: подстрочник обязан идти ПОСЛЕ баланса. Поменяй их
+    // местами — и «199 ₽» окажется над «249 ₽», то есть снова прочитается как слагаемое, ради
+    // чего вся эта возня и затевалась. Мутационный прогон показал, что перестановку не ловил
+    // ни один тест: они искали текст, а не место.
+    const balanceRow = screen.getByText('deviceFirst.balance');
     expect(
-      await screen.findByText('deviceFirst.balanceIncludesTopUp:199 ₽'),
+      balanceRow.compareDocumentPosition(subline) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
+    // 🔴 И живая область: экран открывается без действия человека, это единственное новое
+    // содержимое на нём. ⚠️ Честно: регион, появляющийся вместе со своим текстом, объявляют
+    // не все читалки — сторож держит намерение, а не гарантию.
+    expect(subline.getAttribute('role')).toBe('status');
     // Заряд одноразовый: иначе он переживёт перезагрузку и покажет чек за позавчерашние деньги.
     await waitFor(() =>
       expect(screen.getByTestId('location').textContent).toBe('/subscription/purchase'),
     );
+  });
+
+  // 🔴 Чистильщиков параметра ДВА, и мутационный прогон показал, что второй не охранял никто.
+  // Он нужен для входа БЕЗ метки кассы: там эффект посева выходит первой строкой и `topup` из
+  // адреса не снимает — снимает его приём заказа. Не снимешь — число переживёт перезагрузку и
+  // однажды напечатает чек за позавчерашние деньги.
+  it('РЕК-14.2: сумма снимается из адреса и на входе по номеру заказа', async () => {
+    renderConfigurator({
+      options: topUpReturnOptions,
+      initialPath: '/subscription/purchase?checkout=checkout-owned&topup=19900',
+    });
+
+    await waitFor(() =>
+      expect(screen.getByTestId('location').textContent).not.toContain('topup'),
+    );
+  });
+
+  // 🔴 Забор правдивости вместо чужого вердикта. Между зачислением и этим кадром деньги мог
+  // забрать другой механизм — автопокупка после пополнения на боевом включена. Тогда строка
+  // «включая пополнение» над опустевшим балансом была бы прямой ложью. Сверяем два числа,
+  // которые оба перед глазами, а не верим серверному признаку.
+  it('РЕК-14.2: деньги уже потрачены — подстрочника нет, врать нечем', async () => {
+    renderConfigurator({
+      // Баланс меньше, чем «доплачено»: доплату успел забрать кто-то другой.
+      options: { ...topUpReturnOptions, balance_kopeks: 5000 },
+      initialPath: `${TOP_UP_RETURN_PATH}&topup=19900`,
+    });
+
+    expect(await screen.findByText('deviceFirst.periodMonths:3')).toBeTruthy();
+    expect(screen.queryByText(/deviceFirst\.balanceIncludesTopUp/)).toBeNull();
+  });
+
+  // 🔴 Мина EW, класс «флаг пережил свой экран», третий случай в этом файле. Компонент между
+  // заказами НЕ размонтируется, поэтому заряд обязан гаснуть руками — иначе после ухода
+  // «Изменить параметры» и нового подтверждения под другим балансом всё ещё стоит старый чек.
+  it('РЕК-14.2: ушёл «Изменить параметры» — подстрочник не переезжает на следующий заказ', async () => {
+    renderConfigurator({
+      options: topUpReturnOptions,
+      initialPath: `${TOP_UP_RETURN_PATH}&topup=19900`,
+    });
+
+    expect(await screen.findByText('deviceFirst.balanceIncludesTopUp:199 ₽')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'deviceFirst.changeOptions' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'deviceFirst.review' }));
+
+    expect(
+      await screen.findByRole('button', { name: 'deviceFirst.payAndOrder:900 ₽' }),
+    ).toBeTruthy();
+    expect(screen.queryByText(/deviceFirst\.balanceIncludesTopUp/)).toBeNull();
   });
 
   // 🔴 Обратная сторона: без подтверждённого числа строки нет вовсе. Пустая, нулевая и
