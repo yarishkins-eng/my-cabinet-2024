@@ -24,11 +24,16 @@ jobs:
     steps:
       - name: Deploy the exact revision and wait for health
         uses: appleboy/ssh-action@029f5b4aeeeb58fdfe1410a5d17f967dacf36262 # v1.0.3
+        env:
+          # Токен, который GitHub выдаёт самому прогону. Права шага — `contents: read`
+          # (объявлены выше), больше он ничего не умеет, и гаснет вместе с прогоном.
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           host: ${{ secrets.SERVER_HOST }}
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           command_timeout: 15m
+          envs: GH_TOKEN
           script: |
             set -Eeuo pipefail
 
@@ -103,17 +108,23 @@ jobs:
               exit 12
             fi
 
-            # 🔴 02.09.2026: выкладка встала намертво — `git fetch` с сервера отвечал
-            # «could not read Username for 'https://github.com'» и «expected flush after ref
-            # listing», хотя репозиторий публичный, адрес верный, а GitHub на тот же путь
-            # отдавал серверу HTTP 200 за полсекунды (проверено curl'ом оттуда же).
-            # Причина: git 2.39 по умолчанию говорит протоколом версии 2, и сегодня этот
-            # разговор с данного сервера ломается. Тем же git с `protocol.version=1` ссылка
-            # читается мгновенно — проверено на боевом до правки.
-            # ⚠️ Это ЛЕЧЕНИЕ СИМПТОМА, и так и записано: причина снаружи (сеть/GitHub), у нас
-            # её не видно. Версия 1 медленнее на больших репозиториях; на этом — незаметно.
-            # 🟢 Когда снимать: если `git ls-remote` с сервера снова заработает БЕЗ этой опции.
-            git -c protocol.version=1 fetch --no-tags origin '+refs/heads/main:refs/remotes/origin/main'
+            # 🔴 02.09.2026: выкладка встала намертво. `git fetch` с боевого отвечал
+            # «could not read Username for 'https://github.com'», хотя репозиторий ПУБЛИЧНЫЙ,
+            # адрес верный, DNS и 443 в порядке, а GitHub на `info/refs` отдавал серверу
+            # HTTP 200 за полсекунды. Разобрано пробами прямо с сервера (только чтение):
+            #   · список веток (`ls-remote`) — читается;
+            #   · само скачивание (`clone`) — отказ 401.
+            # Это подпись отказа GitHub обслуживать БЕЗЫМЯННЫЕ скачивания с этого адреса:
+            # дешёвый запрос пропускают, дорогой — нет. Три перезапуска подряд не помогли.
+            # ⚠️ Первая попытка чинила это переключением на протокол версии 1 — она ошибочна и
+            # снята здесь же: v1 менял текст ошибки, но не исход (проверено пробой скачивания).
+            # 🟢 Лечение: скачивать НЕ безымянно. Токен даёт сам GitHub на время этого прогона,
+            # он живёт минуты и гаснет вместе с ним; на сервере ничего не заводится и не
+            # хранится. Заголовок передаётся ключом `-c`, то есть в конфиг репозитория не
+            # пишется и в `git config` не остаётся.
+            # ⛔ Не эхоить $GH_TOKEN и не включать `set -x` в этом шаге.
+            git -c http.extraheader="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)" \
+              fetch --no-tags origin '+refs/heads/main:refs/remotes/origin/main'
             readonly PREVIOUS_SHA="$(git rev-parse HEAD)"
             readonly REMOTE_MAIN_SHA="$(git rev-parse origin/main)"
 
