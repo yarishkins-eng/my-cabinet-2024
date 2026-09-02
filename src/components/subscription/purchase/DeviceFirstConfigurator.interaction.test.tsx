@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 
+import { useState } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -2763,38 +2764,116 @@ describe('DeviceFirstConfigurator interaction safety', () => {
   // 🔴 Сторож на посев выбора. Человек ушёл с 90 днями и 5 устройствами — обязан вернуться
   // к ним, а не к умолчанию. Проверяется через НАСТОЯЩУЮ точку входа (адрес возврата),
   // а не вызовом хелпера: тесты на хелперы не доказывают, что механизм подключён.
-  it('restores the selection carried by the top-up return address', async () => {
-    const wideOptions: DeviceFirstOptions = {
-      ...options,
-      period_options: [30, 90],
-      default_period_days: 30,
-      device_options: [2, 5],
-      price_matrix: [
-        options.price_matrix![0],
-        {
-          period_days: 90,
-          prices: [
-            {
-              device_limit: 5,
-              price_kopeks: 120000,
-              breakdown: {
-                base_price_kopeks: 120000,
-                devices_price_kopeks: 0,
-                promo_group_discount_kopeks: 0,
-                promo_offer_discount_kopeks: 0,
-              },
+  //
+  // 🔴 ЭТАП РЕК-3 ПЕРЕПИСАЛ ОЖИДАНИЕ ЭТОГО СТОРОЖА, И ВОТ ОБОСНОВАНИЕ — читать до правок.
+  // Прежняя редакция (этап Б-1) утверждала обратное: «подтверждение НЕ открывается само», и
+  // это было ВЕРНО ДЛЯ ТОГО КОДА. Причина стояла тут же: гард эффекта синхронизации первой
+  // строкой выходит при открытом подтверждении, поэтому открыть его РАНЬШЕ применения посева
+  // значило показать «Недоступно» сразу после успешной доплаты. РЕК-3 не снял гард и не
+  // обошёл его — он поставил открытие ВНУТРЬ той единственной ветки, где посев уже применён
+  // и цена у него нашлась. Ловушка, которую сторожил прежний текст, закрыта механизмом, а не
+  // ослабленным ожиданием, и на её обратную сторону стоит соседний тест про пару без цены.
+  // ⛔ Что этот сторож обязан держать и после переписывания: заказа на сервере не создаётся,
+  // денежные вызовы не идут, оформляет человек нажатием (решение владельца 02.09.2026,
+  // класс бага #629889).
+  const topUpReturnOptions: DeviceFirstOptions = {
+    ...options,
+    period_options: [30, 90],
+    default_period_days: 30,
+    device_options: [2, 5],
+    // Человек вернулся с доплаты — денег на его выбор теперь хватает ровно впритык.
+    balance_kopeks: 90000,
+    price_matrix: [
+      options.price_matrix![0],
+      {
+        period_days: 90,
+        prices: [
+          {
+            device_limit: 5,
+            price_kopeks: 90000,
+            breakdown: {
+              base_price_kopeks: 90000,
+              devices_price_kopeks: 0,
+              promo_group_discount_kopeks: 0,
+              promo_offer_discount_kopeks: 0,
             },
-          ],
-        },
-      ],
-    };
+          },
+        ],
+      },
+    ],
+  };
+  const TOP_UP_RETURN_PATH = '/subscription/purchase?from=checkout&period=90&devices=5';
 
+  it('РЕК-3: возврат с доплаты приземляет на подтверждение своего выбора, а не на экран выбора', async () => {
     renderConfigurator({
-      options: wideOptions,
-      initialPath: '/subscription/purchase?from=checkout&period=90&devices=5',
+      options: topUpReturnOptions,
+      initialPath: TOP_UP_RETURN_PATH,
     });
 
-    // Выбор человека восстановлен — 90 дней, а не умолчание 30.
+    // Кнопка списания — та самая, ради которой этап. 🔴 ЧИСЛО ПОПРАВЛЕНО ПРОГОНОМ
+    // СЦЕНАРИЯ: выигрыш — ОДНО нажатие, а не два и не три. Посев выбора существует с
+    // этапа Б-1, поэтому в базе экран выбора уже открывался с готовым выбором и требовал
+    // одного нажатия «Перейти к оформлению». По всему пути от «Тарифы» до «Подключить
+    // VPN»: 12 нажатий стало 11, экранов 11 стало 10. Завышать выигрыш в комментарии
+    // нельзя: следующий читатель посчитает по нему цену следующего этапа.
+    expect(
+      await screen.findByRole('button', { name: 'deviceFirst.payAndOrder:900 ₽' }),
+    ).toBeTruthy();
+    // Экрана выбора на пути больше нет.
+    expect(screen.queryByRole('button', { name: 'deviceFirst.review' })).toBeNull();
+    // 🔴 И это ЕГО выбор, а не умолчание: сводка печатает 90 дней и 5 устройств. Проверяем
+    // именно сводку — на подтверждении карточек срока нет, и старая проверка `aria-checked`
+    // здесь доказывала бы отсутствие экрана, а не сохранность выбора.
+    expect(screen.getByText('deviceFirst.periodMonths:3')).toBeTruthy();
+    expect(screen.getByText('5')).toBeTruthy();
+    // 🔴 ГЛАВНОЕ. Приземление НИЧЕГО не списывает и ничего не создаёт: подтверждение локальное,
+    // заказ рождается только от нажатия. Мутация «позвать оплату заодно» падает здесь.
+    expect(deviceFirstApi.create).not.toHaveBeenCalled();
+    expect(deviceFirstApi.payDirect).not.toHaveBeenCalled();
+    expect(deviceFirstApi.nativeLaunchDirect).not.toHaveBeenCalled();
+    expect(deviceFirstApi.commit).not.toHaveBeenCalled();
+    // Заряд из адреса снят: иначе `?period=&devices=` пережил бы перезагрузку и тихо
+    // возвращал старый выбор поверх нового.
+    await waitFor(() =>
+      expect(screen.getByTestId('location').textContent).toBe('/subscription/purchase'),
+    );
+  });
+
+  // 🔴 Мина EW, класс «флаг пережил свой экран». Плашку «Мы не открыли оплату» ставит РЕК-8а,
+  // когда автозапуск ДЕРЖАЛИ. На дороге возврата никто ничего не удерживал, и прочитать это
+  // объяснение здесь значило бы получить ответ на не заданный вопрос.
+  it('РЕК-3: на приземлении не показывается объяснение остановки автозапуска', async () => {
+    renderConfigurator({
+      options: topUpReturnOptions,
+      initialPath: TOP_UP_RETURN_PATH,
+    });
+
+    await screen.findByRole('button', { name: 'deviceFirst.payAndOrder:900 ₽' });
+    expect(screen.queryByText('deviceFirst.autostartHeldTitle')).toBeNull();
+    // 🔴 Заодно пришпиливаем решение о читаемости выхода: «Изменить параметры» — единственная
+    // дверь назад, сохраняющая выбор, и на автоматически открытом экране она обязана читаться.
+    // Мутационный прогон показал, что возврат цвета к `text-dark-500` (контраст 2,4:1 в светлой
+    // теме) не ловит ни один тест. Сторож слабый — он про класс, а не про контраст, — но он
+    // делает молчаливый откат видимым.
+    // ⛔ Смотрим СПИСОК классов, а не подстроку: `toContain('text-dark-300')` был зелёным и на
+    // возвращённом `text-dark-500 hover:text-dark-300` — подстрока находилась в `hover:`.
+    // Поймано собственной мутацией; сторож, зелёный на откате, — это не сторож.
+    const changeOptions = screen.getByRole('button', { name: 'deviceFirst.changeOptions' });
+    expect([...changeOptions.classList]).toContain('text-dark-300');
+    expect([...changeOptions.classList]).not.toContain('text-dark-500');
+  });
+
+  // 🔴 Приземление обязано быть проходным, а не тупиком: экран выбора никуда не делся, он в
+  // одном нажатии — и выбор там всё ещё ЕГО, а не умолчание.
+  it('РЕК-3: с приземления можно вернуться к выбору, и там стоит его срок', async () => {
+    renderConfigurator({
+      options: topUpReturnOptions,
+      initialPath: TOP_UP_RETURN_PATH,
+    });
+
+    fireEvent.click(await screen.findByRole('button', { name: 'deviceFirst.changeOptions' }));
+
+    expect(await screen.findByRole('button', { name: 'deviceFirst.review' })).toBeTruthy();
     await waitFor(() =>
       expect(
         screen
@@ -2803,16 +2882,89 @@ describe('DeviceFirstConfigurator interaction safety', () => {
           ?.getAttribute('aria-checked'),
       ).toBe('true'),
     );
-    // 🔴 Подтверждение НЕ открывается само: эффект синхронизации выходит первой строкой
-    // при открытом подтверждении, и посев не применился бы никогда — человек увидел бы
-    // «Недоступно» сразу после успешной доплаты. Он возвращается на экран выбора,
-    // видит СВЕЖУЮ цену и подтверждает сам.
-    expect(screen.getByRole('button', { name: 'deviceFirst.review' })).toBeTruthy();
-    // Заряд из адреса снят: иначе `?period=&devices=` пережил бы перезагрузку и тихо
-    // возвращал старый выбор поверх нового.
-    await waitFor(() =>
-      expect(screen.getByTestId('location').textContent).toBe('/subscription/purchase'),
+  });
+
+  // 🔴 НАХОДКА ПРОГОНА СЦЕНАРИЯ. До этапа подтверждение открывалось ПОСЛЕ экрана выбора, и
+  // балансный запрос успевал ответить. Приземление открывает его сразу — и в первом кадре
+  // минимум провайдера ещё неизвестен: кнопка несла сырую недостачу («400 ₽»), через долю
+  // секунды подменялась поднятой до минимума, а тап в первый кадр уезжал с суммой ниже
+  // минимума и кончался красным отказом провайдера. Число, меняющееся под пальцем на денежной
+  // кнопке, — это ложь; тупик по нашей же подставленной сумме хуже отсутствия кнопки.
+  it('РЕК-3: пока минимум провайдера неизвестен, кнопки доплаты нет вовсе', async () => {
+    // Балансный запрос висит — ровно первый кадр приземления.
+    getBalancePaymentMethods.mockReturnValue(new Promise(() => {}));
+
+    renderConfigurator({
+      options: { ...topUpReturnOptions, balance_kopeks: 50000 },
+      initialPath: TOP_UP_RETURN_PATH,
+    });
+
+    // Сводка уже на экране — то есть приземление состоялось, ждём только число на кнопке.
+    expect(await screen.findByText('deviceFirst.periodMonths:3')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /deviceFirst\.topUp/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'deviceFirst.needTopup' })).toBeNull();
+  });
+
+  // 🔴 НАХОДКА РЕВЬЮ (две линзы независимо, одна воспроизвела прогоном). Намерение приземлить
+  // не должно пережить свой выбор. Раньше в ветке «цены у пары нет» запись оставалась в ref
+  // ВМЕСТЕ с зарядом, и следующее обновление опций — например фоновое перечитывание после
+  // возврата — швыряло человека на подтверждение СТАРОЙ пары поверх того, что он в это время
+  // выбирал руками. Сторож воспроизводит ровно эту последовательность.
+  it('РЕК-3: посев без цены не заряжает подтверждение на будущее', async () => {
+    const unpriced: DeviceFirstOptions = {
+      ...topUpReturnOptions,
+      price_matrix: [options.price_matrix![0]],
+    };
+
+    function Harness() {
+      const [opts, setOpts] = useState<DeviceFirstOptions>(unpriced);
+      return (
+        <>
+          <button type="button" onClick={() => setOpts(topUpReturnOptions)}>
+            grow
+          </button>
+          <ConfiguratorFromRoute options={opts} />
+        </>
+      );
+    }
+
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    render(
+      <MemoryRouter initialEntries={[TOP_UP_RETURN_PATH]}>
+        <QueryClientProvider client={queryClient}>
+          <Harness />
+        </QueryClientProvider>
+      </MemoryRouter>,
     );
+
+    // Пары 90×5 в матрице нет — человек остался на рабочем экране выбора.
+    expect(await screen.findByRole('button', { name: 'deviceFirst.review' })).toBeTruthy();
+
+    // Приезжают опции, где пара снова продаётся. Заряд к этому моменту обязан быть погашен.
+    fireEvent.click(screen.getByRole('button', { name: 'grow' }));
+
+    await waitFor(() => expect(screen.getByText('deviceFirst.periodMonths:3')).toBeTruthy());
+    expect(screen.getByRole('button', { name: 'deviceFirst.review' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /deviceFirst\.payAndOrder/ })).toBeNull();
+  });
+
+  // 🔴 Честная граница. Приземляем ВСЕГДА, даже если денег всё ещё не хватает — например
+  // провайдер зачислил меньше или человек доплатил не всё. Экран тогда обязан сказать правду
+  // («доплатить остаток»), а не спрятать её за лишним экраном выбора и не соврать кнопкой
+  // списания. Без этого сторожа правка «приземлять только когда хватает» прошла бы незаметно.
+  it('РЕК-3: денег всё ещё не хватает — приземляем и говорим об этом, а не прячем', async () => {
+    renderConfigurator({
+      options: { ...topUpReturnOptions, balance_kopeks: 50000 },
+      initialPath: TOP_UP_RETURN_PATH,
+    });
+
+    expect(
+      await screen.findByRole('button', { name: 'deviceFirst.topUpShortage:400 ₽' }),
+    ).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /deviceFirst\.payAndOrder/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'deviceFirst.review' })).toBeNull();
   });
 
   // 🔴 Витрина экранов рисует ЖИВОЙ компонент на выдуманных опциях без баланса, поэтому недостача
@@ -2884,6 +3036,10 @@ describe('DeviceFirstConfigurator interaction safety', () => {
     );
     // И кнопка оформления жива — то есть цена нашлась.
     expect(screen.getByRole('button', { name: 'deviceFirst.review' })).toBeTruthy();
+    // 🔴 РЕК-3, обратная сторона приземления: намерение открыть подтверждение живёт ВНУТРИ
+    // записи о выборе и умирает вместе с ней. Пары без цены нет — значит и подтверждения нет,
+    // иначе человек читал бы «Недоступно» с пустым «Итого» вместо рабочего экрана выбора.
+    expect(screen.queryByRole('button', { name: /deviceFirst\.payAndOrder/ })).toBeNull();
   });
 
   // 🔴 Без метки кассы посев не срабатывает: те же параметры приходят из бот-диплинка,
