@@ -230,16 +230,17 @@ function SuccessState({
         </button>
       )}
 
-      {/* 🔴 РЕК-14.2. Когда экран уезжает сам, кнопки нет вовсе — нажимать нечего. Заменяем её
-          тихой строкой: молча подменить экран под пальцем на денежный было бы хуже лишнего
-          нажатия. Кнопка остаётся на ВСЕХ остальных дорогах — и там, где сервер не подтвердил,
-          и там, где человек пополнял не под покупку. */}
-      {/* 🔴 РЕК-14.2. Строка объясняет, что экран уезжает сам. ⛔ Кнопку при этом НЕ убираем, и
-          это исправление по итогам ревью: первая редакция оставляла экран вообще без единого
-          нажимаемого элемента, а таймер в свёрнутом вебвью Телеграм умеет задушить. Человек,
-          заплативший 199 ₽, оставался бы там, где нельзя нажать ничего, — это дословно мина EH,
-          за которую этап В-1 уже платил. Кнопка ничего не ломает: ведёт туда же, куда через
-          секунду увезёт таймер. */}
+      {/* 🔴 РЕК-14.2. Строка объясняет, что экран уезжает сам.
+          ⛔ Кнопку при этом НЕ убираем, и это правка по итогам ревью: первая редакция снимала её
+          совсем, и экран оставался без единого нажимаемого элемента — а таймер в свёрнутом
+          вебвью Телеграм умеет задушить. Человек, заплативший 199 ₽, застревал бы там, где
+          нечего нажать. Это дословно мина EH, за которую этап В-1 уже платил.
+          🔴 НО НА ЭТОЙ ДОРОГЕ ОНА ОБЯЗАНА БЫТЬ ТИХОЙ И ПО СОДЕРЖИМОМУ — мина JK, нашла ревизия
+          перед выкладкой. Залитая кнопка во всю ширину стоит ровно в том прямоугольнике, где
+          через 1,8 с окажется «Списать … и оформить», то есть кнопка, ТРАТЯЩАЯ ДЕНЬГИ. Палец,
+          тянувшийся к выходу, попал бы уже в неё — а решение владельца от 02.09 гласит, что
+          списание делает человек осознанно. Приём не изобретён: ровно это и ровно по той же
+          причине сделано у `PendingState` двумя сотнями строк выше, там же и объяснение. */}
       {autoLeaving && (
         <p role="status" className="text-sm text-dark-400">
           {t('balance.topUpResult.returningToOrder')}
@@ -249,9 +250,11 @@ function SuccessState({
         type="button"
         onClick={handleDone}
         className={
-          needsPurchaseDoor
-            ? 'flex min-h-[44px] w-full items-center justify-center gap-2 rounded-xl bg-dark-800/50 px-6 py-3 text-sm font-medium text-dark-200 transition-colors hover:bg-dark-700/50'
-            : 'flex w-full items-center justify-center gap-2 rounded-xl bg-accent-500 px-6 py-3 text-sm font-medium text-white transition-colors hover:bg-accent-400'
+          autoLeaving
+            ? 'flex min-h-[44px] items-center justify-center gap-2 self-center rounded-xl px-6 py-3 text-sm font-medium text-dark-400 transition-colors hover:text-dark-200'
+            : needsPurchaseDoor
+              ? 'flex min-h-[44px] w-full items-center justify-center gap-2 rounded-xl bg-dark-800/50 px-6 py-3 text-sm font-medium text-dark-200 transition-colors hover:bg-dark-700/50'
+              : 'flex w-full items-center justify-center gap-2 rounded-xl bg-accent-500 px-6 py-3 text-sm font-medium text-white transition-colors hover:bg-accent-400'
         }
       >
         {/* 🔴 Этап Б-1: для кассы «Перейти к подписке» — ложь ровно в ту секунду, когда деньги

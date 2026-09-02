@@ -238,7 +238,8 @@ describe('TopUpResult — возврат на кассу после пополн
     // Теперь на этой дороге кнопки нет: экран уезжает сам. Проверяем то же самое по существу —
     // адрес взят из памяти, а не из строки, — но по факту НАВИГАЦИИ, а не по подписи кнопки.
     await waitFor(
-      () => expect(screen.getByTestId('location').textContent).toBe(`${CHECKOUT_RETURN}&topup=6000`),
+      () =>
+        expect(screen.getByTestId('location').textContent).toBe(`${CHECKOUT_RETURN}&topup=6000`),
       { timeout: 4000 },
     );
   });
@@ -560,7 +561,8 @@ describe('TopUpResult — возврат на кассу после пополн
     renderResult('?method=platega&status=success');
     await screen.findByText('balance.topUpResult.success');
     await waitFor(
-      () => expect(screen.getByTestId('location').textContent).toBe(`${CHECKOUT_RETURN}&topup=6000`),
+      () =>
+        expect(screen.getByTestId('location').textContent).toBe(`${CHECKOUT_RETURN}&topup=6000`),
       { timeout: 4000 },
     );
   });
@@ -590,9 +592,7 @@ describe('TopUpResult — возврат на кассу после пополн
     await waitFor(() => expect(screen.getByText('balance.topUpResult.success')).toBeTruthy(), {
       timeout: 4000,
     });
-    await waitFor(() =>
-      expect(queryClient.getQueryData(['device-first-options'])).toBeUndefined(),
-    );
+    await waitFor(() => expect(queryClient.getQueryData(['device-first-options'])).toBeUndefined());
     expect(refreshUser).toHaveBeenCalled();
   });
 
@@ -772,14 +772,13 @@ describe('TopUpResult — экран перестаёт врать про ден
   // на общий экран тарифов значило бы потерять то, что он уже набрал.
   //
   // 🔴 ЭТАП РЕК-14.2 ПЕРЕПИСАЛ ОЖИДАНИЕ ЭТОГО СТОРОЖА — обоснование здесь, а не в отчёте.
-  // Прежняя редакция требовала РОВНО ОДНУ кнопку с подписью «Вернуться к покупке». Она была
-  // верна для того кода: дорогу кассы человек проходил нажатием. Теперь на этой дороге экран
-  // уезжает сам, и кнопки нет вовсе — нажимать нечего. То, ради чего сторож писался, держится
-  // по-прежнему и проверяется ниже: ВТОРОЙ двери («выбрать тариф») нет, и правда про
-  // оставшийся шаг сказана. Ослабления нет: было «одна кнопка», стало «ни одной», а это
-  // строже. ⛔ Кнопка обязана вернуться на любой другой дороге — на это стоят три соседних
-  // сторожа про заборы.
-  it('пришедшему с кассы кнопок не рисует вовсе — экран уезжает сам, но правду говорит', async () => {
+  // Прежняя редакция требовала РОВНО ОДНУ кнопку «Вернуться к покупке» — акцентную и во всю
+  // ширину. Она была верна для того кода: дорогу кассы человек проходил нажатием. Теперь экран
+  // уезжает сам; кнопка ОСТАЁТСЯ выходом на случай задушенного таймера (мина EH), но обязана
+  // быть ТИХОЙ и по содержимому: через 1,8 с в этот прямоугольник встаёт кнопка, которая
+  // ТРАТИТ ДЕНЬГИ (мина JK, нашла ревизия перед выкладкой). Ослабления нет — проверок стало
+  // больше: вторая дверь по-прежнему запрещена, и добавлено требование к виду первой.
+  it('пришедшему с кассы даёт тихий выход и уезжает сам, но правду говорит', async () => {
     seedPendingInfo(CHECKOUT_RETURN);
     vi.mocked(balanceApi.getPendingPayment).mockResolvedValue(paidWithVerdict(true));
 
@@ -797,6 +796,10 @@ describe('TopUpResult — экран перестаёт врать про ден
     const buttons = screen.getAllByRole('button');
     expect(buttons).toHaveLength(1);
     expect(buttons[0].textContent).toBe('balance.topUpResult.backToOrder');
+    // 🔴 Мина JK: ни заливки, ни ширины во весь экран — иначе палец, тянувшийся к выходу,
+    // попадёт в денежную кнопку, которая встанет на это место через полторы секунды.
+    expect([...buttons[0].classList]).not.toContain('w-full');
+    expect([...buttons[0].classList]).not.toContain('bg-accent-500');
   });
 
   // 🔴 Куда именно уезжает и с каким числом. Адрес зашит литералом: сторож, собирающий его тем
@@ -841,9 +844,7 @@ describe('TopUpResult — экран перестаёт врать про ден
   it('платёж опознан не по нашему номеру — никуда не уезжаем', async () => {
     vi.mocked(balanceApi.getLatestPayment).mockResolvedValue(paidWithVerdict(true));
 
-    renderResult(
-      '?method=platega&status=success&returnTo=' + encodeURIComponent(CHECKOUT_RETURN),
-    );
+    renderResult('?method=platega&status=success&returnTo=' + encodeURIComponent(CHECKOUT_RETURN));
     await screen.findByText('balance.topUpResult.successWithStep');
     await settle();
 
