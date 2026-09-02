@@ -538,6 +538,37 @@ describe('TopUpResult — возврат на кассу после пополн
     expect(screen.getByRole('button').textContent).toBe('balance.topUpResult.backToOrder');
   });
 
+  // 🔴 РЕК-14.1, мина JG. Банк вернул человека на «отказ», а деньги дошли следом — экран сам
+  // себя поправляет (эта ветка описана в нём же и появилась на этапе В-1). Прежний код ставил
+  // замок уборки НА ОТКАЗЕ и запирал её навсегда: при самокоррекции не отрабатывало ничего —
+  // ни снос кэша кассы, ни перечитывание пользователя. Человек приземлялся на ДОоплатный
+  // баланс с кнопкой «Доплатить» на уже уплаченную сумму.
+  // ⛔ Сторож проверяет ИСХОД (кэша нет), а не факт вызова: перебирать в тесте тот же список
+  // ключей, что и в коде, значит доказывать сам себя.
+  it('банк отказал, деньги дошли позже — кэш кассы всё равно снесён', async () => {
+    seedPendingInfo(CHECKOUT_RETURN);
+    vi.mocked(balanceApi.getPendingPayment)
+      .mockResolvedValueOnce(pendingPayment())
+      .mockResolvedValue(paidPayment());
+
+    const { queryClient } = renderResult('?method=platega&status=failed', (client) =>
+      client.setQueryData(['device-first-options'], { eligible: true, balance_kopeks: 5000 }),
+    );
+
+    // Первый кадр — отказ по слову адреса, сервер ещё говорит «ждём».
+    expect(await screen.findByText('balance.topUpResult.failed')).toBeTruthy();
+    expect(queryClient.getQueryData(['device-first-options'])).toBeTruthy();
+
+    // Сервер переобъявляет исход успехом — уборка обязана отработать, несмотря на бывший отказ.
+    await waitFor(() => expect(screen.getByText('balance.topUpResult.success')).toBeTruthy(), {
+      timeout: 4000,
+    });
+    await waitFor(() =>
+      expect(queryClient.getQueryData(['device-first-options'])).toBeUndefined(),
+    );
+    expect(refreshUser).toHaveBeenCalled();
+  });
+
   // 🔴 Касса берёт баланс СВОИМ запросом. Без гашения этого кэша вернувшийся видит первым кадром
   // старый баланс и прежнее «не хватает» — ровно то, ради чего уходил платить.
   //

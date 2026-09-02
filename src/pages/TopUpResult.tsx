@@ -619,9 +619,19 @@ export default function TopUpResult() {
   // пополнением, так что задержаться ей негде.
 
   // Invalidate queries when payment resolves
+  //
+  // 🔴 РЕК-14.1, мина JG. Здесь стояло `else if (resolvedFailed) { cleanedUpRef.current = true }`,
+  // и это ставило замок уборки НАВСЕГДА. А у этого экрана есть ветка самокоррекции, описанная
+  // им же выше: банк вернул человека на «отказ», а деньги дошли следом, и опрос переобъявляет
+  // исход успехом. С прежним замком в этом случае не отрабатывало НИЧЕГО — ни снос кэша кассы,
+  // ни `refreshUser()`. То есть человек, у которого платёж «сначала не прошёл», приземлялся на
+  // ДОоплатный баланс с кнопкой «Доплатить» на уже уплаченную сумму.
+  // Теперь замок ставит только успех, и ставит его ровно один раз. Отказ не защёлкивает ничего:
+  // уборке на отказе нечего делать, а её запрет на будущее и был дефектом.
   useEffect(() => {
+    if (!resolvedPaid) return;
     if (cleanedUpRef.current) return;
-    if (resolvedPaid) {
+    {
       cleanedUpRef.current = true;
       queryClient.invalidateQueries({ queryKey: ['balance'] });
       queryClient.invalidateQueries({ queryKey: ['transactions'] });
@@ -653,10 +663,8 @@ export default function TopUpResult() {
       // баланс» нельзя: верно только про эту дверь.
       queryClient.removeQueries({ queryKey: ['device-first-options'] });
       refreshUser();
-    } else if (resolvedFailed) {
-      cleanedUpRef.current = true;
     }
-  }, [resolvedPaid, resolvedFailed, queryClient, refreshUser]);
+  }, [resolvedPaid, queryClient, refreshUser]);
 
   // Haptic feedback on status resolution (fire once)
   // 🔴 Этап В-1: замок хранит, ЧТО именно уже отвиброировали. Раньше это был просто «уже»,
