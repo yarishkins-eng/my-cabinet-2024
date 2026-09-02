@@ -214,14 +214,19 @@ function renderConfigurator(
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
-  return render(
-    <MemoryRouter initialEntries={[initialPath]}>
-      <QueryClientProvider client={queryClient}>
-        <LocationProbe />
-        <ConfiguratorFromRoute {...componentProps} />
-      </QueryClientProvider>
-    </MemoryRouter>,
-  );
+  // 🔴 РЕК-16: клиент запросов отдаётся наружу. Без него из теста нельзя выжать ПЕРЕЗАПРОС —
+  // а два P1 волны 1 живут именно в нём: список способов уже загружен, а повторный запрос упал.
+  return {
+    ...render(
+      <MemoryRouter initialEntries={[initialPath]}>
+        <QueryClientProvider client={queryClient}>
+          <LocationProbe />
+          <ConfiguratorFromRoute {...componentProps} />
+        </QueryClientProvider>
+      </MemoryRouter>,
+    ),
+    queryClient,
+  };
 }
 
 describe('DeviceFirstConfigurator interaction safety', () => {
@@ -2261,9 +2266,18 @@ describe('DeviceFirstConfigurator interaction safety', () => {
   // СТАРОЕ сообщение с карточной кнопкой. Раньше «450 < 450» было ложью, счёт выставлялся на
   // полную цену, и только что положенные деньги оставались лежать — он платил дважды.
   it('holds the autostart when the balance already covers the whole price', async () => {
+    // 🔴 Волна ревью: здесь стоял `method=sbp` — а `'sbp'` это УМОЛЧАНИЕ `methodKey`
+    // (`useState('sbp')`). Сторож проходил бы и с полностью удалённым засевом способа, то есть
+    // доказывал совпадение, а не работу. Берём карту: её умолчание не даёт никогда.
+    vi.mocked(deviceFirstApi.paymentMethods).mockResolvedValue({
+      methods: [
+        { key: 'sbp', provider_code: 2 },
+        { key: 'cards_ru', provider_code: 11 },
+      ],
+    });
     renderConfigurator({
       options: { ...options, balance_kopeks: 45000 },
-      initialPath: '/subscription/purchase?period=30&devices=2&method=sbp&autostart=1',
+      initialPath: '/subscription/purchase?period=30&devices=2&method=cards_ru&autostart=1',
     });
 
     await waitFor(() =>
@@ -2278,7 +2292,7 @@ describe('DeviceFirstConfigurator interaction safety', () => {
     // сообщал только «денег хватает», теперь он ОБЯЗАН назвать то, что человек выбирал, —
     // решение владельца «клиент выбрал, а мы ему другое подкидываем» про этот самый экран.
     // Голый ключ здесь снова означал бы, что подстановка не доехала.
-    expect(screen.getByText('deviceFirst.autostartHeldCoveredText:deviceFirst.sbp')).toBeTruthy();
+    expect(screen.getByText('deviceFirst.autostartHeldCoveredText:deviceFirst.cards')).toBeTruthy();
     expect(screen.queryByText('deviceFirst.autostartHeldText')).toBeNull();
   });
 
@@ -2417,6 +2431,100 @@ describe('DeviceFirstConfigurator interaction safety', () => {
     expect(fold).toBeTruthy();
     expect(fold!.contains(methodButtons[1])).toBe(true);
     expect(fold!.contains(methodButtons[0])).toBe(false);
+  });
+
+  // 🔴 P1 волны 1, нашли две линзы независимо. Новый средний слот кнопки доплаты живёт ВНУТРИ
+  // ветки способов оплаты, а старая пара `first`/`last` стояла снаружи всех развилок. Значит
+  // признак «пришёл с выбором» мог увести кнопку в место, которого на экране нет, и человек
+  // остался бы на денежном экране вообще без пути к покупке. Вход: способы уже загрузились, а
+  // повторный запрос упал (в вебвью Телеграма связь моргает регулярно).
+  it('keeps a way to buy when the methods request fails after a chat choice', async () => {
+    vi.mocked(deviceFirstApi.paymentMethods)
+      .mockResolvedValueOnce({
+        methods: [
+          { key: 'sbp', provider_code: 2 },
+          { key: 'cards_ru', provider_code: 11 },
+        ],
+      })
+      .mockRejectedValue(new Error('methods unavailable'));
+
+    const { queryClient } = renderConfigurator({
+      options: { ...options, balance_kopeks: 10000 },
+      initialPath: '/subscription/purchase?period=30&devices=2&method=cards_ru&autostart=1',
+    });
+
+    await screen.findAllByRole('button', { name: 'deviceFirst.paymentMethodAmount:450 ₽' });
+    // Роняем список способов так, как это делает жизнь: перезапросом.
+    await queryClient.refetchQueries({ queryKey: ['device-first-payment-methods'] });
+
+    // Что бы ни случилось со способами, дверь доплаты обязана остаться на экране.
+    expect(
+      await screen.findByRole('button', { name: 'deviceFirst.topUpShortage:350 ₽' }),
+    ).toBeTruthy();
+  });
+
+  // 🔴 Второй вход в ту же дыру, и его нашла линза корректности: денег на вид ХВАТАЕТ, а сервер
+  // на нажатии ответил «не хватает» (баланс утёк между отрисовкой и тапом). Способы оплаты в
+  // этой ветке не рисуются вовсе — значит средний слот снова оказался бы пустым местом.
+  it('keeps a way to buy when the wallet turns out short after a chat choice', async () => {
+    vi.mocked(deviceFirstApi.paymentMethods).mockResolvedValue({
+      methods: [
+        { key: 'sbp', provider_code: 2 },
+        { key: 'cards_ru', provider_code: 11 },
+      ],
+    });
+    vi.mocked(deviceFirstApi.payDirect).mockRejectedValue({
+      isAxiosError: true,
+      response: { status: 422, data: { detail: { code: 'wallet_insufficient' } } },
+    });
+
+    renderConfigurator({
+      options: { ...options, balance_kopeks: 45000 },
+      initialPath: '/subscription/purchase?period=30&devices=2&method=cards_ru&autostart=1',
+    });
+
+    fireEvent.click(await screen.findByRole('button', { name: 'deviceFirst.payAndOrder:450 ₽' }));
+
+    expect(
+      await screen.findByRole('button', {
+        name: /deviceFirst\.(topUpShortage|topUpAmount|needTopup)/,
+      }),
+    ).toBeTruthy();
+  });
+
+  // 🔴 Три линзы независимо: `methodKey` после засева НЕ заморожен — соседний эффект переписывает
+  // его на первый доступный, если сервер перестал отдавать выбранный ключ. Тогда экран поднял бы
+  // наверх и подписал «вашим выбором» способ, которого человек не выбирал. Это ровно та ложь,
+  // против которой затеян этап, поэтому ключ из чата заморожен в ref.
+  it("never calls a substituted method the person's own choice", async () => {
+    vi.mocked(deviceFirstApi.paymentMethods)
+      .mockResolvedValueOnce({
+        methods: [
+          { key: 'sbp', provider_code: 2 },
+          { key: 'cards_ru', provider_code: 11 },
+        ],
+      })
+      .mockResolvedValue({ methods: [{ key: 'sbp', provider_code: 2 }] });
+
+    const { queryClient } = renderConfigurator({
+      options: { ...options, balance_kopeks: 10000 },
+      initialPath: '/subscription/purchase?period=30&devices=2&method=cards_ru&autostart=1',
+    });
+
+    await screen.findAllByRole('button', { name: 'deviceFirst.paymentMethodAmount:450 ₽' });
+    await queryClient.refetchQueries({ queryKey: ['device-first-payment-methods'] });
+    await waitFor(() =>
+      expect(
+        screen.getAllByRole('button', { name: 'deviceFirst.paymentMethodAmount:450 ₽' }),
+      ).toHaveLength(1),
+    );
+
+    // Карты у провайдера больше нет — значит «его выбор» показать нечем: раскладка обязана
+    // вернуться к обычной, а свёртка «Оплатить другим способом» исчезнуть.
+    expect(screen.queryByText('deviceFirst.otherMethods')).toBeNull();
+    const topUp = screen.getByRole('button', { name: 'deviceFirst.topUpShortage:350 ₽' });
+    const method = screen.getByRole('button', { name: 'deviceFirst.paymentMethodAmount:450 ₽' });
+    expect(topUp.compareDocumentPosition(method) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   // 🔴 НЕ-регрессия, и она важнее обеих проверок выше. `methodKey` лежит умолчанием `'sbp'`

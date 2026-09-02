@@ -129,6 +129,13 @@ export function DeviceFirstConfigurator({
   // 🔴 РЕК-8а. «Мы не открыли оплату, и вот почему» — состояние живёт до ухода с экрана
   // подтверждения. Без него остановка автозапуска молчалива, и человек читает её как поломку.
   const [autostartHeldForWallet, setAutostartHeldForWallet] = useState(false);
+  // 🔴 РЕК-16, находка трёх линз волны 1. Опознавать выбор человека по `methodKey` НЕЛЬЗЯ:
+  // соседний эффект молча переписывает его на первый доступный, если сервер перестал отдавать
+  // прежний ключ (оператор выключил провайдера между сообщением и открытием экрана). Тогда
+  // экран поднял бы наверх и подписал «вашим выбором» способ, которого человек не выбирал, —
+  // ровно та ложь, против которой затеян этап. Ключ из чата замораживаем в момент удержания
+  // и гасим там же, где гаснет само удержание.
+  const chatChosenMethodKeyRef = useRef<string | null>(null);
   const autostartPeriodParam = searchParams.get('period');
   const autostartDevicesParam = searchParams.get('devices');
   const nativeLaunchMethod = searchParams.get('method');
@@ -234,6 +241,7 @@ export function DeviceFirstConfigurator({
     // руками открыл подтверждение — и читает «Мы не открыли оплату» там, где никто ничего
     // не удерживал.
     setAutostartHeldForWallet(false);
+    chatChosenMethodKeyRef.current = null;
     // 🔴 РЕК-14.2, тот же класс, что EW и РЕК-8а двумя строками выше: флаг, поставленный один
     // раз и не гаснущий ничем, переживает свой экран. Компонент между заказами НЕ
     // размонтируется. Без этой строки человек уходит «Изменить параметры», выбирает другое,
@@ -1069,6 +1077,7 @@ export function DeviceFirstConfigurator({
       // объяснения это читается как «не сработало», и он жмёт карту второй раз. Три соседние
       // ветки ставят сообщение — ставим и мы, но не ошибкой: ничего не сломалось.
       setAutostartHeldForWallet(true);
+      chatChosenMethodKeyRef.current = method;
       // 🔴 Способ оплаты человек УЖЕ назвал в чате, а `methodKey` жил умолчанием `'sbp'` и из
       // адреса не засевался никогда. До этой ветки он до экрана доплаты не доходил вовсе;
       // теперь доходит — и главная кнопка увела бы его в СБП, хотя он выбрал карту
@@ -1401,9 +1410,22 @@ export function DeviceFirstConfigurator({
   // лежит умолчанием `'sbp'` и выбором НЕ ЯВЛЯЕТСЯ — сортируй по нему всегда, и человеку,
   // который никого не выбирал, СБП молча встал бы первым как «его способ». Признак того, что
   // выбор был, ровно один: удержанный автозапуск (`setMethodKey(method)` в той же ветке).
+  // ⛔ ТРИ забора, и каждый закрывает свой найденный волной вход:
+  //  · `!walletCoversTotal` — в той ветке блок способов не рисуется вовсе, и слот `afterChosen`
+  //    увёл бы кнопку доплаты в место, которого на экране нет. А попасть туда можно: при
+  //    `wallet_insufficient` доплата обязана появиться, и до правки её ловило нижнее место;
+  //  · `methods.isSuccess` — при неудачном ПОВТОРНОМ запросе TanStack оставляет старые данные и
+  //    ставит `error`; экран рисует ветку отказа, и кнопка доплаты снова не рисуется нигде,
+  //    хотя она в этот момент единственный оставшийся выход;
+  //  · замороженный ключ вместо живого `methodKey` — см. комментарий у самого ref.
+  // Вместе они возвращают инвариант в исходную силу: место у кнопки доплаты РОВНО одно, и оно
+  // всегда отрисовывается. Раньше это держала взаимодополняющая пара `first`/`last`.
   const chatChosenMethod =
-    autostartHeldForWallet && methods.data?.methods
-      ? (methods.data.methods.find((item) => item.key === methodKey) ?? null)
+    autostartHeldForWallet &&
+    !walletCoversTotal &&
+    methods.isSuccess &&
+    chatChosenMethodKeyRef.current
+      ? (methods.data?.methods.find((item) => item.key === chatChosenMethodKeyRef.current) ?? null)
       : null;
   const otherPaymentMethods = chatChosenMethod
     ? (methods.data?.methods ?? []).filter((item) => item.key !== chatChosenMethod.key)
@@ -1422,23 +1444,24 @@ export function DeviceFirstConfigurator({
   // залитой, остальные лежат под свёрткой, — поэтому разметка вынесена сюда. Две копии одного
   // `<button>` разошлись бы на первой же правке: ровно так в этом проекте появлялись экраны,
   // где одна и та же кнопка ведёт себя по-разному в зависимости от того, где её нажали.
-  const renderPaymentMethodButton = (methodKeyToRender: string, accented: boolean) => (
-    <button
-      key={methodKeyToRender}
-      type="button"
-      disabled={payMutation.isPending}
-      onClick={() =>
-        payMutation.mutate({ fundingMode: 'platega', selectedMethodKey: methodKeyToRender })
-      }
-      className={
-        accented
-          ? `w-full rounded-2xl bg-accent-500 px-5 py-3.5 text-left font-semibold text-white disabled:opacity-50 ${choiceClass}`
-          : `min-h-12 rounded-xl border border-dark-700 px-4 py-3 text-left text-sm font-semibold text-dark-100 transition hover:border-accent-400 hover:bg-accent-500/10 disabled:opacity-50 ${choiceClass}`
-      }
-    >
-      {paymentMethodAmountLabel(methodKeyToRender, formatPrice(confirmTotalKopeks ?? 0))}
-    </button>
-  );
+  const renderPaymentMethodButton = (methodKeyToRender: string, accented: boolean) =>
+    confirmTotalKopeks === null ? null : (
+      <button
+        key={methodKeyToRender}
+        type="button"
+        disabled={payMutation.isPending}
+        onClick={() =>
+          payMutation.mutate({ fundingMode: 'platega', selectedMethodKey: methodKeyToRender })
+        }
+        className={
+          accented
+            ? `w-full rounded-2xl bg-accent-500 px-5 py-3.5 font-semibold text-white disabled:opacity-50 ${choiceClass}`
+            : `min-h-12 rounded-xl border border-dark-700 px-4 py-3 text-left text-sm font-semibold text-dark-100 transition hover:border-accent-400 hover:bg-accent-500/10 disabled:opacity-50 ${choiceClass}`
+        }
+      >
+        {paymentMethodAmountLabel(methodKeyToRender, formatPrice(confirmTotalKopeks))}
+      </button>
+    );
 
   // ⛔ Слова «и оформить» на этой кнопке НЕТ и быть не может: возврат приводит на подтверждение,
   // где надо нажать ещё раз. У device-first нет корзины (`user_cart_service` не встречается в нём
@@ -1784,7 +1807,7 @@ export function DeviceFirstConfigurator({
                         этом вслух и называем то, что он выбирал, по имени. */}
                     {walletCoversTotal
                       ? t('deviceFirst.autostartHeldCoveredText', {
-                          method: paymentMethodLabel(methodKey),
+                          method: paymentMethodLabel(chatChosenMethodKeyRef.current ?? methodKey),
                         })
                       : t(
                           topUpAction
@@ -1996,6 +2019,7 @@ export function DeviceFirstConfigurator({
                   // на СЛЕДУЮЩЕМ подтверждении, открытом руками, человек снова прочитает
                   // «Мы не открыли оплату» там, где никто ничего не удерживал.
                   setAutostartHeldForWallet(false);
+                  chatChosenMethodKeyRef.current = null;
                   // 🔴 РЕК-14.2, ТА ЖЕ МИНА ТРЕТИЙ РАЗ. Гасить надо в ДВУХ местах: этот
                   // обработчик уводит с ЛОКАЛЬНОГО подтверждения и `returnToConfiguration` не
                   // зовёт. Я погасил заряд только там и поймал это собственным сторожем —

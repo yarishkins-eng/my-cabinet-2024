@@ -781,7 +781,8 @@
         "description": "Pay via PAL24"
       },
       "platega": {
-        "description": "Pay via Platega"
+        "name": "Online payment",
+        "description": "Online payment — you pick the method on the next step"
       },
       "wata": {
         "description": "Pay via Wata"
@@ -915,9 +916,8 @@
       "rateLimit": "Please wait {{seconds}} sec.",
       "selectMethod": "Select a method",
       "enterAmount": "Enter an amount",
-      "amountRange": "Amount: {{min}} – {{max}} ₽",
-      "amountBelowMin": "Enter at least ₽{{min}}",
-      "amountAboveMax": "Enter no more than ₽{{max}}"
+      "amountBelowMin": "Enter at least {{amount}}",
+      "amountAboveMax": "Enter no more than {{amount}}"
     },
     "paymentSuccess": {
       "title": "Payment Successful",
@@ -5488,7 +5488,7 @@
     "reviewBeforeCharge": "Review the total before the charge.",
     "topUpBalanceApplied": "The top-up is {{total}} minus your balance of {{balance}}.",
     "topUpShortage": "Add {{amount}}",
-    "topUpShortageHint": "Pay it and come back — we keep your choice, you just place the order.",
+    "topUpShortageHint": "Pay it and come back — all that is left is to place the order.",
     "continueAndOrder": "Continue and subscribe",
     "needTopup": "Balance top-up required",
     "armedNotice": "The order is confirmed. It will complete after payment because you explicitly authorized the charge.",
@@ -5511,7 +5511,7 @@
     "invoiceReadyTitle": "Order awaiting payment",
     "invoiceReadyText": "Pay while the invoice is valid: an expired invoice no longer activates the subscription.",
     "refreshStatusHint": "If you have already paid and nothing changed here, tap \"Refresh status\".",
-    "twoStepPayHint": "You will open the payment on the next step.",
+    "twoStepPayHint": "We place the order first; you open the payment yourself on the next step.",
     "invoiceValidUntil": "This invoice is valid until {{date}}.",
     "existingInvoice": "An invoice via {{method}} already exists. Check the method before continuing.",
     "continueExistingInvoice": "Go to payment",
@@ -5587,12 +5587,12 @@
     "balance": "Balance",
     "shortage": "Shortfall",
     "balanceIncludesTopUp": "includes a {{amount}} top-up",
-    "autostartHeldTitle": "You have money on your balance",
-    "autostartHeldCoveredText": "You chose {{method}}, but you do not need it — the full amount is already on your balance.",
-    "autostartHeldNoTopUpText": "There is no way to top up right now. Pay the full amount — your balance stays untouched.",
-    "autostartHeldText": "Add only the rest — or pay the full amount and leave your balance untouched.",
+    "autostartHeldTitle": "Your money is on the balance",
+    "autostartHeldCoveredText": "That is why we did not open the payment. You chose «{{method}}», but you do not need to pay: the full amount is already on your balance.",
+    "autostartHeldNoTopUpText": "That is why we did not open the payment yet. But it is not enough for the whole price, and there is no way to top up right now — you will have to pay the full amount.",
+    "autostartHeldText": "That is why we did not open the payment yet. Pay the full amount — or add only the rest.",
     "payFullAmountNotice": "Pay the full amount — your balance stays untouched",
-    "otherMethods": "Other payment methods"
+    "otherMethods": "Pay by another method"
   },
   "trialStart": {
     "loadErrorTitle": "Could not open the trial",
