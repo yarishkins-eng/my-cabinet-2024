@@ -702,7 +702,9 @@
       "rateLimit": "请等待 {{seconds}} 秒",
       "selectMethod": "请选择支付方式",
       "enterAmount": "请输入金额",
-      "amountRange": "金额：{{min}} – {{max}} ₽"
+      "amountRange": "金额：{{min}} – {{max}} ₽",
+      "amountBelowMin": "请输入不少于 {{min}} ₽",
+      "amountAboveMax": "请输入不超过 {{max}} ₽"
     },
     "insufficientFunds": "余额不足",
     "missing": "缺少",
@@ -4911,7 +4913,7 @@
     "invoiceReadyTitle": "订单等待支付",
     "invoiceReadyText": "请在账单有效期内付款：过期账单不再开通订阅。",
     "refreshStatusHint": "如果您已付款而此处没有变化，请点击“刷新状态”。",
-    "twoStepPayHint": "我们先提交订单，下一步您再自行打开支付页面。",
+    "twoStepPayHint": "支付将在下一步打开。",
     "invoiceValidUntil": "账单有效期至 {{date}}。",
     "existingInvoice": "已有一张通过“{{method}}”创建的账单。继续前请确认支付方式。",
     "continueExistingInvoice": "前往支付",
@@ -4991,9 +4993,11 @@
     "balance": "余额",
     "shortage": "还差",
     "balanceIncludesTopUp": "含本次充值 {{amount}}",
-    "autostartHeldTitle": "我们没有直接打开支付",
-    "autostartHeldCoveredText": "全部金额已在您的余额中——只需下单即可。",
-    "autostartHeldNoTopUpText": "部分金额已在您的余额中，但目前无法充值。请选择支付方式——您的余额将保持不动。",
-    "autostartHeldText": "部分金额已在您的余额中。请选择：补足差额，或支付全款并保留余额不动。"
+    "autostartHeldTitle": "您的账户里有余额",
+    "autostartHeldCoveredText": "您选择了{{method}}，但无需使用——全部金额已在您的余额中。",
+    "autostartHeldNoTopUpText": "目前无法充值。请支付全款——您的余额将保持不动。",
+    "autostartHeldText": "只需补足差额——或支付全款，余额保持不动。",
+    "payFullAmountNotice": "支付全款 — 余额不会被使用",
+    "otherMethods": "其他支付方式"
   }
 }

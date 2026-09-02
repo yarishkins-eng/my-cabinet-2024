@@ -66,18 +66,27 @@ vi.mock('react-i18next', () => ({
   useTranslation: () => ({
     t: (
       key: string,
-      values?: { count?: number; amount?: string; balance?: string; total?: string },
-    ) =>
-      values?.amount
-        ? `${key}:${values.amount}`
-        : // 🔴 РЕК-8б: у строки про арифметику баланса ДВА числа, и оба обязаны доехать.
-          // Без этой ветки мок вернул бы голый ключ, и сторож проверял бы наличие строки,
-          // а не то, какие числа в неё подставлены.
-          values?.balance !== undefined && values?.total !== undefined
-          ? `${key}:${values.balance}:${values.total}`
-          : values?.count === undefined
-            ? key
-            : `${key}:${values.count}`,
+      values?: {
+        count?: number;
+        amount?: string;
+        balance?: string;
+        total?: string;
+        method?: string;
+      },
+    ) => {
+      if (values?.amount) return `${key}:${values.amount}`;
+      // 🔴 РЕК-8б: у строки про арифметику баланса ДВА числа, и оба обязаны доехать.
+      // Без этой ветки мок вернул бы голый ключ, и сторож проверял бы наличие строки,
+      // а не то, какие числа в неё подставлены.
+      if (values?.balance !== undefined && values?.total !== undefined)
+        return `${key}:${values.balance}:${values.total}`;
+      // 🔴 РЕК-16: то же и с названием выбранного способа. Ветка стоит НИЖЕ денежной, иначе
+      // `paymentMethodAmount` (у него есть и `method`, и `amount`) сменил бы форму, и все
+      // прежние ожидания вида `…:450 ₽` стали бы проверять другое.
+      if (values?.method !== undefined) return `${key}:${values.method}`;
+      if (values?.count === undefined) return key;
+      return `${key}:${values.count}`;
+    },
   }),
 }));
 
@@ -2265,7 +2274,11 @@ describe('DeviceFirstConfigurator interaction safety', () => {
     // 🔴 Текст обязан описывать ТО, ЧТО НА ЭКРАНЕ. Здесь на нём ровно одна кнопка «Списать и
     // оформить»: ни доплаты, ни способов оплаты. Общая редакция предлагала выбрать из двух,
     // которых нет, — прогон сценария и критик полноты нашли это независимо.
-    expect(screen.getByText('deviceFirst.autostartHeldCoveredText')).toBeTruthy();
+    // 🔴 РЕК-16.2 переписал это ожидание, и это заявление, а не подкрутка: раньше текст
+    // сообщал только «денег хватает», теперь он ОБЯЗАН назвать то, что человек выбирал, —
+    // решение владельца «клиент выбрал, а мы ему другое подкидываем» про этот самый экран.
+    // Голый ключ здесь снова означал бы, что подстановка не доехала.
+    expect(screen.getByText('deviceFirst.autostartHeldCoveredText:deviceFirst.sbp')).toBeTruthy();
     expect(screen.queryByText('deviceFirst.autostartHeldText')).toBeNull();
   });
 
@@ -2336,6 +2349,99 @@ describe('DeviceFirstConfigurator interaction safety', () => {
     const target = screen.getByTestId('location').textContent ?? '';
     const query = new URLSearchParams(target.slice(target.indexOf('?') + 1));
     expect(query.get('option')).toBe('11');
+  });
+
+  // 🔴 РЕК-16.1. Живой проход владельца 02.09.2026, дословно: «я нажимаю на то, чтобы оплатить
+  // картой 249. Не доплатить, а оплатить. И мне всё равно настойчиво предлагают сначала
+  // доплатить». Его прямой ответ на вопрос «чем платить» экран переспрашивал заново, поставив
+  // своё предложение первым и залитым.
+  // ⛔ Опознаём кнопки НЕ по подписи: у всех способов она одна и та же (`…:450 ₽`), и сторож
+  // по тексту доказывал бы совпадение. Опознаём НАЖАТИЕМ — по тому, какой способ уходит на
+  // сервер: это то же самое, что случится с человеком.
+  it('puts the method chosen in the bot first and keeps the top-up under it', async () => {
+    vi.mocked(deviceFirstApi.paymentMethods).mockResolvedValue({
+      methods: [
+        { key: 'sbp', provider_code: 2 },
+        { key: 'cards_ru', provider_code: 11 },
+      ],
+    });
+
+    renderConfigurator({
+      options: { ...options, balance_kopeks: 10000 },
+      initialPath: '/subscription/purchase?period=30&devices=2&method=cards_ru&autostart=1',
+    });
+
+    const methodButtons = await screen.findAllByRole('button', {
+      name: 'deviceFirst.paymentMethodAmount:450 ₽',
+    });
+    expect(methodButtons).toHaveLength(2);
+    const topUp = screen.getByRole('button', { name: 'deviceFirst.topUpShortage:350 ₽' });
+
+    // Порядок в документе: сначала ЕГО способ, потом доплата, и только потом остальные.
+    expect(
+      methodButtons[0].compareDocumentPosition(topUp) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(
+      topUp.compareDocumentPosition(methodButtons[1]) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+
+    // И первая кнопка — именно карта, а не первый попавшийся способ из ответа сервера.
+    fireEvent.click(methodButtons[0]);
+    await waitFor(() => expect(deviceFirstApi.payDirect).toHaveBeenCalled());
+    expect(vi.mocked(deviceFirstApi.payDirect).mock.calls[0][0]).toMatchObject({
+      funding_mode: 'platega',
+      method_key: 'cards_ru',
+    });
+  });
+
+  // 🔴 И вторая половина того же решения: остальные способы человек уже проходил в чате,
+  // поэтому лежат под свёрткой. Сторож проверяет, что свёртка настоящая (второй способ
+  // ВНУТРИ неё), — иначе «свернули» осталось бы словом в отчёте.
+  it('folds the methods the person did not choose', async () => {
+    vi.mocked(deviceFirstApi.paymentMethods).mockResolvedValue({
+      methods: [
+        { key: 'sbp', provider_code: 2 },
+        { key: 'cards_ru', provider_code: 11 },
+      ],
+    });
+
+    renderConfigurator({
+      options: { ...options, balance_kopeks: 10000 },
+      initialPath: '/subscription/purchase?period=30&devices=2&method=cards_ru&autostart=1',
+    });
+
+    const methodButtons = await screen.findAllByRole('button', {
+      name: 'deviceFirst.paymentMethodAmount:450 ₽',
+    });
+    const fold = screen.getByText('deviceFirst.otherMethods').closest('details');
+    expect(fold).toBeTruthy();
+    expect(fold!.contains(methodButtons[1])).toBe(true);
+    expect(fold!.contains(methodButtons[0])).toBe(false);
+  });
+
+  // 🔴 НЕ-регрессия, и она важнее обеих проверок выше. `methodKey` лежит умолчанием `'sbp'`
+  // у КАЖДОГО, кто открыл кабинет сам. Разворачивай мы список всегда — человеку, который
+  // никого не выбирал, СБП молча встал бы первым как «его способ», а доплата уехала бы вниз.
+  // Значит у пришедшего без выбора порядок обязан остаться прежним: доплата первой, свёртки нет.
+  it('leaves the old order for a person who never chose a method', async () => {
+    vi.mocked(deviceFirstApi.paymentMethods).mockResolvedValue({
+      methods: [
+        { key: 'sbp', provider_code: 2 },
+        { key: 'cards_ru', provider_code: 11 },
+      ],
+    });
+
+    renderConfigurator({ options: { ...options, balance_kopeks: 10000 } });
+    fireEvent.click(screen.getByRole('button', { name: 'deviceFirst.review' }));
+
+    const methodButtons = await screen.findAllByRole('button', {
+      name: 'deviceFirst.paymentMethodAmount:450 ₽',
+    });
+    const topUp = screen.getByRole('button', { name: 'deviceFirst.topUpShortage:350 ₽' });
+    expect(
+      topUp.compareDocumentPosition(methodButtons[0]) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(screen.queryByText('deviceFirst.otherMethods')).toBeNull();
   });
 
   // 🔴 Сторож РЕК-8б. Связь денег с ценой на экране не была названа ни одной строкой: стояло
@@ -2877,9 +2983,7 @@ describe('DeviceFirstConfigurator interaction safety', () => {
       initialPath: '/subscription/purchase?checkout=checkout-owned&topup=19900',
     });
 
-    await waitFor(() =>
-      expect(screen.getByTestId('location').textContent).not.toContain('topup'),
-    );
+    await waitFor(() => expect(screen.getByTestId('location').textContent).not.toContain('topup'));
   });
 
   // 🔴 Забор правдивости вместо чужого вердикта. Между зачислением и этим кадром деньги мог

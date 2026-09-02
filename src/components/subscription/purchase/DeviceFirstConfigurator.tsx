@@ -1393,6 +1393,53 @@ export function DeviceFirstConfigurator({
     topUpChargeKopeks > 0 &&
     topUpChargeKopeks < confirmTotalKopeks;
 
+  // 🔴 РЕК-16.1, решение владельца 02.09.2026 после живого прохода, дословно: «правильно делать
+  // так как выбрал клиент, а не так — клиент выбрал, а мы ему другое подкидываем». Он нажал в
+  // чате «Банковская карта · 249 ₽», а экран встречал его залитой «Доплатить 199 ₽»: мы брали
+  // его прямой ответ на вопрос «чем платить» и переспрашивали заново, поставив своё первым.
+  // ⚠️ Разворачиваем ТОЛЬКО того, кто действительно принёс выбор. `methodKey` у всех остальных
+  // лежит умолчанием `'sbp'` и выбором НЕ ЯВЛЯЕТСЯ — сортируй по нему всегда, и человеку,
+  // который никого не выбирал, СБП молча встал бы первым как «его способ». Признак того, что
+  // выбор был, ровно один: удержанный автозапуск (`setMethodKey(method)` в той же ветке).
+  const chatChosenMethod =
+    autostartHeldForWallet && methods.data?.methods
+      ? (methods.data.methods.find((item) => item.key === methodKey) ?? null)
+      : null;
+  const otherPaymentMethods = chatChosenMethod
+    ? (methods.data?.methods ?? []).filter((item) => item.key !== chatChosenMethod.key)
+    : [];
+  // 🔴 Три места, где может стоять кнопка доплаты, и занято ровно ОДНО — инвариант «на экране
+  // всегда одна кнопка доплаты» пришёл из Б-2 и держится здесь же. Средний слот завёл РЕК-16:
+  // выбранный способ занимает первое место, доплата встаёт сразу под ним (а не в самый низ,
+  // где её на телефоне не видно) и тихой — потому что главное действие теперь не она.
+  const topUpSlot: 'first' | 'afterChosen' | 'last' = chatChosenMethod
+    ? 'afterChosen'
+    : topUpActionGoesFirst
+      ? 'first'
+      : 'last';
+
+  // 🔴 РЕК-16.1. Кнопка способа оплаты рисуется в ДВУХ местах — выбранная стоит первой и
+  // залитой, остальные лежат под свёрткой, — поэтому разметка вынесена сюда. Две копии одного
+  // `<button>` разошлись бы на первой же правке: ровно так в этом проекте появлялись экраны,
+  // где одна и та же кнопка ведёт себя по-разному в зависимости от того, где её нажали.
+  const renderPaymentMethodButton = (methodKeyToRender: string, accented: boolean) => (
+    <button
+      key={methodKeyToRender}
+      type="button"
+      disabled={payMutation.isPending}
+      onClick={() =>
+        payMutation.mutate({ fundingMode: 'platega', selectedMethodKey: methodKeyToRender })
+      }
+      className={
+        accented
+          ? `w-full rounded-2xl bg-accent-500 px-5 py-3.5 text-left font-semibold text-white disabled:opacity-50 ${choiceClass}`
+          : `min-h-12 rounded-xl border border-dark-700 px-4 py-3 text-left text-sm font-semibold text-dark-100 transition hover:border-accent-400 hover:bg-accent-500/10 disabled:opacity-50 ${choiceClass}`
+      }
+    >
+      {paymentMethodAmountLabel(methodKeyToRender, formatPrice(confirmTotalKopeks ?? 0))}
+    </button>
+  );
+
   // ⛔ Слова «и оформить» на этой кнопке НЕТ и быть не может: возврат приводит на подтверждение,
   // где надо нажать ещё раз. У device-first нет корзины (`user_cart_service` не встречается в нём
   // ни разу), поэтому доплата сама подписку не оформляет. Обещать оформление — врать.
@@ -1408,7 +1455,7 @@ export function DeviceFirstConfigurator({
         type="button"
         onClick={() => navigate(checkoutTopUpHref)}
         className={
-          topUpActionGoesFirst
+          topUpSlot === 'first'
             ? `w-full rounded-2xl bg-accent-500 px-5 py-3.5 font-semibold text-white ${choiceClass}`
             : `w-full rounded-xl border border-accent-400/50 px-4 py-3 text-sm font-semibold text-accent-200 ${choiceClass}`
         }
@@ -1728,13 +1775,22 @@ export function DeviceFirstConfigurator({
                       пополнения ответили и ни один не доступен, кнопки доплаты нет, и обещать
                       её нельзя. */}
                   <p className="text-sm text-dark-300">
-                    {t(
-                      walletCoversTotal
-                        ? 'deviceFirst.autostartHeldCoveredText'
-                        : topUpAction
-                          ? 'deviceFirst.autostartHeldText'
-                          : 'deviceFirst.autostartHeldNoTopUpText',
-                    )}
+                    {/* 🔴 РЕК-16.2, решение владельца: «клиент выбрал, а мы ему другое
+                        подкидываем» — так нельзя. В этой ветке мы и правда подменяем его
+                        выбор: он нажал способ оплаты, а экран показывает одну кнопку
+                        «Списать … и оформить». Кнопки его способа здесь нет НАМЕРЕННО — она
+                        и есть заслон от второго платежа за ту же подписку (пополнил, вернулся
+                        по старой кнопке чата, заплатил ещё раз). Раз подменяем — говорим об
+                        этом вслух и называем то, что он выбирал, по имени. */}
+                    {walletCoversTotal
+                      ? t('deviceFirst.autostartHeldCoveredText', {
+                          method: paymentMethodLabel(methodKey),
+                        })
+                      : t(
+                          topUpAction
+                            ? 'deviceFirst.autostartHeldText'
+                            : 'deviceFirst.autostartHeldNoTopUpText',
+                        )}
                   </p>
                 </div>
               )}
@@ -1811,7 +1867,7 @@ export function DeviceFirstConfigurator({
                   {/* 🔴 Этап Б-2, ветка частичного баланса: доплата — ПЕРВОЕ и акцентное
                       действие, способы оплаты остаются настоящими кнопками под ней. Порядок
                       важен физически: на телефоне до нижних кнопок надо доскроллить. */}
-                  {topUpActionGoesFirst && topUpAction}
+                  {topUpSlot === 'first' && topUpAction}
                   {methods.isLoading ? (
                     <p role="status" className="text-sm text-dark-400">
                       {t('deviceFirst.paymentMethodsLoading')}
@@ -1842,9 +1898,19 @@ export function DeviceFirstConfigurator({
                       У человека с нулём на балансе второго варианта не существует: доплачивать
                       нечего к нулю, и строка обещала выбор, которого нет. Показываем её только
                       тому, у кого рядом действительно стоит кнопка доплаты. */}
+                      {/* 🔴 РЕК-16.1. «ИЛИ оплатите полной суммой» — союз, и он верен, пока
+                          полная оплата стоит ВТОРЫМ вариантом. У пришедшего из чата она стоит
+                          первой, и «или» начинало спорить с порядком кнопок. Оговорка про
+                          нетронутый баланс (мина DE) при этом обязана остаться в обоих
+                          случаях: без неё строка «Баланс» рядом с ценой читается как
+                          «зачтётся». Меняется союз, а не защита. */}
                       {hasWallet && (
                         <p className="text-sm text-dark-300">
-                          {t('deviceFirst.paymentMethodsAvailable')}
+                          {t(
+                            chatChosenMethod
+                              ? 'deviceFirst.payFullAmountNotice'
+                              : 'deviceFirst.paymentMethodsAvailable',
+                          )}
                         </p>
                       )}
                       {/* 🔴 Пункт 4.11а: здесь стояло предупреждение «страница оплаты откроется
@@ -1857,24 +1923,36 @@ export function DeviceFirstConfigurator({
                           375×667 под ними она уходит за сгиб, а скринридер читает её уже ПОСЛЕ
                           нажатия. Предупреждение после действия предупреждением не является. */}
                       <p className="text-xs text-dark-400">{t('deviceFirst.twoStepPayHint')}</p>
-                      <div className="grid gap-2">
-                        {methods.data.methods.map((method) => (
-                          <button
-                            key={method.key}
-                            type="button"
-                            disabled={payMutation.isPending}
-                            onClick={() =>
-                              payMutation.mutate({
-                                fundingMode: 'platega',
-                                selectedMethodKey: method.key,
-                              })
-                            }
-                            className={`min-h-12 rounded-xl border border-dark-700 px-4 py-3 text-left text-sm font-semibold text-dark-100 transition hover:border-accent-400 hover:bg-accent-500/10 disabled:opacity-50 ${choiceClass}`}
-                          >
-                            {paymentMethodAmountLabel(method.key, formatPrice(confirmTotalKopeks))}
-                          </button>
-                        ))}
-                      </div>
+                      {chatChosenMethod ? (
+                        <div className="space-y-2">
+                          {renderPaymentMethodButton(chatChosenMethod.key, true)}
+                          {topUpSlot === 'afterChosen' && topUpAction}
+                          {/* 🔴 Остальные способы человек не выбирал — он их уже проходил в
+                              чате. Держим их в одном нажатии, но не заставляем перечитывать
+                              список заново. `<details>` вместо своего состояния намеренно:
+                              этот компонент между заказами не размонтируется, и своё
+                              состояние пришлось бы гасить в четырёх местах — ровно класс
+                              мины EW, на который этот файл уже наступал. */}
+                          {otherPaymentMethods.length > 0 && (
+                            <details className="rounded-xl border border-dark-700/60">
+                              <summary className="cursor-pointer px-4 py-3 text-sm font-semibold text-dark-200">
+                                {t('deviceFirst.otherMethods')}
+                              </summary>
+                              <div className="grid gap-2 px-3 pb-3">
+                                {otherPaymentMethods.map((method) =>
+                                  renderPaymentMethodButton(method.key, false),
+                                )}
+                              </div>
+                            </details>
+                          )}
+                        </div>
+                      ) : (
+                        <div className="grid gap-2">
+                          {methods.data.methods.map((method) =>
+                            renderPaymentMethodButton(method.key, false),
+                          )}
+                        </div>
+                      )}
                     </>
                   ) : (
                     <div className="space-y-2">
@@ -1897,7 +1975,7 @@ export function DeviceFirstConfigurator({
                   и тапом (`wallet_insufficient`, у такого человека денег на вид ХВАТАЕТ, и
                   наверху его ветки стоит «Списать … и оформить»). Обе точки разведены одним
                   признаком `topUpActionGoesFirst`, поэтому кнопка на экране всегда ровно одна. */}
-              {!topUpActionGoesFirst && topUpAction}
+              {topUpSlot === 'last' && topUpAction}
               <button
                 type="button"
                 onClick={() => {

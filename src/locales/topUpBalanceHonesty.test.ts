@@ -68,6 +68,10 @@ describe('РЕК-8б: строка про доплату не обещает с�
       'autostartHeldText',
       'autostartHeldCoveredText',
       'autostartHeldNoTopUpText',
+      // 🔴 РЕК-16.1: строка-оговорка и подпись свёртки живут только здесь. Тесты экрана
+      // мокают `t` по ключу и пропажу текста не видят — они ЖДУТ сырой ключ.
+      'payFullAmountNotice',
+      'otherMethods',
     ]) {
       expect(dict?.deviceFirst?.[key], `${file}: нет ключа deviceFirst.${key}`).toBeTypeOf(
         'string',
@@ -113,6 +117,48 @@ describe('РЕК-14.2: подстрочник о доплате не обеща�
       expect(
         phrase!.toLowerCase().includes(origin),
         `${file}: строка называет происхождение денег («${origin}»), а экран его не знает`,
+      ).toBe(false);
+    }
+  });
+});
+
+/**
+ * РЕК-16: экран называет способ, который человек выбрал, — и не обещает списания.
+ *
+ * 🔴 Решение владельца 02.09.2026, дословно: «правильно делать так как выбрал клиент, а не
+ * так — клиент выбрал, а мы ему другое подкидываем». В ветке «денег на счету хватает на всё»
+ * мы его выбор всё-таки подменяем: он нажал способ оплаты, а экран показывает одну кнопку
+ * «Списать … и оформить». Кнопки его способа там нет намеренно — она и есть заслон от второго
+ * платежа за ту же подписку. Раз подменяем, обязаны сказать об этом и НАЗВАТЬ выбранное по
+ * имени: без подстановки строка снова становится немой, и решение владельца не исполнено.
+ *
+ * ⚠️ Граница названа честно: «заголовок говорит о человеке, а не о нас» тестом НЕ закрыт.
+ * Забор на слова снятой редакции («мы не открыли оплату») стерёг бы букву прошлой поломки —
+ * ровно та ошибка, которую этот проект уже делал 30.08. Свойство «фраза не про нас»
+ * подстрокой не выражается, поэтому оно остаётся на глазах ревью, а не на тесте.
+ */
+const METHOD_PLACEHOLDER = /\{\{\s*method\s*\}\}/;
+
+describe('РЕК-16: подмена выбора названа по имени', () => {
+  it.each(LOCALE_FILES)('%s называет выбранный способ в объяснении при полном балансе', (file) => {
+    const dict = JSON.parse(fs.readFileSync(path.join(LOCALES_DIR, file), 'utf8'));
+    const phrase: string | undefined = dict?.deviceFirst?.autostartHeldCoveredText;
+
+    expect(phrase, `${file}: ключа deviceFirst.autostartHeldCoveredText нет`).toBeTypeOf('string');
+    expect(
+      METHOD_PLACEHOLDER.test(phrase!),
+      `${file}: строка не называет выбранный способ — подмена снова молчаливая`,
+    ).toBe(true);
+  });
+
+  it.each(LOCALE_FILES)('%s не утверждает списания в строке про полную оплату', (file) => {
+    const dict = JSON.parse(fs.readFileSync(path.join(LOCALES_DIR, file), 'utf8'));
+    const phrase: string = dict?.deviceFirst?.payFullAmountNotice ?? '';
+
+    for (const verb of CLAIMS_A_COMPLETED_DEBIT) {
+      expect(
+        phrase.toLowerCase().includes(verb.toLowerCase()),
+        `${file}: «${verb}» утверждает списание, которого не было — см. мину DE`,
       ).toBe(false);
     }
   });

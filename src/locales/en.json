@@ -915,7 +915,9 @@
       "rateLimit": "Please wait {{seconds}} sec.",
       "selectMethod": "Select a method",
       "enterAmount": "Enter an amount",
-      "amountRange": "Amount: {{min}} – {{max}} ₽"
+      "amountRange": "Amount: {{min}} – {{max}} ₽",
+      "amountBelowMin": "Enter at least ₽{{min}}",
+      "amountAboveMax": "Enter no more than ₽{{max}}"
     },
     "paymentSuccess": {
       "title": "Payment Successful",
@@ -5509,7 +5511,7 @@
     "invoiceReadyTitle": "Order awaiting payment",
     "invoiceReadyText": "Pay while the invoice is valid: an expired invoice no longer activates the subscription.",
     "refreshStatusHint": "If you have already paid and nothing changed here, tap \"Refresh status\".",
-    "twoStepPayHint": "We place the order first; you open the payment yourself on the next step.",
+    "twoStepPayHint": "You will open the payment on the next step.",
     "invoiceValidUntil": "This invoice is valid until {{date}}.",
     "existingInvoice": "An invoice via {{method}} already exists. Check the method before continuing.",
     "continueExistingInvoice": "Go to payment",
@@ -5585,10 +5587,12 @@
     "balance": "Balance",
     "shortage": "Shortfall",
     "balanceIncludesTopUp": "includes a {{amount}} top-up",
-    "autostartHeldTitle": "We did not open the payment",
-    "autostartHeldCoveredText": "The full amount is already on your balance — all that is left is to place the order.",
-    "autostartHeldNoTopUpText": "Part of the amount is already on your balance, but top-up is unavailable right now. Choose a payment method — your balance stays untouched.",
-    "autostartHeldText": "Part of the amount is already on your balance. Choose: add the rest, or pay the full price and leave your balance untouched."
+    "autostartHeldTitle": "You have money on your balance",
+    "autostartHeldCoveredText": "You chose {{method}}, but you do not need it — the full amount is already on your balance.",
+    "autostartHeldNoTopUpText": "There is no way to top up right now. Pay the full amount — your balance stays untouched.",
+    "autostartHeldText": "Add only the rest — or pay the full amount and leave your balance untouched.",
+    "payFullAmountNotice": "Pay the full amount — your balance stays untouched",
+    "otherMethods": "Other payment methods"
   },
   "trialStart": {
     "loadErrorTitle": "Could not open the trial",
