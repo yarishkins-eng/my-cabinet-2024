@@ -2605,6 +2605,73 @@ describe('DeviceFirstConfigurator interaction safety', () => {
     expect(topUp.compareDocumentPosition(method) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
+  // 🔴 Критик полноты: забор этапа Б-2 («доплата громкая только там, где она реально короче»)
+  // новый слот не спрашивал вовсе. Взводится одной правкой минимума пополнения в админке:
+  // минимум 500 ₽ при цене 450 ₽ — и под «Карта · 450 ₽» встала бы «Доплатить 500 ₽», ровно
+  // тот вариант, который ревью Б-2 отклонило. В этом случае раскладку не разворачиваем.
+  it('does not promote the chat choice when the top-up is not the shorter road', async () => {
+    vi.mocked(deviceFirstApi.paymentMethods).mockResolvedValue({
+      methods: [
+        { key: 'sbp', provider_code: 2 },
+        { key: 'cards_ru', provider_code: 11 },
+      ],
+    });
+    getBalancePaymentMethods.mockResolvedValue([
+      {
+        id: 'platega',
+        name: 'Platega',
+        is_available: true,
+        min_amount_kopeks: 50000,
+        max_amount_kopeks: 100000000,
+      },
+    ]);
+
+    renderConfigurator({
+      options: { ...options, balance_kopeks: 10000 },
+      initialPath: '/subscription/purchase?period=30&devices=2&method=cards_ru&autostart=1',
+    });
+
+    // Улика, что экран поднялся именно в удержанном состоянии, а не остался на выборе.
+    expect(await screen.findByText('deviceFirst.autostartHeldTitle')).toBeTruthy();
+    // А раскладка при этом обычная: свёртки нет, способы стоят плоским списком.
+    expect(screen.queryByText('deviceFirst.otherMethods')).toBeNull();
+    expect(
+      await screen.findAllByRole('button', { name: 'deviceFirst.paymentMethodAmount:450 ₽' }),
+    ).toHaveLength(2);
+  });
+
+  // 🔴 Критик полноты: человеку, которому банк отказал, альтернативы нужны СЕЙЧАС — а мы их
+  // спрятали под свёртку, да ещё и текст отказа печатается ниже неё. После любой неудачи
+  // раскладка обязана вернуться к обычной.
+  it('unfolds the other methods once a payment attempt failed', async () => {
+    vi.mocked(deviceFirstApi.paymentMethods).mockResolvedValue({
+      methods: [
+        { key: 'sbp', provider_code: 2 },
+        { key: 'cards_ru', provider_code: 11 },
+      ],
+    });
+    vi.mocked(deviceFirstApi.payDirect).mockRejectedValue({
+      isAxiosError: true,
+      response: { status: 502, data: { detail: { code: 'provider_unavailable' } } },
+    });
+
+    renderConfigurator({
+      options: { ...options, balance_kopeks: 10000 },
+      initialPath: '/subscription/purchase?period=30&devices=2&method=cards_ru&autostart=1',
+    });
+
+    const buttons = await screen.findAllByRole('button', {
+      name: 'deviceFirst.paymentMethodAmount:450 ₽',
+    });
+    expect(screen.getByText('deviceFirst.otherMethods')).toBeTruthy();
+    fireEvent.click(buttons[0]);
+
+    await waitFor(() => expect(screen.queryByText('deviceFirst.otherMethods')).toBeNull());
+    expect(
+      screen.getAllByRole('button', { name: 'deviceFirst.paymentMethodAmount:450 ₽' }),
+    ).toHaveLength(2);
+  });
+
   // 🔴 НЕ-регрессия, и она важнее обеих проверок выше. `methodKey` лежит умолчанием `'sbp'`
   // у КАЖДОГО, кто открыл кабинет сам. Разворачивай мы список всегда — человеку, который
   // никого не выбирал, СБП молча встал бы первым как «его способ», а доплата уехала бы вниз.
