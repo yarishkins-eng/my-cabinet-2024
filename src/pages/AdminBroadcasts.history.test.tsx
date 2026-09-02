@@ -101,11 +101,11 @@ beforeEach(() => {
         message_text: 'Завершена',
         has_media: false,
         media_type: null,
-        total_count: 10,
-        sent_count: 10,
-        failed_count: 0,
-        blocked_count: 0,
-        status: 'completed',
+        total_count: 20,
+        sent_count: 12,
+        failed_count: 2,
+        blocked_count: 6,
+        status: 'partial',
         progress_percent: 100,
         category: 'promo',
         created_at: '2026-08-29T20:02:00Z',
@@ -127,6 +127,9 @@ describe('РС-12: история рассылок', () => {
     expect(screen.getByText('admin.broadcasts.categoryNews')).toBeTruthy();
     expect(screen.getByText('Тариф «Премиум»')).toBeTruthy();
     expect(screen.getByText(/admin\.broadcasts\.completedAt:/)).toBeTruthy();
+    expect(screen.getByText(/12\/20/)).toBeTruthy();
+    expect(screen.getByText(/6 admin\.broadcasts\.blockedShort/)).toBeTruthy();
+    expect(screen.getByText(/2 admin\.broadcasts\.failedShort/)).toBeTruthy();
 
     const stopButtons = screen.getAllByRole('button', { name: 'admin.broadcasts.stop' });
     expect(stopButtons).toHaveLength(2);
