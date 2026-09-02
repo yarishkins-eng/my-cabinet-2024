@@ -155,6 +155,10 @@ export function DeviceFirstConfigurator({
     nextParams.delete('devices');
     nextParams.delete('method');
     nextParams.delete('autostart');
+    // 🔴 РЕК-14.2: сумма пополнения — тоже одноразовый заряд. Не снимешь — переживёт
+    // перезагрузку и будет показывать чек за позавчерашние деньги. Списков ДВА, второй ниже
+    // в `acceptCheckout`; забыть один — значит починить наполовину.
+    nextParams.delete('topup');
     // Этап Б-1: метка возврата с пополнения одноразовая ровно так же, как launch-запрос.
     nextParams.delete('from');
     setSearchParams(nextParams, { replace: true });
@@ -202,6 +206,7 @@ export function DeviceFirstConfigurator({
         nextParams.delete('devices');
         nextParams.delete('method');
         nextParams.delete('autostart');
+        nextParams.delete('topup');
         // The initial C1 → C2 transition is a real user navigation, so Back
         // returns to the configuration. State refreshes for that same checkout
         // replace instead of growing the history on every poll.
@@ -312,6 +317,9 @@ export function DeviceFirstConfigurator({
   // а открывает его тот же эффект — в тот момент, когда выбор применён и цена у него нашлась.
   // ⛔ Списания это не приближает ни на шаг: подтверждение локальное, заказа на сервере нет,
   // деньги двигает только нажатие человека (решение владельца 02.09.2026, класс бага #629889).
+  // 🔴 РЕК-14.2. Живёт в состоянии, а не в ref: строку надо нарисовать, а ref перерисовку не
+  // вызывает. Заряд одноразовый — из адреса он снимается тем же чистильщиком, что и остальные.
+  const [topUpJustPaidKopeks, setTopUpJustPaidKopeks] = useState<number | null>(null);
   const topUpReturnSeedRef = useRef(false);
   // 🔴 РЕК-3, находка линзы UX. Посев живёт в эффекте, то есть ПОСЛЕ первой отрисовки: без
   // этого признака человек успевал увидеть кадр экрана выбора с ЧУЖИМИ числами (умолчание,
@@ -349,6 +357,14 @@ export function DeviceFirstConfigurator({
         devices: seededDevices,
         confirm: true,
       };
+    }
+    // 🔴 РЕК-14.2. Сколько человек только что доплатил. Число приходит адресом от экрана
+    // результата и ТОЛЬКО когда его подтвердил сервер — на той стороне стоят три забора.
+    // Здесь мы его больше не проверяем на «правду», а проверяем на форму: адрес правит кто
+    // угодно, а строка денежная. Отрицательное, нулевое и нечисловое молча игнорируем.
+    const seededTopUp = Number(searchParams.get('topup'));
+    if (Number.isSafeInteger(seededTopUp) && seededTopUp > 0) {
+      setTopUpJustPaidKopeks(seededTopUp);
     }
     // Заряд из адреса снимаем сразу: иначе `?period=&devices=` переживёт перезагрузку и
     // будет тихо восстанавливать старый выбор поверх нового при каждом `setSearchParams`.
@@ -1724,6 +1740,7 @@ export function DeviceFirstConfigurator({
                 </div>
               )}
               <SelectionSummary
+                topUpJustPaidKopeks={topUpJustPaidKopeks}
                 periodDays={confirmPeriodDays}
                 deviceLimit={confirmDeviceLimit}
                 priceKopeks={confirmTotalKopeks}
@@ -2596,6 +2613,7 @@ function SelectionSummary({
   balanceKopeks,
   currentDeviceLimit,
   formatPrice,
+  topUpJustPaidKopeks = null,
 }: {
   periodDays: number;
   deviceLimit: number;
@@ -2603,6 +2621,7 @@ function SelectionSummary({
   balanceKopeks: number | null;
   currentDeviceLimit: number | null;
   formatPrice: (value: number) => string;
+  topUpJustPaidKopeks?: number | null;
 }) {
   const { t } = useTranslation();
   const periodText =
@@ -2627,6 +2646,19 @@ function SelectionSummary({
         <div className="flex justify-between text-sm text-dark-300">
           <span>{t('deviceFirst.balance')}</span>
           <strong>{formatPrice(balanceKopeks)}</strong>
+        </div>
+      )}
+      {/* 🔴 РЕК-14.2. Человек, вернувшийся из банка, задаёт себе ровно один вопрос — «мои
+          деньги дошли?». Отвечает подстрочник ПОД балансом, а не строка над ним.
+          ⛔ Ни знака «плюс», ни позиции сверху: доплата УЖЕ внутри этого баланса, и «+199»
+          рядом с «249» человек читает как слагаемое — «значит после списания останется 199
+          сдачи». Нашла линза UX на разборе замысла, до кода.
+          ⛔ И слов «подарок»/«бонус» тут быть не может: происхождение денег экран не знает.
+          `role="status"` — потому что экран открывается без действия человека, а это
+          единственное новое содержимое на нём; иначе незрячий о нём не узнает. */}
+      {balanceKopeks !== null && topUpJustPaidKopeks !== null && (
+        <div role="status" className="-mt-2 text-right text-xs text-dark-400">
+          {t('deviceFirst.balanceIncludesTopUp', { amount: formatPrice(topUpJustPaidKopeks) })}
         </div>
       )}
       {balanceKopeks !== null && priceKopeks !== null && balanceKopeks < priceKopeks && (

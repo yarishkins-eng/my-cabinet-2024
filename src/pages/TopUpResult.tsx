@@ -30,6 +30,12 @@ const POLL_INTERVAL_MS = 3_000;
  * прежнее «не хватает» — то есть соврёт увереннее, чем экран баланса, где видно фактическое
  * состояние счёта. Здесь чинится подпись, а не назначение.
  */
+/**
+ * Сколько держим подтверждение перед автоматическим уходом на карточку заказа (РЕК-14.2).
+ * Секунда — компромисс: меньше не успевает прочитаться, больше читается как зависание.
+ */
+const AUTO_RETURN_DELAY_MS = 1100;
+
 function neutralExit(returnTo: string | null): { path: string; labelKey: string } {
   return returnTo
     ? { path: '/', labelKey: 'balance.topUpResult.goToHome' }
@@ -103,10 +109,12 @@ function SuccessState({
   amountKopeks,
   returnTo,
   purchaseStepPending,
+  autoLeaving,
 }: {
   amountKopeks: number | null;
   returnTo: string | null;
   purchaseStepPending: boolean;
+  autoLeaving: boolean;
 }) {
   const { t } = useTranslation();
   const navigate = useNavigate();
@@ -217,32 +225,42 @@ function SuccessState({
         </button>
       )}
 
-      <button
-        type="button"
-        onClick={handleDone}
-        className={
-          needsPurchaseDoor
-            ? 'flex min-h-[44px] w-full items-center justify-center gap-2 rounded-xl bg-dark-800/50 px-6 py-3 text-sm font-medium text-dark-200 transition-colors hover:bg-dark-700/50'
-            : 'flex w-full items-center justify-center gap-2 rounded-xl bg-accent-500 px-6 py-3 text-sm font-medium text-white transition-colors hover:bg-accent-400'
-        }
-      >
-        {/* 🔴 Этап Б-1: для кассы «Перейти к подписке» — ложь ровно в ту секунду, когда деньги
+      {/* 🔴 РЕК-14.2. Когда экран уезжает сам, кнопки нет вовсе — нажимать нечего. Заменяем её
+          тихой строкой: молча подменить экран под пальцем на денежный было бы хуже лишнего
+          нажатия. Кнопка остаётся на ВСЕХ остальных дорогах — и там, где сервер не подтвердил,
+          и там, где человек пополнял не под покупку. */}
+      {autoLeaving ? (
+        <p role="status" className="text-sm text-dark-400">
+          {t('balance.topUpResult.returningToOrder')}
+        </p>
+      ) : (
+        <button
+          type="button"
+          onClick={handleDone}
+          className={
+            needsPurchaseDoor
+              ? 'flex min-h-[44px] w-full items-center justify-center gap-2 rounded-xl bg-dark-800/50 px-6 py-3 text-sm font-medium text-dark-200 transition-colors hover:bg-dark-700/50'
+              : 'flex w-full items-center justify-center gap-2 rounded-xl bg-accent-500 px-6 py-3 text-sm font-medium text-white transition-colors hover:bg-accent-400'
+          }
+        >
+          {/* 🔴 Этап Б-1: для кассы «Перейти к подписке» — ложь ровно в ту секунду, когда деньги
             уже взяты: подписки ещё нет, пополнение ничего не оформило.
             🔴 Этап В-1 (мина EI): подпись Б-1 брала ключ кассы `deviceFirst.review`, а он же
             подписывает главную кнопку САМОЙ кассы. Человек нажимал «Перейти к оформлению» и
             видел «Перейти к оформлению» второй раз, ниже сгиба, — и не понимал, сработало ли
             первое нажатие. Своя подпись говорит, куда ведёт: назад к его покупке. */}
-        {/* 🔴 Средняя ветка тоже переписана этапом В-1. Она брала ключ уведомлений
+          {/* 🔴 Средняя ветка тоже переписана этапом В-1. Она брала ключ уведомлений
             `successNotification.goToSubscription`, а тот в персидском и китайском говорит
             «перейти к подписке» — при том что кнопка ведёт на Главную, где подписки может
             не быть. Это ровно мина EG, тремя строками ниже места, где EG чинили. Берём тот
             же собственный ключ, что и запасной выход: подпись и назначение сшиты в одном месте. */}
-        {checkoutReturn
-          ? t('balance.topUpResult.backToOrder')
-          : returnTo
-            ? t('balance.topUpResult.goToHome')
-            : t('balance.topUpResult.goToBalance')}
-      </button>
+          {checkoutReturn
+            ? t('balance.topUpResult.backToOrder')
+            : returnTo
+              ? t('balance.topUpResult.goToHome')
+              : t('balance.topUpResult.goToBalance')}
+        </button>
+      )}
     </motion.div>
   );
 }
@@ -589,6 +607,49 @@ export default function TopUpResult() {
   // метку после этапа В-1 умеет собрать кто угодно.
   const purchaseStepPending = Boolean(effectivePayment?.purchase_step_pending);
 
+  // 🔴 РЕК-14.2. Дорога кассы перестаёт быть двухшаговой: экран показывает подтверждение и
+  // уезжает на карточку заказа САМ. Нажатие «Вернуться к покупке» и было тем шагом, который
+  // человек уже сделал, — он вернулся из банка.
+  //
+  // ⛔⛔ БЕРЁМ `serverSaysPaid`, А НЕ `resolvedPaid`, И ЭТО ГЛАВНЫЙ ЗАПРЕТ ЭТАПА. Соседняя
+  // переменная `resolvedPaid` означает «сервер подтвердил ИЛИ сервер промолчал, а адрес
+  // говорит успех» — и именно она уже управляет отрисовкой ниже, то есть просится в этот
+  // эффект сама. Взять её значит отдать автоматический переход и печатную денежную строку во
+  // власть адресной строки, которую после этапа В-1 умеет собрать кто угодно
+  // (`t.me/<бот>?startapp=tup-platega-ok`). Нашёл скептик на разборе замысла.
+  //
+  // Три забора, все обязательны, все названы линзой денег до кода:
+  //  1. `serverSaysPaid` — слово сервера, а не адреса;
+  //  2. `canPollById` — это НАШ платёж. Запасной маршрут «последний платёж за час» отдаёт
+  //     любой, включая прямую оплату подписки картой, которая баланса не касается вовсе
+  //     (на боевом таких 28 из 158). По нему сумма уехала бы в строку «включая пополнение»,
+  //     а баланс остался бы нулевым;
+  //  3. `purchase_step_pending` — сервер сам говорит, что за человеком ещё остался шаг. Если
+  //     деньги в ту же секунду потратила автопокупка после пополнения, вести его на карточку
+  //     заказа незачем: там он прочитает «не хватает» ровно на уплаченную сумму.
+  // Сумма — только из ответа сервера. Запасное `pendingInfo.amount_kopeks` (намерение до
+  // оплаты, лежит в браузере) для денежной строки не годится.
+  const autoReturnHref = (() => {
+    if (!serverSaysPaid || !canPollById || !purchaseStepPending) return null;
+    const target = resolveCheckoutReturn(returnTo);
+    if (!target) return null;
+    const paidKopeks = effectivePayment?.amount_kopeks;
+    if (!paidKopeks || paidKopeks <= 0) return null;
+    return `${target}&topup=${paidKopeks}`;
+  })();
+
+  // Пауза нужна не «для красоты»: без неё галочку не видит НИКТО. Автоувод срабатывает ровно
+  // в тот кадр, где она впервые рисуется, и человек, вернувшийся из банка с вопросом «деньги
+  // дошли?», получил бы два кружка загрузки подряд вместо ответа. Нашла линза UX.
+  useEffect(() => {
+    if (!autoReturnHref) return;
+    const timer = setTimeout(() => {
+      clearTopUpPendingInfo();
+      navigate(autoReturnHref, { replace: true });
+    }, AUTO_RETURN_DELAY_MS);
+    return () => clearTimeout(timer);
+  }, [autoReturnHref, navigate]);
+
   // 🔴 Этап В-1. Память гасим ТОЛЬКО когда ЭТОТ ЖЕ исход подтвердил сервер.
   //
   // Исход, пришедший лишь из адреса, — это слово, сказанное снаружи. После В-1 такой адрес
@@ -693,6 +754,7 @@ export default function TopUpResult() {
             amountKopeks={amountKopeks}
             returnTo={returnTo}
             purchaseStepPending={purchaseStepPending}
+            autoLeaving={!!autoReturnHref}
           />
         ) : resolvedFailed ? (
           <FailedState amountKopeks={amountKopeks} returnTo={returnTo} />

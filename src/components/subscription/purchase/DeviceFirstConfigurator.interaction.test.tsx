@@ -2839,6 +2839,36 @@ describe('DeviceFirstConfigurator interaction safety', () => {
     );
   });
 
+  // 🔴 РЕК-14.2. Человек вернулся из банка — на карточке заказа под балансом стоит подстрочник
+  // о том, что доплата уже внутри этого числа. ⛔ Проверяем ЧИСЛО в строке, а не наличие
+  // строки: сторож на голый ключ был бы зелёным и на подставленной не той сумме.
+  it('РЕК-14.2: подтверждённая доплата названа подстрочником под балансом', async () => {
+    renderConfigurator({
+      options: topUpReturnOptions,
+      initialPath: `${TOP_UP_RETURN_PATH}&topup=19900`,
+    });
+
+    expect(
+      await screen.findByText('deviceFirst.balanceIncludesTopUp:199 ₽'),
+    ).toBeTruthy();
+    // Заряд одноразовый: иначе он переживёт перезагрузку и покажет чек за позавчерашние деньги.
+    await waitFor(() =>
+      expect(screen.getByTestId('location').textContent).toBe('/subscription/purchase'),
+    );
+  });
+
+  // 🔴 Обратная сторона: без подтверждённого числа строки нет вовсе. Пустая, нулевая и
+  // нечисловая сумма — это «сервер не подтверждал», и молчание тут честнее любой надписи.
+  it('РЕК-14.2: без суммы в адресе подстрочника нет', async () => {
+    renderConfigurator({
+      options: topUpReturnOptions,
+      initialPath: `${TOP_UP_RETURN_PATH}&topup=0`,
+    });
+
+    await screen.findByRole('button', { name: 'deviceFirst.payAndOrder:900 ₽' });
+    expect(screen.queryByText(/deviceFirst\.balanceIncludesTopUp/)).toBeNull();
+  });
+
   // 🔴 Мина EW, класс «флаг пережил свой экран». Плашку «Мы не открыли оплату» ставит РЕК-8а,
   // когда автозапуск ДЕРЖАЛИ. На дороге возврата никто ничего не удерживал, и прочитать это
   // объяснение здесь значило бы получить ответ на не заданный вопрос.
