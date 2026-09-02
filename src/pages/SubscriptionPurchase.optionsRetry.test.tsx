@@ -145,9 +145,14 @@ describe('РЕК-3.1 · мина FH: осечка сети не роняет ч�
 
     renderPurchase();
 
-    await waitFor(() => expect(subscriptionApi.getPurchaseOptions).toHaveBeenCalled());
-    // Экран держит загрузку: ни кассы, ни старой сетки тарифов.
+    // 🔴 ПЕРЕПИСАНО ПОСЛЕ МУТАЦИОННОГО ПРОГОНА. Прежняя редакция звала `queryByTestId`
+    // сразу после первого `waitFor` — и была ЗЕЛЁНОЙ даже с убранным `deviceFirstLoading`
+    // из заслона: проверка успевала отработать раньше, чем оседали остальные два запроса.
+    // То есть сторож обещал защиту, которой не давал, — это хуже отсутствующего теста.
+    // Теперь ждём НАСТОЯЩЕГО появления старой сетки: `findBy*` держит окно ~1 с и отвергает
+    // обещание, только если сетка так и не пришла. Со снятым заслоном она приходит, и тест
+    // краснеет — проверено мутацией.
+    await expect(screen.findByTestId('old-tariff-grid')).rejects.toThrow();
     expect(screen.queryByTestId('device-first-configurator')).toBeNull();
-    expect(screen.queryByTestId('old-tariff-grid')).toBeNull();
   });
 });

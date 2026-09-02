@@ -2810,7 +2810,12 @@ describe('DeviceFirstConfigurator interaction safety', () => {
       initialPath: TOP_UP_RETURN_PATH,
     });
 
-    // Кнопка списания — та самая, ради которой этап: одно нажатие вместо трёх.
+    // Кнопка списания — та самая, ради которой этап. 🔴 ЧИСЛО ПОПРАВЛЕНО ПРОГОНОМ
+    // СЦЕНАРИЯ: выигрыш — ОДНО нажатие, а не два и не три. Посев выбора существует с
+    // этапа Б-1, поэтому в базе экран выбора уже открывался с готовым выбором и требовал
+    // одного нажатия «Перейти к оформлению». По всему пути от «Тарифы» до «Подключить
+    // VPN»: 12 нажатий стало 11, экранов 11 стало 10. Завышать выигрыш в комментарии
+    // нельзя: следующий читатель посчитает по нему цену следующего этапа.
     expect(
       await screen.findByRole('button', { name: 'deviceFirst.payAndOrder:900 ₽' }),
     ).toBeTruthy();
@@ -2845,6 +2850,17 @@ describe('DeviceFirstConfigurator interaction safety', () => {
 
     await screen.findByRole('button', { name: 'deviceFirst.payAndOrder:900 ₽' });
     expect(screen.queryByText('deviceFirst.autostartHeldTitle')).toBeNull();
+    // 🔴 Заодно пришпиливаем решение о читаемости выхода: «Изменить параметры» — единственная
+    // дверь назад, сохраняющая выбор, и на автоматически открытом экране она обязана читаться.
+    // Мутационный прогон показал, что возврат цвета к `text-dark-500` (контраст 2,4:1 в светлой
+    // теме) не ловит ни один тест. Сторож слабый — он про класс, а не про контраст, — но он
+    // делает молчаливый откат видимым.
+    // ⛔ Смотрим СПИСОК классов, а не подстроку: `toContain('text-dark-300')` был зелёным и на
+    // возвращённом `text-dark-500 hover:text-dark-300` — подстрока находилась в `hover:`.
+    // Поймано собственной мутацией; сторож, зелёный на откате, — это не сторож.
+    const changeOptions = screen.getByRole('button', { name: 'deviceFirst.changeOptions' });
+    expect([...changeOptions.classList]).toContain('text-dark-300');
+    expect([...changeOptions.classList]).not.toContain('text-dark-500');
   });
 
   // 🔴 Приземление обязано быть проходным, а не тупиком: экран выбора никуда не делся, он в
@@ -2866,6 +2882,27 @@ describe('DeviceFirstConfigurator interaction safety', () => {
           ?.getAttribute('aria-checked'),
       ).toBe('true'),
     );
+  });
+
+  // 🔴 НАХОДКА ПРОГОНА СЦЕНАРИЯ. До этапа подтверждение открывалось ПОСЛЕ экрана выбора, и
+  // балансный запрос успевал ответить. Приземление открывает его сразу — и в первом кадре
+  // минимум провайдера ещё неизвестен: кнопка несла сырую недостачу («400 ₽»), через долю
+  // секунды подменялась поднятой до минимума, а тап в первый кадр уезжал с суммой ниже
+  // минимума и кончался красным отказом провайдера. Число, меняющееся под пальцем на денежной
+  // кнопке, — это ложь; тупик по нашей же подставленной сумме хуже отсутствия кнопки.
+  it('РЕК-3: пока минимум провайдера неизвестен, кнопки доплаты нет вовсе', async () => {
+    // Балансный запрос висит — ровно первый кадр приземления.
+    getBalancePaymentMethods.mockReturnValue(new Promise(() => {}));
+
+    renderConfigurator({
+      options: { ...topUpReturnOptions, balance_kopeks: 50000 },
+      initialPath: TOP_UP_RETURN_PATH,
+    });
+
+    // Сводка уже на экране — то есть приземление состоялось, ждём только число на кнопке.
+    expect(await screen.findByText('deviceFirst.periodMonths:3')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /deviceFirst\.topUp/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'deviceFirst.needTopup' })).toBeNull();
   });
 
   // 🔴 НАХОДКА РЕВЬЮ (две линзы независимо, одна воспроизвела прогоном). Намерение приземлить
