@@ -749,6 +749,7 @@
       "goToBalance": "مشاهده موجودی",
       "goToHome": "بازگشت به خانه",
       "backToOrder": "بازگشت به خرید",
+      "returningToOrder": "در حال بازگرداندن شما به خرید…",
       "tryAgain": "تلاش مجدد"
     },
     "top_up": "افزایش موجودی"
@@ -4990,6 +4991,7 @@
     "endsAt": "تا",
     "balance": "موجودی",
     "shortage": "کسری",
+    "balanceIncludesTopUp": "شامل شارژ {{amount}}",
     "autostartHeldTitle": "پرداخت را باز نکردیم",
     "autostartHeldCoveredText": "کل مبلغ از قبل در موجودی شماست — فقط کافی است سفارش را ثبت کنید.",
     "autostartHeldNoTopUpText": "بخشی از مبلغ از قبل در موجودی شماست، اما در حال حاضر امکان شارژ وجود ندارد. یک روش پرداخت انتخاب کنید — موجودی شما دست‌نخورده می‌ماند.",

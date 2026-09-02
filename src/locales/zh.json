@@ -749,6 +749,7 @@
       "goToBalance": "查看余额",
       "goToHome": "返回首页",
       "backToOrder": "返回购买",
+      "returningToOrder": "正在带您返回购买…",
       "tryAgain": "重试"
     },
     "top_up": "充值"
@@ -4985,6 +4986,7 @@
     "endsAt": "截至",
     "balance": "余额",
     "shortage": "还差",
+    "balanceIncludesTopUp": "含本次充值 {{amount}}",
     "autostartHeldTitle": "我们没有直接打开支付",
     "autostartHeldCoveredText": "全部金额已在您的余额中——只需下单即可。",
     "autostartHeldNoTopUpText": "部分金额已在您的余额中，但目前无法充值。请选择支付方式——您的余额将保持不动。",

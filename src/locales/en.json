@@ -937,6 +937,7 @@
       "goToBalance": "Go to Balance",
       "goToHome": "Back to Home",
       "backToOrder": "Back to Your Purchase",
+      "returningToOrder": "Taking you back to your purchase…",
       "tryAgain": "Try Again"
     },
     "top_up": "Top up balance"
@@ -5579,6 +5580,7 @@
     "endsAt": "Ends",
     "balance": "Balance",
     "shortage": "Shortfall",
+    "balanceIncludesTopUp": "includes a {{amount}} top-up",
     "autostartHeldTitle": "We did not open the payment",
     "autostartHeldCoveredText": "The full amount is already on your balance — all that is left is to place the order.",
     "autostartHeldNoTopUpText": "Part of the amount is already on your balance, but top-up is unavailable right now. Choose a payment method — your balance stays untouched.",

@@ -155,6 +155,10 @@ export function DeviceFirstConfigurator({
     nextParams.delete('devices');
     nextParams.delete('method');
     nextParams.delete('autostart');
+    // 🔴 РЕК-14.2: сумма пополнения — тоже одноразовый заряд. Не снимешь — переживёт
+    // перезагрузку и будет показывать чек за позавчерашние деньги. Списков ДВА, второй ниже
+    // в `acceptCheckout`; забыть один — значит починить наполовину.
+    nextParams.delete('topup');
     // Этап Б-1: метка возврата с пополнения одноразовая ровно так же, как launch-запрос.
     nextParams.delete('from');
     setSearchParams(nextParams, { replace: true });
@@ -202,6 +206,7 @@ export function DeviceFirstConfigurator({
         nextParams.delete('devices');
         nextParams.delete('method');
         nextParams.delete('autostart');
+        nextParams.delete('topup');
         // The initial C1 → C2 transition is a real user navigation, so Back
         // returns to the configuration. State refreshes for that same checkout
         // replace instead of growing the history on every poll.
@@ -229,6 +234,12 @@ export function DeviceFirstConfigurator({
     // руками открыл подтверждение — и читает «Мы не открыли оплату» там, где никто ничего
     // не удерживал.
     setAutostartHeldForWallet(false);
+    // 🔴 РЕК-14.2, тот же класс, что EW и РЕК-8а двумя строками выше: флаг, поставленный один
+    // раз и не гаснущий ничем, переживает свой экран. Компонент между заказами НЕ
+    // размонтируется. Без этой строки человек уходит «Изменить параметры», выбирает другое,
+    // оформляет — и на следующем подтверждении под опустевшим балансом всё ещё стоит
+    // «включая пополнение 199 ₽», то есть ложь на денежном экране. Нашёл критик полноты.
+    setTopUpJustPaidKopeks(null);
     setConfirmation(false);
     setCheckout(null);
     setLegacyDraft(null);
@@ -312,6 +323,9 @@ export function DeviceFirstConfigurator({
   // а открывает его тот же эффект — в тот момент, когда выбор применён и цена у него нашлась.
   // ⛔ Списания это не приближает ни на шаг: подтверждение локальное, заказа на сервере нет,
   // деньги двигает только нажатие человека (решение владельца 02.09.2026, класс бага #629889).
+  // 🔴 РЕК-14.2. Живёт в состоянии, а не в ref: строку надо нарисовать, а ref перерисовку не
+  // вызывает. Заряд одноразовый — из адреса он снимается тем же чистильщиком, что и остальные.
+  const [topUpJustPaidKopeks, setTopUpJustPaidKopeks] = useState<number | null>(null);
   const topUpReturnSeedRef = useRef(false);
   // 🔴 РЕК-3, находка линзы UX. Посев живёт в эффекте, то есть ПОСЛЕ первой отрисовки: без
   // этого признака человек успевал увидеть кадр экрана выбора с ЧУЖИМИ числами (умолчание,
@@ -349,6 +363,18 @@ export function DeviceFirstConfigurator({
         devices: seededDevices,
         confirm: true,
       };
+    }
+    // 🔴 РЕК-14.2. Сколько человек только что доплатил. Число приходит адресом от экрана
+    // результата и ТОЛЬКО когда его подтвердил сервер — на той стороне стоят три забора.
+    // Здесь мы его больше не проверяем на «правду», а проверяем на форму: адрес правит кто
+    // угодно, а строка денежная. Отрицательное, нулевое и нечисловое молча игнорируем.
+    // ⛔ Разбор строгий, а не `Number(...)`: тот принимает `0x4dac`, `1e5` и пробелы, то есть
+    // на денежный экран приезжало бы число, которого человек не писал. Потолок — миллион
+    // рублей: столько же принимает сам провайдер, выше начинается заведомая подделка.
+    const rawTopUp = searchParams.get('topup') ?? '';
+    const seededTopUp = /^\d{1,9}$/.test(rawTopUp) ? Number(rawTopUp) : 0;
+    if (seededTopUp > 0 && seededTopUp <= 100_000_000) {
+      setTopUpJustPaidKopeks(seededTopUp);
     }
     // Заряд из адреса снимаем сразу: иначе `?period=&devices=` переживёт перезагрузку и
     // будет тихо восстанавливать старый выбор поверх нового при каждом `setSearchParams`.
@@ -1724,6 +1750,7 @@ export function DeviceFirstConfigurator({
                 </div>
               )}
               <SelectionSummary
+                topUpJustPaidKopeks={topUpJustPaidKopeks}
                 periodDays={confirmPeriodDays}
                 deviceLimit={confirmDeviceLimit}
                 priceKopeks={confirmTotalKopeks}
@@ -1891,6 +1918,11 @@ export function DeviceFirstConfigurator({
                   // на СЛЕДУЮЩЕМ подтверждении, открытом руками, человек снова прочитает
                   // «Мы не открыли оплату» там, где никто ничего не удерживал.
                   setAutostartHeldForWallet(false);
+                  // 🔴 РЕК-14.2, ТА ЖЕ МИНА ТРЕТИЙ РАЗ. Гасить надо в ДВУХ местах: этот
+                  // обработчик уводит с ЛОКАЛЬНОГО подтверждения и `returnToConfiguration` не
+                  // зовёт. Я погасил заряд только там и поймал это собственным сторожем —
+                  // ровно та ошибка, про которую в этом файле уже написано дважды.
+                  setTopUpJustPaidKopeks(null);
                 }}
                 // 🔴 РЕК-3, находка линзы UX. Было `text-dark-500` — контраст 2,4:1 в светлой
                 // теме и 3,8:1 в тёмной, то есть ниже порога читаемости в обеих. Пока человек
@@ -2596,6 +2628,7 @@ function SelectionSummary({
   balanceKopeks,
   currentDeviceLimit,
   formatPrice,
+  topUpJustPaidKopeks = null,
 }: {
   periodDays: number;
   deviceLimit: number;
@@ -2603,6 +2636,7 @@ function SelectionSummary({
   balanceKopeks: number | null;
   currentDeviceLimit: number | null;
   formatPrice: (value: number) => string;
+  topUpJustPaidKopeks?: number | null;
 }) {
   const { t } = useTranslation();
   const periodText =
@@ -2624,9 +2658,35 @@ function SelectionSummary({
         <strong>{periodText}</strong>
       </div>
       {balanceKopeks !== null && (
-        <div className="flex justify-between text-sm text-dark-300">
-          <span>{t('deviceFirst.balance')}</span>
-          <strong>{formatPrice(balanceKopeks)}</strong>
+        <div>
+          <div className="flex justify-between text-sm text-dark-300">
+            <span>{t('deviceFirst.balance')}</span>
+            <strong>{formatPrice(balanceKopeks)}</strong>
+          </div>
+          {/* 🔴 РЕК-14.2. Человек, вернувшийся из банка, задаёт себе один вопрос — «мои деньги
+              дошли?». Отвечает подстрочник ПОД балансом.
+              ⛔ Ни знака «плюс», ни отдельной строки сводки: доплата УЖЕ внутри этого баланса,
+              и «+199» рядом с «249» человек читает как слагаемое — «значит останется сдача».
+              ⛔ Слов «подарок»/«бонус» тут быть не может: происхождения денег экран не знает.
+              🔴 ВЛОЖЕН В ОДИН УЗЕЛ С БАЛАНСОМ, А НЕ ПРИЖАТ `-mt-2`. Первая редакция так и
+              делала — и отступ был МЁРТВЫМ: у `.space-y-3 > * ~ *` специфичность выше, чем у
+              `.-mt-2`, замерено линзой в браузере на собранном Tailwind. Строка вставала
+              четвёртой строкой сводки и стоила 28 px вместо 8, а на телефоне 375×600 дожимала
+              главную кнопку до нуля видимых пикселей над нижней панелью.
+              ⚠️ `text-end`, а не `text-right`: в персидском разметка RTL, и физическое
+              выравнивание ставило подстрочник под ПОДПИСЬ, а не под число.
+              ⚠️ `text-dark-300`, а не `-400`: в светлой теме `-400` даёт 3,2:1 при 12 px —
+              ниже порога читаемости. Ту же цену этот файл уже платил этапом раньше.
+              ⚠️ Честно про `role="status"`: живой регион, появляющийся ВМЕСТЕ со своим текстом,
+              большинство скринридеров не объявляет. Оставлен как единственная дешёвая попытка,
+              но доступность приземления им НЕ закрыта — это отдельный пункт плана. */}
+          {topUpJustPaidKopeks !== null && balanceKopeks >= topUpJustPaidKopeks && (
+            <div role="status" className="mt-0.5 text-end text-xs text-dark-300">
+              {t('deviceFirst.balanceIncludesTopUp', {
+                amount: formatPrice(topUpJustPaidKopeks),
+              })}
+            </div>
+          )}
         </div>
       )}
       {balanceKopeks !== null && priceKopeks !== null && balanceKopeks < priceKopeks && (

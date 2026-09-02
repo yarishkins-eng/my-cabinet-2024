@@ -84,7 +84,10 @@ function seedPendingInfo(returnTo: string | null) {
   localStorage.setItem(
     'topup_pending_payment',
     JSON.stringify({
-      amount_kopeks: 6000,
+      // 🔴 Число НАМЕРЕННО отличается от суммы в ответе сервера (6000). Мутационный прогон
+      // показал: пока в памяти и в ответе лежало одно и то же, подмена источника суммы на
+      // `pendingInfo` (намерение до оплаты, лежит в браузере) была неотличима ни одним тестом.
+      amount_kopeks: 5000,
       method_id: 'platega',
       method_name: 'Platega',
       payment_id: '4242',
@@ -130,7 +133,13 @@ async function settle() {
 
 function renderResult(search: string, seed?: (client: QueryClient) => void) {
   const queryClient = new QueryClient({
-    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    // ⚠️ `retryDelay: 0` меняет ПАУЗУ между попытками, а не их число: опрос статуса задаёт себе
+    // `retry: 2` сам, и умолчание клиента его не перекрывает. Без этого сторож на ветку
+    // «сервер не ответил» ждал бы настоящие 1 + 2 секунды отката и падал по таймауту.
+    defaultOptions: {
+      queries: { retry: false, retryDelay: 0 },
+      mutations: { retry: false },
+    },
   });
   // Кэш заполняется ДО рендера: гашение стоит в эффекте, который отрабатывает один раз при
   // монтировании, поэтому запись после render() он бы уже не застал.
@@ -224,11 +233,15 @@ describe('TopUpResult — возврат на кассу после пополн
     // экране стоит ожидание — и у него тоже есть кнопка. Проверка «первой кнопки» проходила
     // бы по кнопке ожидания, то есть доказывала бы не то.
     await screen.findByText('balance.topUpResult.success');
-    const done = screen.getByRole('button');
-    expect(done.textContent).toBe('balance.topUpResult.backToOrder');
-    fireEvent.click(done);
-
-    await waitFor(() => expect(screen.getByTestId('location').textContent).toBe(CHECKOUT_RETURN));
+    // 🔴 ЭТАП РЕК-14.2 ПЕРЕПИСАЛ ЭТОТ СТОРОЖ, И ОЖИДАНИЕ СТАЛО СТРОЖЕ, А НЕ СЛАБЕЕ. Прежде он
+    // проверял, что кнопка возврата подписана верно и по нажатию уводит на адрес ИЗ ПАМЯТИ.
+    // Теперь на этой дороге кнопки нет: экран уезжает сам. Проверяем то же самое по существу —
+    // адрес взят из памяти, а не из строки, — но по факту НАВИГАЦИИ, а не по подписи кнопки.
+    await waitFor(
+      () =>
+        expect(screen.getByTestId('location').textContent).toBe(`${CHECKOUT_RETURN}&topup=6000`),
+      { timeout: 4000 },
+    );
   });
 
   // 🔴 Забор памяти. Запись в localStorage человек может подменить руками, поэтому она проходит
@@ -387,9 +400,12 @@ describe('TopUpResult — возврат на кассу после пополн
     // Пока человек на экране — запись на месте.
     expect(localStorage.getItem('topup_pending_payment')).not.toBeNull();
 
-    // Ушёл — запись убрана.
-    fireEvent.click(screen.getByRole('button'));
-    await waitFor(() => expect(localStorage.getItem('topup_pending_payment')).toBeNull());
+    // 🔴 РЕК-14.2: уход стал автоматическим, но правило прежнее — память гасится ИМЕННО при
+    // уходе, а не по факту исхода. Раньше уход делало нажатие, теперь таймер; проверяем связку
+    // «ушёл ⇒ записи нет», а не то, чем именно он ушёл.
+    await waitFor(() => expect(localStorage.getItem('topup_pending_payment')).toBeNull(), {
+      timeout: 4000,
+    });
   });
 
   // 🔴 «Попробовать снова» уводило на ОБЗОР баланса: ни повтора, ни выбора способа, хотя
@@ -422,7 +438,13 @@ describe('TopUpResult — возврат на кассу после пополн
 
     await waitFor(() =>
       expect(screen.getByTestId('location').textContent).toBe(
-        '/balance/top-up?returnTo=' + encodeURIComponent(CHECKOUT_RETURN) + '&amount=60',
+        // 🔴 50, а не 60, и это НЕ подкрутка ожидания. Пока сервер не ответил, единственная
+        // известная сумма — та, что человек сам назвал при создании счёта (она в памяти).
+        // Прежде числа в памяти и в ответе сервера совпадали, и сторож не различал источник
+        // вовсе; расхождение завёл этап РЕК-14.2, чтобы поймать подмену источника в другом
+        // месте, и заодно вскрыл эту слепоту. Поведение верное: для повтора оплаты нужна
+        // сумма намерения, а не подтверждения.
+        '/balance/top-up?returnTo=' + encodeURIComponent(CHECKOUT_RETURN) + '&amount=50',
       ),
     );
   });
@@ -526,16 +548,23 @@ describe('TopUpResult — возврат на кассу после пополн
     seedPendingInfo(CHECKOUT_RETURN);
     vi.mocked(balanceApi.getPendingPayment).mockResolvedValue(paidPayment());
 
+    // 🔴 РЕК-14.2 переписал проверку, но НЕ то, что она охраняет. Владелец поймал подмену
+    // ПОДПИСИ КНОПКИ; теперь на этой дороге кнопки нет, и та же беда выразилась бы иначе —
+    // второе монтирование увезло бы человека «на баланс» вместо его заказа. Проверяем адрес.
     const first = renderResult('?method=platega&status=success');
     await screen.findByText('balance.topUpResult.success');
-    expect(screen.getByRole('button').textContent).toBe('balance.topUpResult.backToOrder');
+    expect(screen.getByText('balance.topUpResult.returningToOrder')).toBeTruthy();
     await settle();
     first.unmount();
 
     // Второе монтирование — то же самое, что видел владелец на седьмом скриншоте.
     renderResult('?method=platega&status=success');
     await screen.findByText('balance.topUpResult.success');
-    expect(screen.getByRole('button').textContent).toBe('balance.topUpResult.backToOrder');
+    await waitFor(
+      () =>
+        expect(screen.getByTestId('location').textContent).toBe(`${CHECKOUT_RETURN}&topup=6000`),
+      { timeout: 4000 },
+    );
   });
 
   // 🔴 РЕК-14.1, мина JG. Банк вернул человека на «отказ», а деньги дошли следом — экран сам
@@ -563,9 +592,7 @@ describe('TopUpResult — возврат на кассу после пополн
     await waitFor(() => expect(screen.getByText('balance.topUpResult.success')).toBeTruthy(), {
       timeout: 4000,
     });
-    await waitFor(() =>
-      expect(queryClient.getQueryData(['device-first-options'])).toBeUndefined(),
-    );
+    await waitFor(() => expect(queryClient.getQueryData(['device-first-options'])).toBeUndefined());
     expect(refreshUser).toHaveBeenCalled();
   });
 
@@ -743,7 +770,15 @@ describe('TopUpResult — экран перестаёт врать про ден
   // 🔴 Второй двери там, где дверь уже есть, быть не должно. У пришедшего с кассы кнопка
   // «Вернуться к покупке» ведёт к его собственному выбору срока и устройств — увести его
   // на общий экран тарифов значило бы потерять то, что он уже набрал.
-  it('пришедшему с кассы новой кнопки не рисует, но правду говорит', async () => {
+  //
+  // 🔴 ЭТАП РЕК-14.2 ПЕРЕПИСАЛ ОЖИДАНИЕ ЭТОГО СТОРОЖА — обоснование здесь, а не в отчёте.
+  // Прежняя редакция требовала РОВНО ОДНУ кнопку «Вернуться к покупке» — акцентную и во всю
+  // ширину. Она была верна для того кода: дорогу кассы человек проходил нажатием. Теперь экран
+  // уезжает сам; кнопка ОСТАЁТСЯ выходом на случай задушенного таймера (мина EH), но обязана
+  // быть ТИХОЙ и по содержимому: через 1,8 с в этот прямоугольник встаёт кнопка, которая
+  // ТРАТИТ ДЕНЬГИ (мина JK, нашла ревизия перед выкладкой). Ослабления нет — проверок стало
+  // больше: вторая дверь по-прежнему запрещена, и добавлено требование к виду первой.
+  it('пришедшему с кассы даёт тихий выход и уезжает сам, но правду говорит', async () => {
     seedPendingInfo(CHECKOUT_RETURN);
     vi.mocked(balanceApi.getPendingPayment).mockResolvedValue(paidWithVerdict(true));
 
@@ -752,8 +787,118 @@ describe('TopUpResult — экран перестаёт врать про ден
     await settle();
 
     expect(screen.getByText('balance.topUpResult.purchaseStepPending')).toBeTruthy();
+    expect(screen.getByText('balance.topUpResult.returningToOrder')).toBeTruthy();
+    // 🔴 ВТОРОЙ ДВЕРИ нет — это и охранял сторож изначально.
+    expect(screen.queryByText('balance.topUpResult.choosePlan')).toBeNull();
+    // 🔴 А ПЕРВАЯ обязана остаться, и это правка по итогам ревью. Первая редакция убирала
+    // кнопку совсем, и экран оставался без единого нажимаемого элемента: задушит Телеграм
+    // таймер в свёрнутом вебвью — человек застрял после оплаты. Это мина EH, за неё уже платили.
     const buttons = screen.getAllByRole('button');
     expect(buttons).toHaveLength(1);
     expect(buttons[0].textContent).toBe('balance.topUpResult.backToOrder');
+    // 🔴 Мина JK: ни заливки, ни ширины во весь экран — иначе палец, тянувшийся к выходу,
+    // попадёт в денежную кнопку, которая встанет на это место через полторы секунды.
+    expect([...buttons[0].classList]).not.toContain('w-full');
+    expect([...buttons[0].classList]).not.toContain('bg-accent-500');
+  });
+
+  // 🔴 Куда именно уезжает и с каким числом. Адрес зашит литералом: сторож, собирающий его тем
+  // же выражением, что и код, доказывает сам себя.
+  it('уезжает на СВОЙ заказ и везёт подтверждённую сервером сумму', async () => {
+    seedPendingInfo(CHECKOUT_RETURN);
+    vi.mocked(balanceApi.getPendingPayment).mockResolvedValue(paidWithVerdict(true));
+
+    renderResult('?method=platega&status=success');
+    await screen.findByText('balance.topUpResult.successWithStep');
+
+    await waitFor(
+      () =>
+        expect(screen.getByTestId('location').textContent).toBe(
+          // 6000 — сумма из ОТВЕТА СЕРВЕРА. В памяти лежит 5000: если код возьмёт её,
+          // сторож покраснеет.
+          '/subscription/purchase?from=checkout&period=90&devices=5&topup=6000',
+        ),
+      { timeout: 4000 },
+    );
+  });
+
+  // 🔴 ЗАБОР 1 — слово сервера, а не адреса. Если сервер про платёж ответить не смог, экран
+  // объявляет успех по метке в адресе, а такую метку после этапа В-1 умеет собрать кто угодно.
+  // Уводить по ней на денежный экран и печатать там сумму нельзя.
+  it('сервер промолчал — никуда не уезжаем, кнопка остаётся', async () => {
+    seedPendingInfo(CHECKOUT_RETURN);
+    vi.mocked(balanceApi.getPendingPayment).mockRejectedValue(new Error('нет ответа'));
+
+    renderResult('?method=platega&status=success');
+    await screen.findByText('balance.topUpResult.success', undefined, { timeout: 4000 });
+    await settle();
+
+    expect(screen.getByText('balance.topUpResult.backToOrder')).toBeTruthy();
+    expect(screen.queryByText('balance.topUpResult.returningToOrder')).toBeNull();
+    expect(screen.getByTestId('location').textContent).toContain('/balance/top-up/result');
+  });
+
+  // 🔴 ЗАБОР 2 — это НАШ платёж. Запасной маршрут «последний платёж за час» отдаёт любой, в том
+  // числе прямую оплату подписки картой, которая баланса не касается вовсе. По нему сумма
+  // уехала бы в строку «включая пополнение», а баланс остался бы прежним.
+  it('платёж опознан не по нашему номеру — никуда не уезжаем', async () => {
+    vi.mocked(balanceApi.getLatestPayment).mockResolvedValue(paidWithVerdict(true));
+
+    renderResult('?method=platega&status=success&returnTo=' + encodeURIComponent(CHECKOUT_RETURN));
+    await screen.findByText('balance.topUpResult.successWithStep');
+    await settle();
+
+    expect(screen.getByText('balance.topUpResult.backToOrder')).toBeTruthy();
+    expect(screen.queryByText('balance.topUpResult.returningToOrder')).toBeNull();
+  });
+
+  // 🔴 ЗДЕСЬ БЫЛ ТРЕТИЙ ЗАБОР — «сервер говорит, что шага не осталось, значит не уезжаем», — и
+  // он СНЯТ, а сторож перевёрнут. Обоснование целиком, чтобы его не вернули «на всякий случай»:
+  // поле `purchase_step_pending` означает не «остался ли шаг», а «называть ли оставшийся шаг В
+  // ЧАТЕ», и молчит оно, в частности, у всякого, у кого уже есть платная подписка с запасом.
+  // А на кассу такой человек приходит ПРОДЛЕВАТЬ. Замер на боевом 02.09.2026: платных подписок
+  // с запасом больше трёх дней — 61, и ВСЕ 11 покупок с 24.08 сделаны людьми, у которых
+  // подписка уже была. Забор выключал бы этап почти для всех покупателей.
+  // 🟢 Опасение, ради которого он ставился (деньги успела забрать автопокупка), закрыто честнее
+  // и в другом месте — подстрочник в сводке заказа рисуется, только пока баланс всё ещё
+  // содержит эту доплату. Сторож на это лежит в тестах конфигуратора.
+  it('продлевающий подписчик тоже уезжает — иначе этап выключен почти для всех', async () => {
+    seedPendingInfo(CHECKOUT_RETURN);
+    vi.mocked(balanceApi.getPendingPayment).mockResolvedValue(paidWithVerdict(false));
+
+    renderResult('?method=platega&status=success');
+    await screen.findByText('balance.topUpResult.success');
+
+    await waitFor(
+      () =>
+        expect(screen.getByTestId('location').textContent).toBe(
+          // 6000 — сумма из ОТВЕТА СЕРВЕРА. В памяти лежит 5000: если код возьмёт её,
+          // сторож покраснеет.
+          '/subscription/purchase?from=checkout&period=90&devices=5&topup=6000',
+        ),
+      { timeout: 4000 },
+    );
+  });
+
+  // 🔴 Пауза существует не «для красоты»: сама галочка дорисовывается только к 0,7 с. При
+  // прежних 1,1 с законченную галочку человек видел бы 0,4 секунды — то есть этап обещал
+  // подтверждение и не давал его. Сторож держит НИЖНЮЮ границу: раньше 900 мс не уезжаем.
+  // ⚠️ Верхнюю границу он не держит — на неё есть только глаз владельца, и это названо.
+  it('не уезжает раньше, чем галочка успевает дорисоваться', async () => {
+    seedPendingInfo(CHECKOUT_RETURN);
+    vi.mocked(balanceApi.getPendingPayment).mockResolvedValue(paidWithVerdict(true));
+
+    renderResult('?method=platega&status=success');
+    await screen.findByText('balance.topUpResult.successWithStep');
+
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 900));
+    });
+    expect(screen.getByTestId('location').textContent).toContain('/balance/top-up/result');
+
+    await waitFor(
+      () => expect(screen.getByTestId('location').textContent).toContain('from=checkout'),
+      { timeout: 4000 },
+    );
   });
 });
