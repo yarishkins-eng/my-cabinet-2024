@@ -2975,7 +2975,6 @@
           "deviceLimitUpdated": "设备限制已更新",
           "invalidDays": "请输入有效天数（大于0）",
           "tariffRequired": "请先选择套餐。没有套餐，订阅将不含任何服务器，客户无法连接。",
-          "saved": "已完成。订阅已更新——请查看上方卡片。",
           "backToList": "返回订阅列表",
           "createNew": "新建"
         },
@@ -2988,8 +2987,8 @@
           "subtract": "扣除",
           "addByAdmin": "管理员充值",
           "saved": "余额已更新",
-          "delivered": "已通知客户",
-          "notDelivered": "无法通知客户：对方未使用机器人或已将其屏蔽",
+          "delivered": "已向客户发送消息",
+          "notDelivered": "款项已入账，但消息未能送达客户，请您自行告知。",
           "subtractByAdmin": "管理员扣除",
           "recentTransactions": "最近交易"
         },
@@ -3925,6 +3924,7 @@
       "complete": "完成",
       "successCount": "成功: {{count}}",
       "errorCount": "错误: {{count}}",
+      "notNotifiedCount": "未通知：{{count}}",
       "progress": {
         "processed": "已处理: {{current}} / {{total}}",
         "succeeded": "成功",

@@ -18,10 +18,22 @@ import { describe, expect, it } from 'vitest';
 const LOCALES_DIR = dirname(fileURLToPath(import.meta.url));
 
 const NEGATIVE_WORDS: Record<string, RegExp> = {
-  ru: /не удалось|не получил|не доставлен/i,
-  en: /could not|couldn't|not deliver|failed/i,
-  fa: /ممکن نشد|نشد/,
+  ru: /не удалось|не получил|не доставлен|не ушл/i,
+  en: /could not|couldn't|not deliver|not notified|failed/i,
+  fa: /ممکن نشد|نشد|نرسید/,
   zh: /无法|未能/,
+};
+
+// Подпись обязана назвать ФАКТ и не угадывать причину: причин отказа девять
+// (нет Телеграма и подтверждённой почты, человек заблокировал бота, мы заблокировали
+// его, не поднят SMTP, сеть, flood control, наш потолок ожидания, пустой токен), и
+// первая редакция называла две — обе как вину клиента. Владелец шёл писать человеку
+// вручную там, где у нас просто моргнула сеть.
+const CAUSE_GUESSES: Record<string, RegExp> = {
+  ru: /заблокировал|не пользуется/i,
+  en: /blocked|does not use/i,
+  fa: /مسدود/,
+  zh: /屏蔽|未使用/,
 };
 
 interface LocaleFile {
@@ -61,6 +73,23 @@ describe('подписи исхода доставки на вкладке «Б�
       negative.test(node.notDelivered),
       `${lang}: подпись «${node.notDelivered}» не говорит, что сообщение НЕ дошло`,
     ).toBe(true);
+  });
+
+  it.each(LANGS)('%s: «не доставлено» не угадывает причину', (lang) => {
+    const node = balanceNode(lang);
+    const guess = CAUSE_GUESSES[lang];
+    expect(guess, `для языка ${lang} не задано слово-догадка — допишите его сюда`).toBeDefined();
+    expect(
+      guess.test(node.notDelivered),
+      `${lang}: подпись «${node.notDelivered}» называет причину, которой мы не знаем`,
+    ).toBe(false);
+  });
+
+  it.each(LANGS)('%s: у счётчика массовой выдачи есть подпись', (lang) => {
+    const data = JSON.parse(readFileSync(join(LOCALES_DIR, `${lang}.json`), 'utf8')) as {
+      admin: { bulkActions: Record<string, string> };
+    };
+    expect(typeof data.admin.bulkActions.notNotifiedCount).toBe('string');
   });
 
   it.each(LANGS)('%s: «дошло» и «не дошло» — разные строки', (lang) => {

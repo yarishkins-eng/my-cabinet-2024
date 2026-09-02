@@ -2349,6 +2349,7 @@
       "complete": "Complete",
       "successCount": "Succeeded: {{count}}",
       "errorCount": "Errors: {{count}}",
+      "notNotifiedCount": "Not notified: {{count}}",
       "progress": {
         "processed": "Processed: {{current}} / {{total}}",
         "succeeded": "succeeded",
@@ -3521,7 +3522,6 @@
           "deviceLimitUpdated": "Device limit updated",
           "invalidDays": "Please enter a valid number of days (greater than 0)",
           "tariffRequired": "Choose a tariff first. Without one the subscription gets no servers at all and the client cannot connect.",
-          "saved": "Done. The subscription is updated — check the card above.",
           "backToList": "Back to subscriptions",
           "createNew": "Create new"
         },
@@ -3534,8 +3534,8 @@
           "subtract": "Deduct",
           "addByAdmin": "Added by admin",
           "saved": "Balance updated",
-          "delivered": "The client has been notified",
-          "notDelivered": "Could not notify the client: they do not use the bot or have blocked it",
+          "delivered": "Message sent to the client",
+          "notDelivered": "The money is credited, but the client was not notified. Tell them yourself.",
           "subtractByAdmin": "Deducted by admin",
           "recentTransactions": "Recent transactions"
         },

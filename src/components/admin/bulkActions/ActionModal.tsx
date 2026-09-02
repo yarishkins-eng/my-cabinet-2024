@@ -604,6 +604,18 @@ export function ActionModal({
                     {t('admin.bulkActions.successCount', { count: modal.result.success_count })}
                   </div>
                 </div>
+                {(modal.result.not_notified_count ?? 0) > 0 && (
+                  <div className="text-center">
+                    <div className="text-2xl font-bold text-warning-400">
+                      {modal.result.not_notified_count}
+                    </div>
+                    <div className="text-xs text-dark-400">
+                      {t('admin.bulkActions.notNotifiedCount', {
+                        count: modal.result.not_notified_count,
+                      })}
+                    </div>
+                  </div>
+                )}
                 {modal.result.error_count > 0 && (
                   <div className="text-center">
                     <div className="text-2xl font-bold text-error-400">
