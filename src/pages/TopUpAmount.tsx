@@ -423,7 +423,23 @@ export default function TopUpAmount() {
     // автосабмитом стало бы красное «Сумма: 100 – … ₽» на экране, где человек ничего не нажимал.
     const amountRublesToCharge = amountKopeks / 100;
     if (amountRublesToCharge < minRubles || amountRublesToCharge > maxRubles) {
-      setError(t('balance.errors.amountRange', { min: minRubles, max: maxRubles }));
+      // 🔴 РЕК-16.4. Здесь стояло «Сумма: 100 – 1 000 000 ₽» — человеку, который ввёл 49,
+      // экран отвечал диапазоном до миллиона. Верхняя граница в этом ответе не значит ничего:
+      // за всю историю в неё не упирался никто, а мешает она каждому, кто промахнулся вниз.
+      // Называем ровно ту границу, о которую человек ударился.
+      // 🔴 Волна ревью: числа тут были СЫРЫМИ РУБЛЯМИ, а поле ввода у нерублёвой локали — в её
+      // валюте, и подпись над ним печатает границы уже сконвертированными. Человек, набравший
+      // $1, читал бы «Введите не меньше 100 ₽» под подписью «$1.10 – $11 000». Берём ту же
+      // пару, что и подпись: `formatAmount` (он же конвертирует) плюс символ валюты.
+      setError(
+        amountRublesToCharge < minRubles
+          ? t('balance.errors.amountBelowMin', {
+              amount: `${formatAmount(minRubles, 0)} ${currencySymbol}`,
+            })
+          : t('balance.errors.amountAboveMax', {
+              amount: `${formatAmount(maxRubles, 0)} ${currencySymbol}`,
+            }),
+      );
       return;
     }
     if (isStarsMethod) {
@@ -605,9 +621,13 @@ export default function TopUpAmount() {
         </div>
         <div className="flex-1">
           <h3 className="text-lg font-bold text-dark-100">{t('balance.topUpBalance')}</h3>
+          {/* 🔴 РЕК-16.4. Здесь стояло «Platega · 100 – 1 000 000 ₽»: имя платёжной системы,
+              которое клиенту не говорит ничего, и потолок, в который за всю историю не упирался
+              никто. Имя теперь берётся из локали (у Platega там человеческое «Оплата онлайн»,
+              а у Telegram Stars и прочих остаётся своё), потолок снят — полезна только нижняя
+              граница, из-за неё экран и отказывает. */}
           <p className="text-sm text-dark-400">
-            {methodName} · {formatAmount(minRubles, 0)} – {formatAmount(maxRubles, 0)}{' '}
-            {currencySymbol}
+            {methodName} · {t('balance.minAmount')} {formatAmount(minRubles, 0)} {currencySymbol}
           </p>
         </div>
       </motion.div>

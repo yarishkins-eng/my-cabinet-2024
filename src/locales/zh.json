@@ -618,6 +618,10 @@
     "enterAmount": "输入金额",
     "paymentMethod": "支付方式",
     "paymentMethods": {
+      "platega": {
+        "name": "在线支付",
+        "description": "在线支付——支付方式在下一步选择"
+      },
       "yookassa": {
         "description": "通过YooKassa支付"
       },
@@ -702,7 +706,8 @@
       "rateLimit": "请等待 {{seconds}} 秒",
       "selectMethod": "请选择支付方式",
       "enterAmount": "请输入金额",
-      "amountRange": "金额：{{min}} – {{max}} ₽"
+      "amountBelowMin": "请输入不少于 {{amount}}",
+      "amountAboveMax": "请输入不超过 {{amount}}"
     },
     "insufficientFunds": "余额不足",
     "missing": "缺少",
@@ -4892,7 +4897,7 @@
     "reviewBeforeCharge": "请在扣款前核对总额。",
     "topUpBalanceApplied": "补足金额为 {{total}} 减去您的余额 {{balance}}。",
     "topUpShortage": "补足 {{amount}}",
-    "topUpShortageHint": "支付后返回 — 您的选择会保留，只需下单即可。",
+    "topUpShortageHint": "支付后返回——只需下单即可。",
     "continueAndOrder": "继续并订阅",
     "needTopup": "需要充值余额",
     "armedNotice": "订单已确认。付款后将自动完成，因为您已明确授权扣款。",
@@ -4991,9 +4996,11 @@
     "balance": "余额",
     "shortage": "还差",
     "balanceIncludesTopUp": "含本次充值 {{amount}}",
-    "autostartHeldTitle": "我们没有直接打开支付",
-    "autostartHeldCoveredText": "全部金额已在您的余额中——只需下单即可。",
-    "autostartHeldNoTopUpText": "部分金额已在您的余额中，但目前无法充值。请选择支付方式——您的余额将保持不动。",
-    "autostartHeldText": "部分金额已在您的余额中。请选择：补足差额，或支付全款并保留余额不动。"
+    "autostartHeldTitle": "您的余额里有钱",
+    "autostartHeldCoveredText": "所以我们没有打开支付。您选择了「{{method}}」，但现在无需支付：全部金额已在您的余额中。",
+    "autostartHeldNoTopUpText": "所以我们没有直接打开支付。但余额不足以支付全款，目前也无法充值——只能支付全款。",
+    "autostartHeldText": "所以我们没有直接打开支付。请支付全款——或只补足差额。",
+    "payFullAmountNotice": "支付全款——您的 {{balance}} 将留在余额中",
+    "otherMethods": "用其他方式支付"
   }
 }
