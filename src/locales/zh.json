@@ -2983,10 +2983,13 @@
           "current": "当前余额",
           "amountPlaceholder": "金额（卢布）",
           "descriptionPlaceholder": "说明（客户会看到）",
-          "descriptionHint": "⚠️ 客户会看到这段文字，它会出现在客户的交易记录里。请不要在这里写给自己看的备注。",
+          "descriptionHint": "⚠️ 客户会看到这段文字：它会出现在款项消息中，并保留在交易记录里。请勿在此写内部备注。",
           "add": "充值",
           "subtract": "扣除",
           "addByAdmin": "管理员充值",
+          "saved": "余额已更新",
+          "delivered": "已向客户发送消息",
+          "notDelivered": "未能通知客户，请您自行告知。",
           "subtractByAdmin": "管理员扣除",
           "recentTransactions": "最近交易"
         },
@@ -3922,6 +3925,7 @@
       "complete": "完成",
       "successCount": "成功: {{count}}",
       "errorCount": "错误: {{count}}",
+      "notNotifiedCount": "未通知：{{count}}",
       "progress": {
         "processed": "已处理: {{current}} / {{total}}",
         "succeeded": "成功",

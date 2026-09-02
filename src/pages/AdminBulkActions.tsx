@@ -480,6 +480,13 @@ export default function AdminBulkActions() {
                 username: e.username,
                 error: e.message || e.error || '',
               }));
+            // Деньги начислены, а сообщение не ушло — это не ошибка строки, но и не
+            // молчание: считаем отдельно и показываем в итоге. Раньше сервер клеил
+            // отметку хвостом к message успешной строки, а успешные строки не
+            // рисуются нигде — отметка была невидима во всех версиях кабинета.
+            const notNotified = (prev.progress?.log ?? []).filter(
+              (e) => e.success && e.notified === false,
+            ).length;
             return {
               ...prev,
               loading: false,
@@ -491,6 +498,7 @@ export default function AdminBulkActions() {
                 error_count: event.error_count,
                 skipped_count: event.skipped_count || 0,
                 errors,
+                not_notified_count: notNotified,
               },
             };
           });

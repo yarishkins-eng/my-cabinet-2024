@@ -2349,6 +2349,7 @@
       "complete": "Complete",
       "successCount": "Succeeded: {{count}}",
       "errorCount": "Errors: {{count}}",
+      "notNotifiedCount": "Not notified: {{count}}",
       "progress": {
         "processed": "Processed: {{current}} / {{total}}",
         "succeeded": "succeeded",
@@ -3529,10 +3530,13 @@
           "current": "Current balance",
           "amountPlaceholder": "Amount in rubles",
           "descriptionPlaceholder": "Description (the client sees it)",
-          "descriptionHint": "⚠️ The client sees this — it shows up in their transaction history. Do not put notes to yourself here.",
+          "descriptionHint": "⚠️ The client will see this — it goes into the message about the money and stays in their transaction history. Do not put private notes here.",
           "add": "Add",
           "subtract": "Deduct",
           "addByAdmin": "Added by admin",
+          "saved": "Balance updated",
+          "delivered": "Message sent to the client",
+          "notDelivered": "The client was not notified — tell them yourself.",
           "subtractByAdmin": "Deducted by admin",
           "recentTransactions": "Recent transactions"
         },

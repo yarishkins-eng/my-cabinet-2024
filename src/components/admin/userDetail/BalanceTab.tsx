@@ -5,6 +5,7 @@ import { useCurrency } from '../../../hooks/useCurrency';
 import { adminUsersApi, type UserDetailResponse } from '../../../api/adminUsers';
 import { promocodesApi } from '../../../api/promocodes';
 import { promoOffersApi } from '../../../api/promoOffers';
+import { getApiErrorMessage } from '../../../utils/api-error';
 import { createNumberInputHandler, toNumber } from '../../../utils/inputHelpers';
 import { PlusIcon, MinusIcon } from '@/components/icons';
 
@@ -59,11 +60,17 @@ export function BalanceTab({
   // ─── Mutations ──────────────────────────────────────────────────
 
   const handleUpdateBalance = async (isAdd: boolean) => {
-    if (balanceAmount === '') return;
+    // Меньше рубля сервер отбивает 400: цены в проекте округляются, и такая сумма
+    // печатается клиенту как «0 ₽» — та же бессмыслица, что и ноль, достижимая
+    // опечаткой «0.5» вместо «50». Не доводим до отказа.
+    if (balanceAmount === '' || Math.abs(toNumber(balanceAmount)) < 1) return;
     setActionLoading(true);
     try {
-      const amount = Math.abs(toNumber(balanceAmount) * 100);
-      await adminUsersApi.updateBalance(userId, {
+      // Math.round, а не усечение: 1.1 * 100 в JS даёт 110.00000000000001, и Pydantic
+      // отбивал такую сумму 422-й. Раньше отказ уходил только в консоль, теперь его
+      // увидел бы админ — но чинить надо не показ отказа, а сам отказ.
+      const amount = Math.round(Math.abs(toNumber(balanceAmount) * 100));
+      const result = await adminUsersApi.updateBalance(userId, {
         amount_kopeks: isAdd ? amount : -amount,
         description:
           balanceDescription ||
@@ -71,12 +78,41 @@ export function BalanceTab({
             ? t('admin.users.detail.balance.addByAdmin')
             : t('admin.users.detail.balance.subtractByAdmin')),
       });
-      await onUserRefresh();
+      // Экран обязан сказать, дошло ли до клиента сообщение о деньгах: сам факт
+      // начисления виден по цифре, а доставка — нет. До этапа УБ-1 здесь не было
+      // ни тоста успеха, ни тоста ошибки — админ не узнавал даже про отказ сервера.
+      if (result.notified === false) {
+        notify.warning(
+          t('admin.users.detail.balance.notDelivered'),
+          t('admin.users.detail.balance.saved'),
+        );
+      } else if (result.notified) {
+        notify.success(
+          t('admin.users.detail.balance.delivered'),
+          t('admin.users.detail.balance.saved'),
+        );
+      } else {
+        // Поле не пришло — бот старее кабинета. Утверждать «не доставлено» нельзя:
+        // мы этого не знаем. Говорим только то, что знаем точно.
+        notify.success(t('admin.users.detail.balance.saved'));
+      }
       setBalanceAmount('');
       setBalanceDescription('');
     } catch (error) {
       console.error('Failed to update balance:', error);
+      // Причину отказа берём из ответа сервера готовым разборщиком: он умеет и строку,
+      // и список ошибок валидации. Без неё «Не удалось выполнить действие» скрывает
+      // «Insufficient balance. Current: X, requested: Y» — админ не поймёт, что промахнулся.
+      notify.error(
+        getApiErrorMessage(error, t('admin.users.userActions.error')),
+        t('common.error'),
+      );
     } finally {
+      // 🔴 Обновление карточки — в finally. В try оно не выполнялось при отказе, и админ
+      // видел «ошибка» и СТАРЫЙ баланс на деньгах, которые уже начислены: маршрут ждёт
+      // Телеграм до 20 с при клиентском таймауте 30 с. Следующим шагом он начислил бы
+      // второй раз. Нашла линза соответствия замыслу.
+      await onUserRefresh();
       setActionLoading(false);
     }
   };
@@ -157,14 +193,18 @@ export function BalanceTab({
           <div className="flex gap-2">
             <button
               onClick={() => handleUpdateBalance(true)}
-              disabled={actionLoading || balanceAmount === ''}
+              disabled={
+                actionLoading || balanceAmount === '' || Math.abs(toNumber(balanceAmount)) < 1
+              }
               className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-success-500 py-2 text-white transition-colors hover:bg-success-600 disabled:opacity-50"
             >
               <PlusIcon className="h-4 w-4" /> {t('admin.users.detail.balance.add')}
             </button>
             <button
               onClick={() => handleUpdateBalance(false)}
-              disabled={actionLoading || balanceAmount === ''}
+              disabled={
+                actionLoading || balanceAmount === '' || Math.abs(toNumber(balanceAmount)) < 1
+              }
               className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-error-500 py-2 text-white transition-colors hover:bg-error-600 disabled:opacity-50"
             >
               <MinusIcon className="h-4 w-4" /> {t('admin.users.detail.balance.subtract')}

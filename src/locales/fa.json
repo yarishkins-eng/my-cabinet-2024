@@ -2985,10 +2985,13 @@
           "current": "موجودی فعلی",
           "amountPlaceholder": "مبلغ به روبل",
           "descriptionPlaceholder": "توضیح (مشتری آن را می‌بیند)",
-          "descriptionHint": "⚠️ مشتری این را می‌بیند — متن در تاریخچه تراکنش‌های او ظاهر می‌شود. یادداشت شخصی اینجا ننویسید.",
+          "descriptionHint": "⚠️ مشتری این را می‌بیند — در پیام مربوط به مبلغ می‌آید و در تاریخچه تراکنش‌ها می‌ماند. یادداشت شخصی اینجا ننویسید.",
           "add": "افزودن",
           "subtract": "کسر",
           "addByAdmin": "افزوده شده توسط مدیر",
+          "saved": "موجودی به‌روزرسانی شد",
+          "delivered": "پیام برای کاربر ارسال شد",
+          "notDelivered": "به کاربر اطلاع داده نشد — خودتان به او بگویید.",
           "subtractByAdmin": "کسر شده توسط مدیر",
           "recentTransactions": "تراکنش‌های اخیر"
         },
@@ -3924,6 +3927,7 @@
       "complete": "انجام شد",
       "successCount": "موفق: {{count}}",
       "errorCount": "خطا: {{count}}",
+      "notNotifiedCount": "اطلاع‌رسانی نشد: {{count}}",
       "progress": {
         "processed": "پردازش شده: {{current}} / {{total}}",
         "succeeded": "موفق",

@@ -48,6 +48,10 @@ export interface BulkActionResult {
   error_count: number;
   skipped_count: number;
   errors: BulkActionErrorItem[];
+  /** Скольким людям деньги начислены, а сообщение не ушло. Считается по строкам
+   *  прогресса: сервер отдаёт исход доставки отдельным полем, потому что раньше он
+   *  приклеивался хвостом к message успешной строки и не показывался нигде. */
+  not_notified_count?: number;
 }
 
 export interface BulkProgressEvent {
@@ -60,6 +64,7 @@ export interface BulkProgressEvent {
   success: boolean;
   message?: string;
   error?: string;
+  notified?: boolean | null;
 }
 
 export interface BulkCompleteEvent {
