@@ -191,6 +191,12 @@ export default function AdminBroadcasts() {
                           ({broadcast.blocked_count} {t('admin.broadcasts.blockedShort')})
                         </span>
                       )}
+                      {broadcast.failed_count > 0 && (
+                        <span className="text-error-400">
+                          {' '}
+                          ({broadcast.failed_count} {t('admin.broadcasts.failedShort')})
+                        </span>
+                      )}
                     </span>
                     <span>
                       {broadcast.completed_at
