@@ -1955,6 +1955,7 @@
         "tariff": "By tariff",
         "email": "Email users",
         "broad": "Everyone — use with care",
+        "archive": "Archive — old filters",
         "authType": "By sign-in method"
       },
       "channel": {

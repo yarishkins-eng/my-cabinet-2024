@@ -1628,6 +1628,7 @@
         "source": "按来源",
         "tariff": "按套餐",
         "broad": "全部用户 — 请谨慎",
+        "archive": "归档 — 旧筛选条件",
         "authType": "按登录方式"
       },
       "enableTelegram": "Telegram",

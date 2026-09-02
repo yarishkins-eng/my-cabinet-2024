@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import { onlineManager, QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router';
 import ru from '../locales/ru.json';
@@ -950,7 +950,7 @@ describe('РС-10: отказы создания рассылки видны и 
     expect(addButton.disabled).toBe(false);
   });
 
-  it('РС-14е: «Вся база» рисуется ПОСЛЕДНЕЙ группой, а не в середине списка', async () => {
+  it('архив рисуется последним, а «Вся база» остаётся отдельной предпоследней группой', async () => {
     // Сервер отдаёт «Все» последней, но экран дописывает после неё тарифные и кастомные
     // фильтры — и она оказывалась десятой строкой из двадцати, рядом с «По тарифу».
     getFilters.mockResolvedValueOnce({
@@ -960,9 +960,18 @@ describe('РС-10: отказы создания рассылки видны и 
         { key: 'all', label: 'Все активные с Telegram', count: 304, group: 'broad' },
       ],
       tariff_filters: [
-        { key: 'tariff_17', label: 'Премиум', tariff_id: 17, count: 3, group: 'tariff' },
+        { key: 'tariff_3', label: 'Базовый', tariff_id: 3, count: 51, group: 'tariff' },
+        { key: 'tariff_4', label: 'Team', tariff_id: 4, count: 30, group: 'archive' },
       ],
-      custom_filters: [{ key: 'custom_today', label: 'Сегодня', count: 2, group: 'registration' }],
+      custom_filters: [
+        { key: 'custom_today', label: 'Сегодня', count: 2, group: 'archive' },
+        {
+          key: 'custom_registered_0_7_unpaid',
+          label: 'Регистрация за последние 7 дней, ни одной оплаты',
+          count: 14,
+          group: 'registration',
+        },
+      ],
     });
     renderPage();
     fireEvent.click(await screen.findByText('admin.broadcasts.selectFilterPlaceholder'));
@@ -970,7 +979,15 @@ describe('РС-10: отказы создания рассылки видны и 
     const headings = screen
       .getAllByText(/admin\.broadcasts\.filterGroups\./)
       .map((node) => node.textContent);
-    expect(headings[headings.length - 1]).toBe('admin.broadcasts.filterGroups.broad');
+    expect(headings.slice(-2)).toEqual([
+      'admin.broadcasts.filterGroups.broad',
+      'admin.broadcasts.filterGroups.archive',
+    ]);
+    const tariffGroup = screen.getByText('admin.broadcasts.filterGroups.tariff').parentElement!;
+    const archiveGroup = screen.getByText('admin.broadcasts.filterGroups.archive').parentElement!;
+    expect(within(tariffGroup).getByRole('button', { name: /Базовый/ })).toBeTruthy();
+    expect(within(tariffGroup).queryByRole('button', { name: /Team/ })).toBeNull();
+    expect(within(archiveGroup).getByRole('button', { name: /Team/ })).toBeTruthy();
   });
 
   it('РС-14е: «Все» уходит в хвост даже если бот ещё не выложен (скос версий)', async () => {

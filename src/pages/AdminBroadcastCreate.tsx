@@ -70,6 +70,7 @@ const FILTER_GROUP_LABEL_KEYS: Record<string, string> = {
   email: 'admin.broadcasts.filterGroups.email',
   // РС-14е: «Все» вынесена в свою группу — она больше не соседняя строка с «только мне»
   broad: 'admin.broadcasts.filterGroups.broad',
+  archive: 'admin.broadcasts.filterGroups.archive',
   // Заголовка не было вовсе — пользователю показывался сырой ключ `auth_type`.
   auth_type: 'admin.broadcasts.filterGroups.authType',
 };
@@ -274,9 +275,11 @@ export default function AdminBroadcastCreate() {
       groups[group].push(f);
     });
 
-    if (filtersData.tariff_filters.length > 0) {
-      groups['tariff'] = filtersData.tariff_filters;
-    }
+    filtersData.tariff_filters.forEach((f) => {
+      const group = f.group || 'tariff';
+      if (!groups[group]) groups[group] = [];
+      groups[group].push(f);
+    });
 
     filtersData.custom_filters.forEach((f) => {
       const group = f.group || 'custom';
@@ -309,6 +312,14 @@ export default function AdminBroadcastCreate() {
       const broad = groups.broad;
       delete groups.broad;
       groups.broad = broad;
+    }
+    // Архив остаётся обычной выбираемой группой, но намеренно требует прокрутки
+    // всего рабочего списка. «Вся база» сохраняет отдельную опасную зону прямо
+    // перед ним и по-прежнему не соседствует с безопасной канарейкой «только мне».
+    if (groups.archive) {
+      const archive = groups.archive;
+      delete groups.archive;
+      groups.archive = archive;
     }
 
     return groups;
@@ -803,9 +814,11 @@ export default function AdminBroadcastCreate() {
           onClick={() => setShowFilters(!showFilters)}
           className="flex w-full items-center justify-between rounded-lg border border-dark-700 bg-dark-800 p-3 text-left transition-colors hover:border-dark-600"
         >
-          <div className="flex items-center gap-2">
-            <UsersIcon />
-            <span className={selectedFilter ? 'text-dark-100' : 'text-dark-400'}>
+          <div className="flex min-w-0 flex-1 items-center gap-2 pr-2">
+            <span className="shrink-0">
+              <UsersIcon />
+            </span>
+            <span className={`min-w-0 ${selectedFilter ? 'text-dark-100' : 'text-dark-400'}`}>
               {selectedFilter
                 ? selectedFilter.label
                 : channelType === 'telegram'
@@ -813,12 +826,12 @@ export default function AdminBroadcastCreate() {
                   : t('admin.broadcasts.selectEmailFilterPlaceholder')}
             </span>
             {recipientsCount !== null && (
-              <span className="rounded-full bg-accent-500/20 px-2 py-0.5 text-xs text-accent-400">
+              <span className="shrink-0 rounded-full bg-accent-500/20 px-2 py-0.5 text-xs text-accent-400">
                 {recipientsCount} {t('admin.broadcasts.recipients')}
               </span>
             )}
           </div>
-          <ChevronDownIcon className="h-4 w-4" />
+          <ChevronDownIcon className="h-4 w-4 shrink-0" />
         </button>
 
         {showFilters && (
@@ -848,9 +861,9 @@ export default function AdminBroadcastCreate() {
                         target === filter.key ? 'bg-accent-500/20' : ''
                       }`}
                     >
-                      <span className="text-dark-100">{filter.label}</span>
+                      <span className="min-w-0 pr-3 text-dark-100">{filter.label}</span>
                       {filter.count !== null && filter.count !== undefined && (
-                        <span className="text-xs text-dark-400">{filter.count}</span>
+                        <span className="shrink-0 text-xs text-dark-400">{filter.count}</span>
                       )}
                     </button>
                   ))}

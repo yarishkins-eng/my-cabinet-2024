@@ -41,4 +41,13 @@ describe('РС-14ж: честные подписи сегментов промо
     expect(groups.broad?.length ?? 0).toBeGreaterThan(0);
     expect(groups.broad).not.toBe(groups.basic);
   });
+
+  it.each(Object.keys(LOCALES))(
+    '%s: у последней группы «archive» есть отдельный заголовок',
+    (lang) => {
+      const groups = LOCALES[lang].admin.broadcasts.filterGroups as Record<string, string>;
+      expect(groups.archive?.length ?? 0).toBeGreaterThan(0);
+      expect(groups.archive).not.toBe(groups.broad);
+    },
+  );
 });
