@@ -2296,6 +2296,42 @@ describe('DeviceFirstConfigurator interaction safety', () => {
     expect(screen.queryByText('deviceFirst.autostartHeldText')).toBeNull();
   });
 
+  // 🔴 Мутация пережила первую редакцию сторожей, и правильно сделала: в тесте выше выбранный
+  // способ и живой `methodKey` совпадают, поэтому «взять живой ключ вместо замороженного» там
+  // неотличимо от верного кода — проверка совпадения, а не защиты. Разводим их: карта пропадает
+  // у провайдера уже ПОСЛЕ удержания, живой ключ уезжает на СБП, а плашка обязана называть то,
+  // что человек действительно нажимал в чате.
+  it('names the method the person actually tapped, not the one left after a substitution', async () => {
+    vi.mocked(deviceFirstApi.paymentMethods)
+      .mockResolvedValueOnce({
+        methods: [
+          { key: 'sbp', provider_code: 2 },
+          { key: 'cards_ru', provider_code: 11 },
+        ],
+      })
+      .mockResolvedValue({ methods: [{ key: 'sbp', provider_code: 2 }] });
+
+    const { queryClient } = renderConfigurator({
+      options: { ...options, balance_kopeks: 45000 },
+      initialPath: '/subscription/purchase?period=30&devices=2&method=cards_ru&autostart=1',
+    });
+
+    expect(
+      await screen.findByText('deviceFirst.autostartHeldCoveredText:deviceFirst.cards'),
+    ).toBeTruthy();
+
+    await queryClient.refetchQueries({ queryKey: ['device-first-payment-methods'] });
+
+    // Улика, что подмена действительно случилась: живой ключ уехал на СБП — по нему строится
+    // адрес доплаты. И при этом плашка по-прежнему говорит «карта».
+    await waitFor(() =>
+      expect(
+        screen.getByText('deviceFirst.autostartHeldCoveredText:deviceFirst.cards'),
+      ).toBeTruthy(),
+    );
+    expect(screen.queryByText('deviceFirst.autostartHeldCoveredText:deviceFirst.sbp')).toBeNull();
+  });
+
   // 🔴 Мина EW слово в слово: флаг ставился один раз и не гас ничем, а компонент между
   // заказами не размонтируется. Скептик волны 2 воспроизвёл это живым прогоном.
   it('stops explaining the hold once the person walked back to the configuration', async () => {
