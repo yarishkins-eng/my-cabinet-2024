@@ -7,7 +7,7 @@ export interface BroadcastFilter {
   key: string;
   label: string;
   count: number | null;
-  group: string | null;
+  group?: string | null;
 }
 
 export interface TariffFilter {
@@ -15,6 +15,7 @@ export interface TariffFilter {
   label: string;
   tariff_id: number;
   count: number;
+  group: string | null;
 }
 
 export interface BroadcastFiltersResponse {

@@ -41,4 +41,34 @@ describe('РС-14ж: честные подписи сегментов промо
     expect(groups.broad?.length ?? 0).toBeGreaterThan(0);
     expect(groups.broad).not.toBe(groups.basic);
   });
+
+  it.each(Object.keys(LOCALES))(
+    '%s: у последней группы «archive» есть отдельный заголовок',
+    (lang) => {
+      const groups = LOCALES[lang].admin.broadcasts.filterGroups as Record<string, string>;
+      expect(groups.archive?.length ?? 0).toBeGreaterThan(0);
+      expect(groups.archive).not.toBe(groups.broad);
+    },
+  );
+
+  it.each([
+    ['ru', ru],
+    ['en', en],
+  ])('%s: подтверждение не обещает доставку всем из счётчика', (_lang, locale) => {
+    const broadcasts = locale.admin.broadcasts;
+    expect(broadcasts.sendConfirmIntro.toLowerCase()).toMatch(
+      /сейчас попробуем|we will try to reach/,
+    );
+    expect(broadcasts.sendConfirmIntro.toLowerCase()).toMatch(/не гарант|cannot be guaranteed/);
+  });
+
+  it.each([
+    ['ru', ru],
+    ['en', en],
+  ])('%s: недоступный Telegram не называется блокировкой пользователя', (_lang, locale) => {
+    const broadcasts = locale.admin.broadcasts;
+    expect(broadcasts.blocked.toLowerCase()).toMatch(/недоступ|unavailable/);
+    expect(broadcasts.blockedShort.toLowerCase()).toMatch(/недоступ|unavailable/);
+    expect(broadcasts.blocked.toLowerCase()).not.toMatch(/заблок|blocked/);
+  });
 });
