@@ -313,6 +313,18 @@ export function DeviceFirstConfigurator({
   // ⛔ Списания это не приближает ни на шаг: подтверждение локальное, заказа на сервере нет,
   // деньги двигает только нажатие человека (решение владельца 02.09.2026, класс бага #629889).
   const topUpReturnSeedRef = useRef(false);
+  // 🔴 РЕК-3, находка линзы UX. Посев живёт в эффекте, то есть ПОСЛЕ первой отрисовки: без
+  // этого признака человек успевал увидеть кадр экрана выбора с ЧУЖИМИ числами (умолчание,
+  // а не его 90 дней), который тут же подменялся сводкой. На денежном экране мигание чужой
+  // ценой — это не косметика, а ещё один способ соврать; скринридер вдобавок начинал читать
+  // радиогруппу «На какой срок?», которой через кадр не станет.
+  // Признак живёт РОВНО до конца посева: тот же эффект снимает метку `from` из адреса, и
+  // условие само становится ложным. Если посеву не нашлось цены — экран выбора появится,
+  // просто кадром позже.
+  const landingPending =
+    fixtureCheckout === undefined &&
+    !topUpReturnSeedRef.current &&
+    searchParams.get('from') === 'checkout';
   useEffect(() => {
     if (topUpReturnSeedRef.current) return;
     if (fixtureCheckout !== undefined) return;
@@ -395,6 +407,14 @@ export function DeviceFirstConfigurator({
       if (preferred.confirm) setConfirmation(true);
       return;
     }
+    // 🔴 РЕК-3, находка ревью — воспроизведена двумя линзами независимо. САМУ запись тут
+    // обнулять нельзя (она ждёт настоящих опций), а вот намерение приземлить обязано умереть
+    // сразу, как только ЖИВАЯ матрица ответила «такой пары не продаём». Иначе оно доживёт до
+    // следующего обновления опций и швырнёт человека на подтверждение СТАРОЙ пары поверх
+    // того, что он к этому времени выбрал руками.
+    if (preferred?.confirm && options.price_matrix?.length) {
+      preferredSelectionRef.current = { ...preferred, confirm: false };
+    }
     const availableDevices = options.device_options ?? [];
     if (availableDevices.length && !availableDevices.includes(devices)) {
       setDevices(availableDevices[0]);
@@ -414,6 +434,7 @@ export function DeviceFirstConfigurator({
     devices,
     period,
     priceFor,
+    options.price_matrix,
     options.device_options,
     options.period_options,
     options.default_period_days,
@@ -1486,7 +1507,7 @@ export function DeviceFirstConfigurator({
           )}
         </div>
       )}
-      {!checkout && !legacyDraft && !confirmation && !initialCheckoutId && (
+      {!checkout && !legacyDraft && !confirmation && !initialCheckoutId && !landingPending && (
         <div className="space-y-6">
           <fieldset>
             <legend className="mb-3 text-sm font-medium text-dark-200">
@@ -1849,7 +1870,13 @@ export function DeviceFirstConfigurator({
                   // «Мы не открыли оплату» там, где никто ничего не удерживал.
                   setAutostartHeldForWallet(false);
                 }}
-                className={`min-h-11 w-full rounded-xl px-4 py-2 text-sm text-dark-500 hover:text-dark-300 ${choiceClass}`}
+                // 🔴 РЕК-3, находка линзы UX. Было `text-dark-500` — контраст 2,4:1 в светлой
+                // теме и 3,8:1 в тёмной, то есть ниже порога читаемости в обеих. Пока человек
+                // приходил на этот экран САМ, это была тихая кнопка «назад»; теперь экран
+                // открывается без него, и это ЕДИНСТВЕННАЯ дверь обратно к вариантам, которая
+                // сохраняет выбор (системная «назад» Телеграма его теряет — мина JF).
+                // ⛔ Заливать её нельзя: главное действие на экране одно, и это оплата.
+                className={`min-h-11 w-full rounded-xl px-4 py-2 text-sm text-dark-300 hover:text-dark-100 ${choiceClass}`}
               >
                 {t('deviceFirst.changeOptions')}
               </button>

@@ -144,7 +144,11 @@ export default function TopUpAmount() {
     // платёж, которого не было. Гасим кэш здесь, у самого выхода: побочек нет вовсе.
     queryClient.invalidateQueries({ queryKey: ['balance'] });
     queryClient.invalidateQueries({ queryKey: ['transactions'] });
-    queryClient.invalidateQueries({ queryKey: ['device-first-options'] });
+    // 🔴 РЕК-3: не пометка, а снос — по той же причине, что и в `TopUpResult`. Кассы на
+    // экране сейчас нет, значит пометка «протухло» её не перезапросит, и приземление
+    // после доплаты нарисует ДОоплатный баланс с кнопкой «Доплатить» на уже уплаченную
+    // сумму. Снос кэша заставляет экран покупки дождаться свежего ответа.
+    queryClient.removeQueries({ queryKey: ['device-first-options'] });
     queryClient.invalidateQueries({
       predicate: (query) => Array.isArray(query.queryKey) && query.queryKey[0] === 'subscription',
     });

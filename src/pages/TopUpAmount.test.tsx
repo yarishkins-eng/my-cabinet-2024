@@ -224,11 +224,18 @@ describe('TopUpAmount — короткий путь кассы', () => {
   // метку «ушёл платить» НЕ ставит, поэтому WS-успех уходит в `handleSuccess`, а не на
   // `/balance/top-up/result` — единственное место, где гасился кэш кассы. Итог: он заплатил
   // и вернулся на кассу с ПРЕЖНИМ «Не хватает N». Ровно то, что Б-1 объявил закрытым.
+  // 🔴 ЭТАП РЕК-3 УСИЛИЛ ЭТОТ СТОРОЖ ПО ТОЙ ЖЕ ПРИЧИНЕ, ЧТО И БЛИЗНЕЦА В `TopUpResult.test`.
+  // Пометка «протухло» не лечит беду: кассы на экране нет, запрос неактивен, запись остаётся
+  // в кэше и отдаётся следующему монтированию синхронно. С приземлением РЕК-3 сразу на
+  // подтверждение это стало денежным экраном со старым балансом. Проверяем ИСХОД: записи о
+  // деньгах кассы в кэше не осталось. Соседний ключ `balance` по-прежнему гасится ПОМЕТКОЙ —
+  // его читает живой экран баланса, и там фоновое обновление уместно; разница намеренная.
   it('drops the stale checkout cache on the way out, not only on the result screen', async () => {
     const { queryClient } = renderScreen(
       `?amount=298&option=11&returnTo=${encodeURIComponent(CHECKOUT_RETURN)}`,
     );
     await screen.findByText('balance.enterAmount');
+    queryClient.setQueryData(['device-first-options'], { balance_kopeks: 0 });
     const invalidate = vi.spyOn(queryClient, 'invalidateQueries');
 
     // Приходит вебсокет «баланс пополнен» — тот же путь, что у скопированной ссылки и у
@@ -236,12 +243,12 @@ describe('TopUpAmount — короткий путь кассы', () => {
     useSuccessNotification.getState().show({ type: 'balance_topup', amountKopeks: 29800 });
 
     await waitFor(() => expect(screen.getByTestId('location').textContent).toBe(CHECKOUT_RETURN));
+    expect(queryClient.getQueryData(['device-first-options'])).toBeUndefined();
     // Ключи ЗАШИТЫ ЛИТЕРАЛАМИ: сторож, перебирающий тот же список, что и код, доказывает
-    // только сам себя. `device-first-options` — это и есть баланс, который читает касса.
+    // только сам себя.
     const invalidatedKeys = invalidate.mock.calls
       .map(([arg]) => (arg as { queryKey?: unknown[] })?.queryKey?.[0])
       .filter(Boolean);
-    expect(invalidatedKeys).toContain('device-first-options');
     expect(invalidatedKeys).toContain('balance');
   });
 

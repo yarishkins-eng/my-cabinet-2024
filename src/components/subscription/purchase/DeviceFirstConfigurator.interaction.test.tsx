@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 
+import { useState } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -2865,6 +2866,51 @@ describe('DeviceFirstConfigurator interaction safety', () => {
           ?.getAttribute('aria-checked'),
       ).toBe('true'),
     );
+  });
+
+  // 🔴 НАХОДКА РЕВЬЮ (две линзы независимо, одна воспроизвела прогоном). Намерение приземлить
+  // не должно пережить свой выбор. Раньше в ветке «цены у пары нет» запись оставалась в ref
+  // ВМЕСТЕ с зарядом, и следующее обновление опций — например фоновое перечитывание после
+  // возврата — швыряло человека на подтверждение СТАРОЙ пары поверх того, что он в это время
+  // выбирал руками. Сторож воспроизводит ровно эту последовательность.
+  it('РЕК-3: посев без цены не заряжает подтверждение на будущее', async () => {
+    const unpriced: DeviceFirstOptions = {
+      ...topUpReturnOptions,
+      price_matrix: [options.price_matrix![0]],
+    };
+
+    function Harness() {
+      const [opts, setOpts] = useState<DeviceFirstOptions>(unpriced);
+      return (
+        <>
+          <button type="button" onClick={() => setOpts(topUpReturnOptions)}>
+            grow
+          </button>
+          <ConfiguratorFromRoute options={opts} />
+        </>
+      );
+    }
+
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    render(
+      <MemoryRouter initialEntries={[TOP_UP_RETURN_PATH]}>
+        <QueryClientProvider client={queryClient}>
+          <Harness />
+        </QueryClientProvider>
+      </MemoryRouter>,
+    );
+
+    // Пары 90×5 в матрице нет — человек остался на рабочем экране выбора.
+    expect(await screen.findByRole('button', { name: 'deviceFirst.review' })).toBeTruthy();
+
+    // Приезжают опции, где пара снова продаётся. Заряд к этому моменту обязан быть погашен.
+    fireEvent.click(screen.getByRole('button', { name: 'grow' }));
+
+    await waitFor(() => expect(screen.getByText('deviceFirst.periodMonths:3')).toBeTruthy());
+    expect(screen.getByRole('button', { name: 'deviceFirst.review' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /deviceFirst\.payAndOrder/ })).toBeNull();
   });
 
   // 🔴 Честная граница. Приземляем ВСЕГДА, даже если денег всё ещё не хватает — например
