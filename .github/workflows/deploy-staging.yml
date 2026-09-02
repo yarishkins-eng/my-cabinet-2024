@@ -1,0 +1,422 @@
+name: Deploy cabinet to staging
+
+on:
+  push:
+    branches:
+      - staging
+  workflow_dispatch:
+
+concurrency:
+  group: teplo-cabinet-staging-deploy
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    uses: ./.github/workflows/verify.yml
+
+  deploy-staging:
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Deploy isolated test cabinet and wait for health
+        uses: appleboy/ssh-action@029f5b4aeeeb58fdfe1410a5d17f967dacf36262 # v1.0.3
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          command_timeout: 15m
+          script: |
+            set -Eeuo pipefail
+
+            readonly REPO_DIR='/opt/teplo-cabinet-staging'
+            readonly SERVICE='cabinet-frontend-staging'
+            readonly CONTAINER='teplo_staging_cabinet'
+            readonly TARGET_SHA='${{ github.sha }}'
+            readonly MIN_FREE_KB=2097152
+            readonly STATE_DIR='/var/lib/teplo-vpn/deploy-state'
+            readonly STATE_FILE="$STATE_DIR/cabinet-staging.state"
+            readonly NGINX_CONF='/opt/remnawave/nginx.conf'
+            readonly NGINX_CONTAINER='remnawave-nginx'
+            readonly STAGING_ORIGIN='https://cabinet.lilulalu.xyz:8443'
+            readonly NGINX_MARKER_BEGIN='# BEGIN teplo staging cabinet'
+            readonly NGINX_MARKER_END='# END teplo staging cabinet'
+            BUILD_DIR=''
+            BUILD_OVERRIDE=''
+            BOOTSTRAP=0
+            SOURCE_SWITCHED=0
+            SERVICE_SWITCH_ATTEMPTED=0
+            PREVIOUS_SHA=''
+            PREVIOUS_IMAGE_ID=''
+            SERVICE_IMAGE=''
+            PROXY_CHANGED=0
+            PROXY_PREVIOUS_BLOCK=''
+            PROXY_PREVIOUS_BLOCK_EXISTS=0
+
+            compose() {
+              if [ -n "$BUILD_OVERRIDE" ]; then
+                docker compose -f docker-compose.staging.yml -f "$BUILD_OVERRIDE" "$@"
+              else
+                docker compose -f docker-compose.staging.yml "$@"
+              fi
+            }
+
+            cleanup_build_context() {
+              if [ -n "$BUILD_DIR" ]; then
+                rm -rf "$BUILD_DIR"
+              fi
+            }
+
+            cleanup_proxy_rollback_state() {
+              if [ -n "$PROXY_PREVIOUS_BLOCK" ]; then
+                rm -f "$PROXY_PREVIOUS_BLOCK"
+              fi
+            }
+
+            cleanup() {
+              cleanup_build_context
+              cleanup_proxy_rollback_state
+            }
+
+            create_clean_build_context() {
+              BUILD_DIR="$(mktemp -d /tmp/teplo-vpn-cabinet-staging-build.XXXXXX)"
+              BUILD_OVERRIDE="$BUILD_DIR/compose-build-context.yml"
+              git archive "$TARGET_SHA" | tar -x -C "$BUILD_DIR"
+              printf '%s\n' \
+                'services:' \
+                '  cabinet-frontend-staging:' \
+                '    build:' \
+                "      context: $BUILD_DIR" \
+                '      dockerfile: Dockerfile' > "$BUILD_OVERRIDE"
+            }
+
+            verify_deployed_state() {
+              test -r "$STATE_FILE"
+              stored_sha="$(sed -n 's/^sha=//p' "$STATE_FILE")"
+              stored_image="$(sed -n 's/^image=//p' "$STATE_FILE")"
+              current_image="$(docker inspect --format '{{.Image}}' "$CONTAINER")"
+              test "$stored_sha" = "$TARGET_SHA"
+              test "$stored_image" = "$current_image"
+              curl --fail --silent --show-error --max-time 15 http://127.0.0.1:13030/ >/dev/null
+              wait_for_staging_proxy
+            }
+
+            staging_proxy_health() {
+              # Force the local probe to the host-network nginx.  The test must
+              # not accidentally use a workstation/server proxy configuration.
+              curl --noproxy '*' --fail --silent --show-error --max-time 5 \
+                --resolve cabinet.lilulalu.xyz:8443:127.0.0.1 \
+                "$STAGING_ORIGIN/health/unified" >/dev/null
+            }
+
+            staging_websocket_proxy_health() {
+              # The cabinet always opens this socket after login.  A deliberately
+              # invalid token is enough to prove the HTTP Upgrade reaches FastAPI:
+              # the application accepts it (101) and immediately closes it with
+              # its normal unauthorised WebSocket code.  No user token is exposed.
+              headers="$(mktemp /tmp/teplo-staging-websocket-headers.XXXXXX)"
+              # curl cannot complete a WebSocket conversation itself and therefore
+              # times out after receiving the valid 101 response.  Inspect the
+              # received response headers instead of treating that expected timeout
+              # as a failed proxy handshake.
+              if curl --noproxy '*' --silent --max-time 3 --dump-header "$headers" --output /dev/null \
+                --http1.1 \
+                --resolve cabinet.lilulalu.xyz:8443:127.0.0.1 \
+                -H 'Connection: Upgrade' \
+                -H 'Upgrade: websocket' \
+                -H 'Sec-WebSocket-Version: 13' \
+                -H 'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==' \
+                "$STAGING_ORIGIN/api/cabinet/ws?token=staging-proxy-smoke-invalid"; then
+                :
+              fi
+              if grep -qi '^HTTP/1.1 101 ' "$headers"; then
+                rm -f "$headers"
+                return 0
+              fi
+              rm -f "$headers"
+              return 1
+            }
+
+            wait_for_staging_proxy() {
+              # nginx acknowledges a reload before a new TLS listener is ready
+              # to accept a connection.  Wait for the actual proxied API, not
+              # merely for a successful nginx -s reload.
+              # A failed WebSocket probe takes at most three seconds, so 15
+              # attempts plus 14 five-second pauses stay within this 120-second
+              # readiness budget.
+              for attempt in $(seq 1 15); do
+                if staging_proxy_health && staging_websocket_proxy_health; then
+                  echo "Staging cabinet proxy accepted HTTP and WebSocket health checks on attempt $attempt."
+                  return 0
+                fi
+
+                if [ "$attempt" -lt 15 ]; then
+                  sleep 5
+                fi
+              done
+
+              echo 'Staging cabinet proxy did not become ready within 120 seconds.' >&2
+              return 1
+            }
+
+            write_deployed_state() {
+              install -d -m 700 "$STATE_DIR"
+              state_tmp="$(mktemp "$STATE_DIR/cabinet-staging.XXXXXX")"
+              printf 'sha=%s\nimage=%s\n' "$TARGET_SHA" "$(docker inspect --format '{{.Image}}' "$CONTAINER")" > "$state_tmp"
+              chmod 600 "$state_tmp"
+              mv "$state_tmp" "$STATE_FILE"
+            }
+
+            extract_cabinet_tls() {
+              awk '
+                /^[[:space:]]*server[[:space:]]*\{/ { inside = 1; depth = 1; target = 0; next }
+                inside {
+                  if ($0 ~ /^[[:space:]]*server_name[[:space:]]+cabinet\.lilulalu\.xyz/) target = 1
+                  if (target && $0 ~ /^[[:space:]]*ssl_certificate(_key)?[[:space:]]/) print
+                  opens = gsub(/\{/, "{")
+                  closes = gsub(/\}/, "}")
+                  depth += opens - closes
+                  if (depth <= 0) {
+                    if (target) exit
+                    inside = 0
+                  }
+                }
+              ' "$NGINX_CONF"
+            }
+
+            copy_without_staging_proxy() {
+              # Remove precisely the marked test-only block.  Refuse malformed
+              # marker pairs instead of guessing at a shared production config.
+              awk -v begin="$NGINX_MARKER_BEGIN" -v end="$NGINX_MARKER_END" '
+                $0 == begin {
+                  if (inside || found) { bad = 1; exit }
+                  inside = 1; found = 1; next
+                }
+                $0 == end {
+                  if (!inside) { bad = 1; exit }
+                  inside = 0; next
+                }
+                !inside { print }
+                END { if (inside || bad) exit 1 }
+              ' "$NGINX_CONF"
+            }
+
+            extract_staging_proxy() {
+              awk -v begin="$NGINX_MARKER_BEGIN" -v end="$NGINX_MARKER_END" '
+                $0 == begin {
+                  if (inside || found) { bad = 1; exit }
+                  inside = 1; found = 1
+                }
+                inside { print }
+                $0 == end {
+                  inside = 0
+                }
+                END { if (!found || inside || bad) exit 1 }
+              ' "$NGINX_CONF"
+            }
+
+            append_staging_proxy() {
+              tls_directives="$(extract_cabinet_tls)"
+              printf '%s\n' "$tls_directives" | awk 'NF { count += 1 } END { exit(count == 2 ? 0 : 1) }'
+              {
+                printf '\n%s\n' "$NGINX_MARKER_BEGIN"
+                printf '%s\n' 'server {'
+                printf '%s\n' '    listen 8443 ssl;'
+                printf '%s\n' '    server_name cabinet.lilulalu.xyz;'
+                printf '%s\n' "$tls_directives"
+                printf '%s\n' '    add_header X-Robots-Tag "noindex, nofollow" always;'
+                printf '%s\n' ''
+                printf '%s\n' '    location = /health/unified {'
+                printf '%s\n' '        proxy_pass http://127.0.0.1:18080/health/unified;'
+                printf '%s\n' '        proxy_http_version 1.1;'
+                printf '%s\n' '        proxy_set_header Host $host;'
+                printf '%s\n' '        proxy_set_header X-Real-IP $remote_addr;'
+                printf '%s\n' '        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;'
+                printf '%s\n' '        proxy_set_header X-Forwarded-Proto $scheme;'
+                printf '%s\n' '    }'
+                printf '%s\n' ''
+                printf '%s\n' '    location = /api/cabinet/ws {'
+                printf '%s\n' '        proxy_pass http://127.0.0.1:18080/cabinet/ws;'
+                printf '%s\n' '        proxy_http_version 1.1;'
+                printf '%s\n' '        proxy_set_header Upgrade $http_upgrade;'
+                printf '%s\n' '        proxy_set_header Connection "upgrade";'
+                printf '%s\n' '        proxy_set_header Host $host;'
+                printf '%s\n' '        proxy_set_header X-Real-IP $remote_addr;'
+                printf '%s\n' '        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;'
+                printf '%s\n' '        proxy_set_header X-Forwarded-Proto $scheme;'
+                printf '%s\n' '        proxy_read_timeout 3600s;'
+                printf '%s\n' '        proxy_send_timeout 3600s;'
+                printf '%s\n' '    }'
+                printf '%s\n' ''
+                printf '%s\n' '    location /api/ {'
+                printf '%s\n' '        proxy_pass http://127.0.0.1:18080/;'
+                printf '%s\n' '        proxy_http_version 1.1;'
+                printf '%s\n' '        proxy_set_header Host $host;'
+                printf '%s\n' '        proxy_set_header X-Real-IP $remote_addr;'
+                printf '%s\n' '        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;'
+                printf '%s\n' '        proxy_set_header X-Forwarded-Proto $scheme;'
+                printf '%s\n' '    }'
+                printf '%s\n' ''
+                printf '%s\n' '    location / {'
+                printf '%s\n' '        proxy_pass http://127.0.0.1:13030;'
+                printf '%s\n' '        proxy_http_version 1.1;'
+                printf '%s\n' '        proxy_set_header Host $host;'
+                printf '%s\n' '        proxy_set_header X-Real-IP $remote_addr;'
+                printf '%s\n' '        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;'
+                printf '%s\n' '        proxy_set_header X-Forwarded-Proto $scheme;'
+                printf '%s\n' '    }'
+                printf '%s\n' '}'
+                printf '%s\n' "$NGINX_MARKER_END"
+              }
+            }
+
+            ensure_staging_proxy() {
+              original="$(mktemp /tmp/teplo-staging-nginx-original.XXXXXX)"
+              candidate="$(mktemp /tmp/teplo-staging-nginx.XXXXXX)"
+              cp "$NGINX_CONF" "$original"
+
+              if grep -Fqx "$NGINX_MARKER_BEGIN" "$NGINX_CONF"; then
+                PROXY_PREVIOUS_BLOCK="$(mktemp /tmp/teplo-staging-nginx-previous-block.XXXXXX)"
+                if ! extract_staging_proxy > "$PROXY_PREVIOUS_BLOCK"; then
+                  rm -f "$original" "$candidate" "$PROXY_PREVIOUS_BLOCK"
+                  PROXY_PREVIOUS_BLOCK=''
+                  echo 'Refusing staging proxy update: its marker block cannot be extracted safely.' >&2
+                  return 1
+                fi
+                PROXY_PREVIOUS_BLOCK_EXISTS=1
+              fi
+
+              if ! copy_without_staging_proxy > "$candidate"; then
+                rm -f "$original" "$candidate"
+                echo 'Refusing staging proxy update: its marker block is malformed.' >&2
+                return 1
+              fi
+              append_staging_proxy >> "$candidate"
+
+              cp "$candidate" "$NGINX_CONF"
+              rm -f "$candidate"
+              if ! docker exec "$NGINX_CONTAINER" nginx -t; then
+                cp "$original" "$NGINX_CONF"
+                docker exec "$NGINX_CONTAINER" nginx -t
+                rm -f "$original"
+                return 1
+              fi
+              if ! docker exec "$NGINX_CONTAINER" nginx -s reload; then
+                cp "$original" "$NGINX_CONF"
+                docker exec "$NGINX_CONTAINER" nginx -t
+                docker exec "$NGINX_CONTAINER" nginx -s reload
+                rm -f "$original"
+                return 1
+              fi
+              rm -f "$original"
+              PROXY_CHANGED=1
+            }
+
+            restore_previous_staging_proxy() {
+              original="$(mktemp /tmp/teplo-staging-nginx-original.XXXXXX)"
+              candidate="$(mktemp /tmp/teplo-staging-nginx.XXXXXX)"
+              cp "$NGINX_CONF" "$original"
+              if ! copy_without_staging_proxy > "$candidate"; then
+                rm -f "$original" "$candidate"
+                echo 'Refusing staging proxy rollback: its marker block is malformed.' >&2
+                return 1
+              fi
+              if [ "$PROXY_PREVIOUS_BLOCK_EXISTS" = '1' ]; then
+                cat "$PROXY_PREVIOUS_BLOCK" >> "$candidate"
+              fi
+              cp "$candidate" "$NGINX_CONF"
+              rm -f "$candidate"
+              if ! docker exec "$NGINX_CONTAINER" nginx -t || ! docker exec "$NGINX_CONTAINER" nginx -s reload; then
+                cp "$original" "$NGINX_CONF"
+                docker exec "$NGINX_CONTAINER" nginx -t
+                docker exec "$NGINX_CONTAINER" nginx -s reload
+                rm -f "$original"
+                return 1
+              fi
+              rm -f "$original"
+            }
+
+            rollback() {
+              rc=$?
+              trap - ERR
+              set +e
+              if [ "$SOURCE_SWITCHED" = '1' ] && [ "$BOOTSTRAP" = '0' ]; then
+                git checkout --detach "$PREVIOUS_SHA"
+              fi
+              if [ "$SERVICE_SWITCH_ATTEMPTED" = '1' ] && [ -n "$PREVIOUS_IMAGE_ID" ]; then
+                docker image tag "teplo-vpn-rollback/cabinet-staging:previous" "$SERVICE_IMAGE"
+                compose up -d --no-build --wait --wait-timeout 180 "$SERVICE"
+              fi
+              if [ "$PROXY_CHANGED" = '1' ]; then
+                restore_previous_staging_proxy
+              fi
+              exit "$rc"
+            }
+
+            trap cleanup EXIT
+
+            if ! test -d "$REPO_DIR/.git"; then
+              BOOTSTRAP=1
+              git clone --no-tags --branch staging --single-branch \
+                https://github.com/yarishkins-eng/my-cabinet-2024.git "$REPO_DIR"
+            fi
+
+            cd "$REPO_DIR"
+            if [ -n "$(git status --porcelain)" ]; then
+              echo 'Refusing staging cabinet deploy: server source tree is dirty.' >&2
+              exit 10
+            fi
+            if find . -maxdepth 1 -type f \( -name '*override*.yml' -o -name '*override*.yaml' \) -print -quit | grep -q .; then
+              echo 'Refusing staging cabinet deploy: a Compose override is present.' >&2
+              exit 11
+            fi
+            if [ "$(df -Pk . | awk 'NR == 2 { print $4 }')" -lt "$MIN_FREE_KB" ]; then
+              echo 'Refusing staging cabinet deploy: less than 2 GiB free disk.' >&2
+              exit 12
+            fi
+
+            git fetch --no-tags origin '+refs/heads/staging:refs/remotes/origin/staging'
+            PREVIOUS_SHA="$(git rev-parse HEAD)"
+            REMOTE_STAGING_SHA="$(git rev-parse origin/staging)"
+            if [ "$TARGET_SHA" != "$REMOTE_STAGING_SHA" ]; then
+              echo "Skipping superseded staging cabinet deploy: workflow=$TARGET_SHA, origin/staging=$REMOTE_STAGING_SHA"
+              exit 0
+            fi
+            git cat-file -e "${TARGET_SHA}^{commit}"
+
+            if [ "$PREVIOUS_SHA" = "$TARGET_SHA" ] && test -r "$STATE_FILE"; then
+              verify_deployed_state
+              echo "Staging cabinet already healthy: $TARGET_SHA"
+              exit 0
+            fi
+            if [ "$BOOTSTRAP" = '0' ] && ! git merge-base --is-ancestor "$PREVIOUS_SHA" "$TARGET_SHA"; then
+              echo "Refusing staging cabinet deploy: server commit $PREVIOUS_SHA is not an ancestor of $TARGET_SHA." >&2
+              exit 13
+            fi
+
+            if docker inspect "$CONTAINER" >/dev/null 2>&1; then
+              PREVIOUS_IMAGE_ID="$(docker inspect --format '{{.Image}}' "$CONTAINER")"
+              SERVICE_IMAGE="$(docker inspect --format '{{.Config.Image}}' "$CONTAINER")"
+              docker image tag "$PREVIOUS_IMAGE_ID" 'teplo-vpn-rollback/cabinet-staging:previous'
+            fi
+
+            trap rollback ERR
+            git checkout --detach "$TARGET_SHA"
+            SOURCE_SWITCHED=1
+            create_clean_build_context
+            compose build "$SERVICE"
+            SERVICE_SWITCH_ATTEMPTED=1
+            compose up -d --wait --wait-timeout 180 "$SERVICE"
+            curl --fail --silent --show-error --max-time 15 http://127.0.0.1:13030/ >/dev/null
+            ensure_staging_proxy
+            wait_for_staging_proxy
+            compose ps "$SERVICE"
+            write_deployed_state
+
+            SOURCE_SWITCHED=0
+            SERVICE_SWITCH_ATTEMPTED=0
+            trap - ERR
+            echo "Staging cabinet healthy: $TARGET_SHA at $(date --iso-8601=seconds)"

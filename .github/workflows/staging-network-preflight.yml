@@ -1,0 +1,79 @@
+name: Inspect staging cabinet network guard
+
+on:
+  push:
+    branches:
+      - staging
+    paths:
+      - '.github/workflows/staging-network-preflight.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Inspect only the test HTTPS listener and its guard
+        uses: appleboy/ssh-action@029f5b4aeeeb58fdfe1410a5d17f967dacf36262 # v1.0.3
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          command_timeout: 5m
+          script: |
+            set -Eeuo pipefail
+
+            if ss -ltn '( sport = :8443 )' | awk 'NR > 1 { found = 1 } END { exit(found ? 0 : 1) }'; then
+              echo 'staging_tls_listener=present'
+            else
+              echo 'staging_tls_listener=absent'
+              exit 10
+            fi
+
+            if command -v ufw >/dev/null 2>&1; then
+              ufw_state="$(ufw status | awk 'NR == 1 { print $2 }')"
+              echo "ufw_state=${ufw_state:-unknown}"
+              if [ "$ufw_state" = 'active' ]; then
+                if ufw status | grep -Eq '(^|[[:space:]])8443/tcp([[:space:]]|$).*ALLOW'; then
+                  echo 'ufw_8443=allowed'
+                else
+                  echo 'ufw_8443=not_allowed'
+                fi
+              fi
+            else
+              echo 'ufw_state=not_installed'
+            fi
+
+            if command -v firewall-cmd >/dev/null 2>&1 && firewall-cmd --state >/dev/null 2>&1; then
+              echo 'firewalld_state=running'
+              if firewall-cmd --list-ports | tr ' ' '\n' | grep -qx '8443/tcp'; then
+                echo 'firewalld_8443=allowed'
+              else
+                echo 'firewalld_8443=not_allowed'
+              fi
+            else
+              echo 'firewalld_state=not_running'
+            fi
+
+            if command -v nft >/dev/null 2>&1; then
+              if nft list ruleset 2>/dev/null | grep -Eq '(^|[^0-9])8443([^0-9]|$)'; then
+                echo 'nft_8443_rule=present'
+              else
+                echo 'nft_8443_rule=absent'
+              fi
+            else
+              echo 'nft_state=not_installed'
+            fi
+
+            if command -v iptables >/dev/null 2>&1; then
+              if iptables -S INPUT 2>/dev/null | grep -Eq -- '--dport 8443 .* -j (ACCEPT|DROP|REJECT)'; then
+                echo 'iptables_8443_rule=present'
+              else
+                echo 'iptables_8443_rule=absent'
+              fi
+            else
+              echo 'iptables_state=not_installed'
+            fi

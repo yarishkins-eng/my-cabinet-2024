@@ -1,0 +1,4 @@
+OWNER_APPROVED
+
+Scope: allow only TCP 8443 for the isolated Teplo staging cabinet.
+Rollback: UFW delete allow 8443/tcp.
