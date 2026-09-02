@@ -345,6 +345,10 @@ export interface UpdateBalanceResponse {
   old_balance_kopeks: number;
   new_balance_kopeks: number;
   message: string;
+  /** Дошло ли до клиента сообщение об изменении баланса. Старый бот поля не отдаёт —
+   *  тогда значение undefined, и экран честно молчит о доставке вместо того, чтобы
+   *  утверждать «не доставлено». */
+  notified?: boolean;
 }
 
 export interface UpdateSubscriptionRequest {

@@ -3533,6 +3533,9 @@
           "add": "Add",
           "subtract": "Deduct",
           "addByAdmin": "Added by admin",
+          "saved": "Balance updated",
+          "delivered": "The client has been notified",
+          "notDelivered": "Could not notify the client: they do not use the bot or have blocked it",
           "subtractByAdmin": "Deducted by admin",
           "recentTransactions": "Recent transactions"
         },

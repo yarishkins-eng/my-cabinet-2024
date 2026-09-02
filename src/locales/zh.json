@@ -2987,6 +2987,9 @@
           "add": "充值",
           "subtract": "扣除",
           "addByAdmin": "管理员充值",
+          "saved": "余额已更新",
+          "delivered": "已通知客户",
+          "notDelivered": "无法通知客户：对方未使用机器人或已将其屏蔽",
           "subtractByAdmin": "管理员扣除",
           "recentTransactions": "最近交易"
         },

@@ -63,7 +63,7 @@ export function BalanceTab({
     setActionLoading(true);
     try {
       const amount = Math.abs(toNumber(balanceAmount) * 100);
-      await adminUsersApi.updateBalance(userId, {
+      const result = await adminUsersApi.updateBalance(userId, {
         amount_kopeks: isAdd ? amount : -amount,
         description:
           balanceDescription ||
@@ -71,11 +71,30 @@ export function BalanceTab({
             ? t('admin.users.detail.balance.addByAdmin')
             : t('admin.users.detail.balance.subtractByAdmin')),
       });
+      // Экран обязан сказать, дошло ли до клиента сообщение о деньгах: сам факт
+      // начисления виден по цифре, а доставка — нет. До этапа УБ-1 здесь не было
+      // ни тоста успеха, ни тоста ошибки — админ не узнавал даже про отказ сервера.
+      if (result.notified === false) {
+        notify.warning(
+          t('admin.users.detail.balance.notDelivered'),
+          t('admin.users.detail.balance.saved'),
+        );
+      } else if (result.notified) {
+        notify.success(
+          t('admin.users.detail.balance.delivered'),
+          t('admin.users.detail.balance.saved'),
+        );
+      } else {
+        // Поле не пришло — бот старее кабинета. Утверждать «не доставлено» нельзя:
+        // мы этого не знаем. Говорим только то, что знаем точно.
+        notify.success(t('admin.users.detail.balance.saved'));
+      }
       await onUserRefresh();
       setBalanceAmount('');
       setBalanceDescription('');
     } catch (error) {
       console.error('Failed to update balance:', error);
+      notify.error(t('admin.users.userActions.error'), t('common.error'));
     } finally {
       setActionLoading(false);
     }
