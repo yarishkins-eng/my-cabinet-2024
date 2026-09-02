@@ -2975,6 +2975,7 @@
           "deviceLimitUpdated": "设备限制已更新",
           "invalidDays": "请输入有效天数（大于0）",
           "tariffRequired": "请先选择套餐。没有套餐，订阅将不含任何服务器，客户无法连接。",
+          "saved": "已完成。订阅已更新——请查看上方卡片。",
           "backToList": "返回订阅列表",
           "createNew": "新建"
         },
@@ -2982,13 +2983,13 @@
           "current": "当前余额",
           "amountPlaceholder": "金额（卢布）",
           "descriptionPlaceholder": "说明（客户会看到）",
-          "descriptionHint": "⚠️ 客户会看到这段文字，它会出现在客户的交易记录里。请不要在这里写给自己看的备注。",
+          "descriptionHint": "⚠️ 客户会看到这段文字：它会出现在款项消息中，并保留在交易记录里。请勿在此写内部备注。",
           "add": "充值",
           "subtract": "扣除",
           "addByAdmin": "管理员充值",
           "saved": "余额已更新",
           "delivered": "已向客户发送消息",
-          "notDelivered": "款项已入账，但消息未能送达客户，请您自行告知。",
+          "notDelivered": "未能通知客户，请您自行告知。",
           "subtractByAdmin": "管理员扣除",
           "recentTransactions": "最近交易"
         },

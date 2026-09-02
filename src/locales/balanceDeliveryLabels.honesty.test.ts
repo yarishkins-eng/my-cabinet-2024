@@ -29,6 +29,15 @@ const NEGATIVE_WORDS: Record<string, RegExp> = {
 // его, не поднят SMTP, сеть, flood control, наш потолок ожидания, пустой токен), и
 // первая редакция называла две — обе как вину клиента. Владелец шёл писать человеку
 // вручную там, где у нас просто моргнула сеть.
+// Подпись одна на начисление и на списание, поэтому направление денег в ней называть
+// нельзя: «Деньги зачислены» после СПИСАНИЯ — прямой повод списать второй раз.
+const DIRECTION_WORDS: Record<string, RegExp> = {
+  ru: /зачислен|пополнен|списан/i,
+  en: /credited|topped up|debited/i,
+  fa: /واریز|کسر/,
+  zh: /入账|充值|扣除/,
+};
+
 const CAUSE_GUESSES: Record<string, RegExp> = {
   ru: /заблокировал|не пользуется/i,
   en: /blocked|does not use/i,
@@ -73,6 +82,19 @@ describe('подписи исхода доставки на вкладке «Б�
       negative.test(node.notDelivered),
       `${lang}: подпись «${node.notDelivered}» не говорит, что сообщение НЕ дошло`,
     ).toBe(true);
+  });
+
+  it.each(LANGS)('%s: «не доставлено» не называет направление денег', (lang) => {
+    const node = balanceNode(lang);
+    const direction = DIRECTION_WORDS[lang];
+    expect(
+      direction,
+      `для языка ${lang} не задано слово направления — допишите его сюда`,
+    ).toBeDefined();
+    expect(
+      direction.test(node.notDelivered),
+      `${lang}: подпись «${node.notDelivered}» утверждает направление, а она одна на начисление и списание`,
+    ).toBe(false);
   });
 
   it.each(LANGS)('%s: «не доставлено» не угадывает причину', (lang) => {

@@ -60,9 +60,10 @@ export function BalanceTab({
   // ─── Mutations ──────────────────────────────────────────────────
 
   const handleUpdateBalance = async (isAdd: boolean) => {
-    // Ноль сервер отбивает 400: он проходил валидацию, писал проводку на 0 ₽ и слал
-    // клиенту «списано 0 ₽ — если это ошибка, напишите в поддержку». Не доводим до отказа.
-    if (balanceAmount === '' || toNumber(balanceAmount) === 0) return;
+    // Меньше рубля сервер отбивает 400: цены в проекте округляются, и такая сумма
+    // печатается клиенту как «0 ₽» — та же бессмыслица, что и ноль, достижимая
+    // опечаткой «0.5» вместо «50». Не доводим до отказа.
+    if (balanceAmount === '' || Math.abs(toNumber(balanceAmount)) < 1) return;
     setActionLoading(true);
     try {
       // Math.round, а не усечение: 1.1 * 100 в JS даёт 110.00000000000001, и Pydantic
@@ -192,14 +193,18 @@ export function BalanceTab({
           <div className="flex gap-2">
             <button
               onClick={() => handleUpdateBalance(true)}
-              disabled={actionLoading || balanceAmount === '' || toNumber(balanceAmount) === 0}
+              disabled={
+                actionLoading || balanceAmount === '' || Math.abs(toNumber(balanceAmount)) < 1
+              }
               className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-success-500 py-2 text-white transition-colors hover:bg-success-600 disabled:opacity-50"
             >
               <PlusIcon className="h-4 w-4" /> {t('admin.users.detail.balance.add')}
             </button>
             <button
               onClick={() => handleUpdateBalance(false)}
-              disabled={actionLoading || balanceAmount === '' || toNumber(balanceAmount) === 0}
+              disabled={
+                actionLoading || balanceAmount === '' || Math.abs(toNumber(balanceAmount)) < 1
+              }
               className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-error-500 py-2 text-white transition-colors hover:bg-error-600 disabled:opacity-50"
             >
               <MinusIcon className="h-4 w-4" /> {t('admin.users.detail.balance.subtract')}
