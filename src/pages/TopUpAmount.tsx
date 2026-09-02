@@ -423,7 +423,15 @@ export default function TopUpAmount() {
     // автосабмитом стало бы красное «Сумма: 100 – … ₽» на экране, где человек ничего не нажимал.
     const amountRublesToCharge = amountKopeks / 100;
     if (amountRublesToCharge < minRubles || amountRublesToCharge > maxRubles) {
-      setError(t('balance.errors.amountRange', { min: minRubles, max: maxRubles }));
+      // 🔴 РЕК-16.4. Здесь стояло «Сумма: 100 – 1 000 000 ₽» — человеку, который ввёл 49,
+      // экран отвечал диапазоном до миллиона. Верхняя граница в этом ответе не значит ничего:
+      // за всю историю в неё не упирался никто, а мешает она каждому, кто промахнулся вниз.
+      // Называем ровно ту границу, о которую человек ударился.
+      setError(
+        amountRublesToCharge < minRubles
+          ? t('balance.errors.amountBelowMin', { min: minRubles })
+          : t('balance.errors.amountAboveMax', { max: maxRubles }),
+      );
       return;
     }
     if (isStarsMethod) {

@@ -366,7 +366,10 @@ describe('TopUpAmount — короткий путь кассы', () => {
     await settle();
     // Уходит каноническая сумма кассы, а не её обратная конвертация.
     expect(createTopUp).toHaveBeenCalledWith(10000, 'platega', '11');
-    expect(screen.queryByText('balance.errors.amountRange')).toBeNull();
+    // 🔴 РЕК-16.4 переименовал этот отказ: он больше не называет диапазон, а называет ту
+    // границу, о которую ударились. Сторож переписан на НОВЫЙ ключ — оставь он старый,
+    // и проверял бы отсутствие строки, которую код уже не показывает никогда.
+    expect(screen.queryByText(/balance\.errors\.amount(BelowMin|AboveMax)/)).toBeNull();
   });
 
   // 🔴 Вторая мутация, пережившая первую версию: снятие защёлки с решения «не стреляем».
