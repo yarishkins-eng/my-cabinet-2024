@@ -103,7 +103,17 @@ jobs:
               exit 12
             fi
 
-            git fetch --no-tags origin '+refs/heads/main:refs/remotes/origin/main'
+            # 🔴 02.09.2026: выкладка встала намертво — `git fetch` с сервера отвечал
+            # «could not read Username for 'https://github.com'» и «expected flush after ref
+            # listing», хотя репозиторий публичный, адрес верный, а GitHub на тот же путь
+            # отдавал серверу HTTP 200 за полсекунды (проверено curl'ом оттуда же).
+            # Причина: git 2.39 по умолчанию говорит протоколом версии 2, и сегодня этот
+            # разговор с данного сервера ломается. Тем же git с `protocol.version=1` ссылка
+            # читается мгновенно — проверено на боевом до правки.
+            # ⚠️ Это ЛЕЧЕНИЕ СИМПТОМА, и так и записано: причина снаружи (сеть/GitHub), у нас
+            # её не видно. Версия 1 медленнее на больших репозиториях; на этом — незаметно.
+            # 🟢 Когда снимать: если `git ls-remote` с сервера снова заработает БЕЗ этой опции.
+            git -c protocol.version=1 fetch --no-tags origin '+refs/heads/main:refs/remotes/origin/main'
             readonly PREVIOUS_SHA="$(git rev-parse HEAD)"
             readonly REMOTE_MAIN_SHA="$(git rev-parse origin/main)"
 
