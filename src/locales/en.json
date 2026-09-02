@@ -5591,7 +5591,7 @@
     "autostartHeldCoveredText": "That is why we did not open the payment. You chose «{{method}}», but you do not need to pay: the full amount is already on your balance.",
     "autostartHeldNoTopUpText": "That is why we did not open the payment yet. But it is not enough for the whole price, and there is no way to top up right now — you will have to pay the full amount.",
     "autostartHeldText": "That is why we did not open the payment yet. Pay the full amount — or add only the rest.",
-    "payFullAmountNotice": "Pay the full amount — your balance stays untouched",
+    "payFullAmountNotice": "Pay the full amount — your {{balance}} will stay on the balance",
     "otherMethods": "Pay by another method"
   },
   "trialStart": {

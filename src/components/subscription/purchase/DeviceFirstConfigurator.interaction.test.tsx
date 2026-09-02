@@ -84,6 +84,10 @@ vi.mock('react-i18next', () => ({
       // `paymentMethodAmount` (у него есть и `method`, и `amount`) сменил бы форму, и все
       // прежние ожидания вида `…:450 ₽` стали бы проверять другое.
       if (values?.method !== undefined) return `${key}:${values.method}`;
+      // 🔴 РЕК-16, волна 2: строка про полную оплату теперь называет ЧИСЛО — сколько денег
+      // останется лежать. Без этой ветки мок вернул бы голый ключ, и сторож проверял бы
+      // наличие строки, а не сумму в ней.
+      if (values?.balance !== undefined) return `${key}:${values.balance}`;
       if (values?.count === undefined) return key;
       return `${key}:${values.count}`;
     },
@@ -2322,13 +2326,27 @@ describe('DeviceFirstConfigurator interaction safety', () => {
 
     await queryClient.refetchQueries({ queryKey: ['device-first-payment-methods'] });
 
-    // Улика, что подмена действительно случилась: живой ключ уехал на СБП — по нему строится
-    // адрес доплаты. И при этом плашка по-прежнему говорит «карта».
+    // 🔴 ВЫДЕРЖКА, БЕЗ КОТОРОЙ СТОРОЖ БЫЛ СЛЕПЫМ. Скептик волны 2: `waitFor` удовлетворялся
+    // ПЕРВОЙ же проверкой — текст был верным ещё до того, как эффект подмены успевал сработать,
+    // и мутация «взять живой ключ» его переживала. Ждём, пока каскад эффектов осядет; улика,
+    // что подмена действительно случилась, — список способов ужался до одного.
+    // ⚠️ Улику берём НЕ по кнопкам способов: в этой ветке (денег хватает на всё) их на экране
+    // нет вовсе — рисуется одна «Списать … и оформить». Уликой служит сам ответ сервера.
     await waitFor(() =>
       expect(
-        screen.getByText('deviceFirst.autostartHeldCoveredText:deviceFirst.cards'),
-      ).toBeTruthy(),
+        (
+          queryClient.getQueryData(['device-first-payment-methods']) as {
+            methods: Array<{ key: string }>;
+          }
+        ).methods,
+      ).toHaveLength(1),
     );
+    for (let tick = 0; tick < 10; tick += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+
+    // И только теперь спрашиваем: плашка обязана называть карту, которую он нажимал в чате.
+    expect(screen.getByText('deviceFirst.autostartHeldCoveredText:deviceFirst.cards')).toBeTruthy();
     expect(screen.queryByText('deviceFirst.autostartHeldCoveredText:deviceFirst.sbp')).toBeNull();
   });
 
@@ -2444,6 +2462,26 @@ describe('DeviceFirstConfigurator interaction safety', () => {
     });
   });
 
+  // 🔴 Прогон сценария волны 2: главное следствие решения владельца — человек может нажать
+  // залитую кнопку своего способа и переплатить ровно на свой баланс. Строка над кнопками
+  // обязана называть это ЧИСЛОМ, а не нейтральным «деньги не спишутся»: сумма зашита
+  // литералом (100 ₽ — его баланс, а НЕ цена 450 и не доплата 350).
+  it('names how much money stays behind when paying the full amount', async () => {
+    vi.mocked(deviceFirstApi.paymentMethods).mockResolvedValue({
+      methods: [
+        { key: 'sbp', provider_code: 2 },
+        { key: 'cards_ru', provider_code: 11 },
+      ],
+    });
+
+    renderConfigurator({
+      options: { ...options, balance_kopeks: 10000 },
+      initialPath: '/subscription/purchase?period=30&devices=2&method=cards_ru&autostart=1',
+    });
+
+    expect(await screen.findByText('deviceFirst.payFullAmountNotice:100 ₽')).toBeTruthy();
+  });
+
   // 🔴 И вторая половина того же решения: остальные способы человек уже проходил в чате,
   // поэтому лежат под свёрткой. Сторож проверяет, что свёртка настоящая (второй способ
   // ВНУТРИ неё), — иначе «свернули» осталось бы словом в отчёте.
@@ -2493,9 +2531,13 @@ describe('DeviceFirstConfigurator interaction safety', () => {
     // Роняем список способов так, как это делает жизнь: перезапросом.
     await queryClient.refetchQueries({ queryKey: ['device-first-payment-methods'] });
 
-    // Что бы ни случилось со способами, дверь доплаты обязана остаться на экране.
+    // 🔴 УЛИКА, БЕЗ КОТОРОЙ СТОРОЖ БЫЛ СЛЕПЫМ. Скептик волны 2 показал: `findByRole` возвращался
+    // по кнопке, которая стояла на экране ЕЩЁ ДО перезапроса, и не дожидался перерисовки в
+    // ветку отказа — где средний слот физически недостижим. Сначала дожидаемся, что ветка
+    // отказа НАРИСОВАНА, и только потом спрашиваем про кнопку доплаты.
+    expect(await screen.findByText('deviceFirst.errorPaymentMethodsLoad')).toBeTruthy();
     expect(
-      await screen.findByRole('button', { name: 'deviceFirst.topUpShortage:350 ₽' }),
+      screen.getByRole('button', { name: /deviceFirst\.(topUpShortage|topUpAmount|needTopup)/ }),
     ).toBeTruthy();
   });
 
