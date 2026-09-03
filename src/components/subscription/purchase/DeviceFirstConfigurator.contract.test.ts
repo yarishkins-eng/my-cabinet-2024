@@ -8,6 +8,11 @@ const locale = (name: string) =>
   };
 
 describe('DeviceFirstConfigurator responsive and modal contract', () => {
+  it('shows the existing busy state on all three refresh controls', () => {
+    expect(source.match(/disabled=\{refreshBusy\}/g)?.length).toBe(3);
+    expect(source.match(/refreshBusy \? 'common\.loading'/g)?.length).toBe(3);
+  });
+
   it('caps the device grid at four columns with an explicit narrow fallback', () => {
     expect(source).toContain('grid-cols-1');
     expect(source).toContain('min-[360px]:grid-cols-2');
