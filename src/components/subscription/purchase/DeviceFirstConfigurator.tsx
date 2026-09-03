@@ -126,20 +126,18 @@ export function DeviceFirstConfigurator({
   const checkoutUiState = checkout?.ui_state;
   const modalOpen = fixtureCheckout === undefined && checkoutUiState === 'awaiting_payment';
   const [methodKey, setMethodKey] = useState('sbp');
-  // 🔴 РЕК-8а. «Мы не открыли оплату, и вот почему» — состояние живёт до ухода с экрана
-  // подтверждения. Без него остановка автозапуска молчалива, и человек читает её как поломку.
-  const [autostartHeldForWallet, setAutostartHeldForWallet] = useState(false);
-  // 🔴 РЕК-16, находка трёх линз волны 1. Опознавать выбор человека по `methodKey` НЕЛЬЗЯ:
-  // соседний эффект молча переписывает его на первый доступный, если сервер перестал отдавать
-  // прежний ключ (оператор выключил провайдера между сообщением и открытием экрана). Тогда
-  // экран поднял бы наверх и подписал «вашим выбором» способ, которого человек не выбирал, —
-  // ровно та ложь, против которой затеян этап. Ключ из чата замораживаем в момент удержания
-  // и гасим там же, где гаснет само удержание.
-  const chatChosenMethodKeyRef = useRef<string | null>(null);
   const autostartPeriodParam = searchParams.get('period');
   const autostartDevicesParam = searchParams.get('devices');
   const nativeLaunchMethod = searchParams.get('method');
   const nativeAutostart = searchParams.get('autostart') === '1';
+  const [heldChatMethod, setHeldChatMethod] = useState<{
+    key: string;
+    validated: boolean;
+  } | null>(
+    fixtureCheckout === undefined && initialCheckoutId && nativeLaunchMethod && nativeAutostart
+      ? { key: nativeLaunchMethod, validated: false }
+      : null,
+  );
   // New bot pay buttons deep-link a checkout-free launch: the full selection
   // arrives as URL parameters instead of a pre-created checkout id.
   const fusedAutostart =
@@ -240,8 +238,7 @@ export function DeviceFirstConfigurator({
     // Живой сценарий, воспроизведённый скептиком: удержали → «Изменить параметры» → человек
     // руками открыл подтверждение — и читает «Мы не открыли оплату» там, где никто ничего
     // не удерживал.
-    setAutostartHeldForWallet(false);
-    chatChosenMethodKeyRef.current = null;
+    setHeldChatMethod(null);
     // 🔴 РЕК-14.2, тот же класс, что EW и РЕК-8а двумя строками выше: флаг, поставленный один
     // раз и не гаснущий ничем, переживает свой экран. Компонент между заказами НЕ
     // размонтируется. Без этой строки человек уходит «Изменить параметры», выбирает другое,
@@ -295,8 +292,7 @@ export function DeviceFirstConfigurator({
       // состояние заказа и не трогал эту пару — человек сам открывал новое подтверждение и
       // читал «Поэтому мы не открыли оплату… Вы выбирали «Карта российского банка»» про
       // заказ, которого больше нет, вместе с чужой залитой кнопкой и свёрткой.
-      setAutostartHeldForWallet(false);
-      chatChosenMethodKeyRef.current = null;
+      setHeldChatMethod(null);
     }
   }, [fixtureCheckout, initialCheckoutId]);
 
@@ -589,6 +585,7 @@ export function DeviceFirstConfigurator({
       (confirmation ||
         !!resumedConfirmation ||
         fusedAutostart ||
+        !!initialCheckoutId ||
         (!!checkout && checkout.ui_state === 'awaiting_payment')),
   });
   useEffect(() => {
@@ -599,6 +596,15 @@ export function DeviceFirstConfigurator({
       setMethodKey(availableKeys[0]);
     }
   }, [methodKey, methods.data]);
+  useEffect(() => {
+    if (!heldChatMethod || heldChatMethod.validated || !methods.isSuccess || methods.isFetching)
+      return;
+    setHeldChatMethod(
+      methods.data.methods.some((method) => method.key === heldChatMethod.key)
+        ? { ...heldChatMethod, validated: true }
+        : null,
+    );
+  }, [heldChatMethod, methods.data, methods.isFetching, methods.isSuccess]);
 
   // 🔴 Этап Б-2. Минимум провайдера кабинет ДО СИХ ПОР не получал на кассе, и комментарий
   // этапа Б-1 («кабинет этого числа не получает вовсе») был верен лишь про
@@ -606,8 +612,7 @@ export function DeviceFirstConfigurator({
   // эндпоинт отдаёт `min_amount_kopeks`, и это ТОТ ЖЕ минимум, которым сервер отбивает
   // `/topup` (`bot-code/app/cabinet/routes/balance.py:332-336`). Запрос ТОТ ЖЕ, что у
   // `Balance` и `TopUpAmount` (`['payment-methods']`), поэтому кэш общий и лишней сети нет,
-  // если человек уже был на балансе. Экран им не блокируется: пока числа нет, кнопка живая,
-  // сумма — сырая разница, а автосоздание счёта просто не включается.
+  // если человек уже был на балансе.
   const topUpMethods = useQuery({
     queryKey: ['payment-methods'],
     queryFn: balanceApi.getPaymentMethods,
@@ -624,6 +629,8 @@ export function DeviceFirstConfigurator({
   // чужой минимум — это чужое число, и оно разошлось бы с отказом сервера ровно в тот день,
   // когда владелец включит второго провайдера.
   const topUpProviderMinKopeks = checkoutTopUpProvider?.min_amount_kopeks ?? null;
+  const topUpAmountKnown =
+    topUpProviderMinKopeks !== null && !topUpMethods.isFetching && !topUpMethods.isError;
   // Сумма счёта = недостача, округлённая ВВЕРХ до рубля и поднятая до минимума провайдера
   // (он тоже округляется вверх — иначе на кнопке появились бы копейки, которых нет в адресе).
   // Форма та же, что у бота (`device_first_top_up_kopeks`), но ИСТОЧНИК минимума другой, и это
@@ -651,13 +658,21 @@ export function DeviceFirstConfigurator({
   // ⚠️ И второе: `methodKey` живёт всю сессию компонента. Если человек переключил радиогруппу
   // на экране счёта прошлого заказа, а заказ умер и вернул его на подтверждение, сюда приедет
   // ЕГО прошлый выбор. Это его же выбор, а не чужой, но на экране он не подписан.
+  const heldChatMethodAvailable =
+    heldChatMethod?.validated && methods.isSuccess && !methods.isFetching
+      ? (methods.data?.methods.find((method) => method.key === heldChatMethod.key) ?? null)
+      : null;
+  const heldChatMethodPending =
+    methods.isError || (heldChatMethod?.validated && !methods.isFetching) ? null : heldChatMethod;
+  const chatChoiceHeld = !!heldChatMethod && !methods.isError;
+  const autostartHeldForWallet = hasWallet && chatChoiceHeld;
   const checkoutTopUpOptionId = methods.data?.methods.find(
-    (method) => method.key === methodKey,
+    (method) => method.key === (heldChatMethod ? heldChatMethodAvailable?.key : methodKey),
   )?.provider_code;
   // Автосоздание счёта включаем, только если ОБА числа известны: без минимума мы не знаем,
   // примет ли сервер сумму, без `provider_code` — не знаем, какой способ он подставит молча.
   const topUpAutoSubmit =
-    topUpChargeKopeks > 0 && topUpProviderMinKopeks !== null && checkoutTopUpOptionId !== undefined;
+    topUpChargeKopeks > 0 && topUpAmountKnown && checkoutTopUpOptionId !== undefined;
   // Адрес возврата несёт СВОЮ метку `from=checkout`, а не опознаётся по маршруту: на
   // `/subscription/purchase` живут ещё три экрана (`TariffPurchaseForm`, `ClassicPurchaseWizard`,
   // `SwitchTariffSheet`), и они кладут в `returnTo` ровно эту же строку. Метку пишет только касса,
@@ -677,7 +692,7 @@ export function DeviceFirstConfigurator({
       devices: String(confirmDeviceLimit),
     });
     const params = new URLSearchParams({ returnTo: `/subscription/purchase?${target}` });
-    if (topUpChargeKopeks > 0) {
+    if (topUpAmountKnown && topUpChargeKopeks > 0) {
       params.set('amount', String(topUpChargeKopeks / 100));
     }
     if (topUpAutoSubmit) {
@@ -1099,8 +1114,7 @@ export function DeviceFirstConfigurator({
       // Он нажал «Карта · 450 ₽», ждал банк, а получил экран с другим числом на кнопке: без
       // объяснения это читается как «не сработало», и он жмёт карту второй раз. Три соседние
       // ветки ставят сообщение — ставим и мы, но не ошибкой: ничего не сломалось.
-      setAutostartHeldForWallet(true);
-      chatChosenMethodKeyRef.current = method;
+      setHeldChatMethod({ key: method, validated: true });
       // 🔴 Способ оплаты человек УЖЕ назвал в чате, а `methodKey` жил умолчанием `'sbp'` и из
       // адреса не засевался никогда. До этой ветки он до экрана доплаты не доходил вовсе;
       // теперь доходит — и главная кнопка увела бы его в СБП, хотя он выбрал карту
@@ -1393,6 +1407,8 @@ export function DeviceFirstConfigurator({
   // действий. Гасим, только когда точно знаем, что на балансной стороне пусто, — иначе
   // кнопка ведёт в пустой экран, а тупик без объяснения хуже отсутствия кнопки.
   const anyTopUpProviderAvailable =
+    topUpMethods.isFetching ||
+    topUpMethods.isError ||
     balanceSideProviders === undefined ||
     balanceSideProviders.some((provider) => provider.is_available);
   const showTopUpAction =
@@ -1400,17 +1416,6 @@ export function DeviceFirstConfigurator({
     confirmSelectionAvailable &&
     confirmTotalKopeks !== null &&
     anyTopUpProviderAvailable &&
-    // 🔴 РЕК-3, находка прогона сценария. До этапа подтверждение открывалось ПОСЛЕ экрана
-    // выбора, и балансный запрос успевал ответить. Приземление открывает его сразу — и в
-    // первом кадре минимум провайдера ещё неизвестен: кнопка несла СЫРУЮ недостачу («49 ₽»),
-    // через долю секунды подменялась на поднятую до минимума («100 ₽»), а тап в первый кадр
-    // уезжал с суммой ниже минимума и кончался красным отказом «Сумма: 100 – 1 000 000 ₽».
-    // Число, меняющееся под пальцем на денежной кнопке, — это ложь, а тупик по нашей же
-    // подставленной сумме хуже отсутствия кнопки. Ровно так уже рассуждает соседнее условие
-    // `anyTopUpProviderAvailable`; здесь та же мысль про ЕЩЁ НЕ ПРИШЕДШИЙ ответ.
-    // ⚠️ Ждём только загрузку, НЕ отказ: если запрос упал, минимум остаётся неизвестным
-    // навсегда, и прятать дверь доплаты насовсем было бы хуже — поведение как до этапа.
-    !topUpMethods.isLoading &&
     ((confirmShortageKopeks > 0 && (hasWallet || paymentMethodsUnavailable)) ||
       actionErrorCode === 'wallet_insufficient');
   // Где она стоит. ПЕРВОЙ — только там, где доплата действительно короче прямой оплаты.
@@ -1450,24 +1455,17 @@ export function DeviceFirstConfigurator({
   // Вместе они возвращают инвариант в исходную силу: место у кнопки доплаты РОВНО одно, и оно
   // всегда отрисовывается. Раньше это держала взаимодополняющая пара `first`/`last`.
   const chatChosenMethod =
-    autostartHeldForWallet &&
+    chatChoiceHeld &&
     !walletCoversTotal &&
-    methods.isSuccess &&
-    // 🔴 Критик полноты: забор этапа Б-2 («доплата громкая только там, где она реально короче
-    // прямой оплаты») новый слот не спрашивал вовсе. Сегодня расхождения нет, но минимум
-    // пополнения задаётся из админки — задаст владелец больше цены, и под кнопкой «Карта ·
-    // 249 ₽» встала бы «Доплатить 300 ₽», то есть ровно отклонённый ревью Б-2 вариант.
-    topUpActionGoesFirst &&
     // 🔴 Он же: человеку, которому банк отказал, альтернативы нужны СЕЙЧАС, а мы их спрятали
     // под свёртку, да ещё и текст отказа печатается ниже неё. После любой неудачи раскладка
     // возвращается к обычной — все способы на виду.
     !actionErrorCode &&
-    chatChosenMethodKeyRef.current
-      ? (methods.data?.methods.find((item) => item.key === chatChosenMethodKeyRef.current) ?? null)
-      : null;
-  const otherPaymentMethods = chatChosenMethod
-    ? (methods.data?.methods ?? []).filter((item) => item.key !== chatChosenMethod.key)
-    : [];
+    (heldChatMethodAvailable ?? heldChatMethodPending);
+  const otherPaymentMethods =
+    chatChosenMethod && heldChatMethodAvailable
+      ? (methods.data?.methods ?? []).filter((item) => item.key !== chatChosenMethod.key)
+      : [];
   // 🔴 Три места, где может стоять кнопка доплаты, и занято ровно ОДНО — инвариант «на экране
   // всегда одна кнопка доплаты» пришёл из Б-2 и держится здесь же. Средний слот завёл РЕК-16:
   // выбранный способ занимает первое место, доплата встаёт сразу под ним (а не в самый низ,
@@ -1487,7 +1485,7 @@ export function DeviceFirstConfigurator({
       <button
         key={methodKeyToRender}
         type="button"
-        disabled={payMutation.isPending}
+        disabled={payMutation.isPending || (accented && !heldChatMethodAvailable)}
         onClick={() =>
           payMutation.mutate({ fundingMode: 'platega', selectedMethodKey: methodKeyToRender })
         }
@@ -1521,7 +1519,7 @@ export function DeviceFirstConfigurator({
             : `w-full rounded-xl border border-accent-400/50 px-4 py-3 text-sm font-semibold text-accent-200 ${choiceClass}`
         }
       >
-        {topUpChargeKopeks > 0
+        {topUpAmountKnown && topUpChargeKopeks > 0
           ? t(hasWallet ? 'deviceFirst.topUpShortage' : 'deviceFirst.topUpAmount', {
               amount: formatPrice(topUpChargeKopeks),
             })
@@ -1538,6 +1536,7 @@ export function DeviceFirstConfigurator({
           на карточке уже стоит объяснение про остаток, и третье число превратило бы подсказку
           в ребус. */}
       {hasWallet &&
+        topUpAmountKnown &&
         topUpChargeKopeks > 0 &&
         topUpChargeKopeks === confirmShortageKopeks &&
         confirmBalanceKopeks !== null &&
@@ -1570,13 +1569,15 @@ export function DeviceFirstConfigurator({
           РАЗНЫЕ числа, когда минимум провайдера больше недостачи. Два числа на одной карточке
           без объяснения человек читает как ошибку. Ключ не сочинён — он уже есть в проекте и
           говорит ровно про этот остаток на экране счёта. */}
-      {topUpChargeKopeks > confirmShortageKopeks && confirmShortageKopeks > 0 && (
-        <p className="text-xs text-dark-400">
-          {t('deviceFirst.topUpSurplusHint', {
-            amount: formatPrice(topUpChargeKopeks - confirmShortageKopeks),
-          })}
-        </p>
-      )}
+      {topUpAmountKnown &&
+        topUpChargeKopeks > confirmShortageKopeks &&
+        confirmShortageKopeks > 0 && (
+          <p className="text-xs text-dark-400">
+            {t('deviceFirst.topUpSurplusHint', {
+              amount: formatPrice(topUpChargeKopeks - confirmShortageKopeks),
+            })}
+          </p>
+        )}
     </div>
   ) : null;
 
@@ -1600,6 +1601,7 @@ export function DeviceFirstConfigurator({
           ⛔ h1 страницы НЕ трогаем: он четырёхветочный, общий с классическим мастером покупки и
           стоит над ОБОИМИ шагами — переименование сломало бы три чужих пути молча. */}
       <div
+        hidden={!checkout && !!initialCheckoutId}
         className={isConfirmationStep ? 'mb-3' : 'mb-6'}
         aria-hidden={modalOpen || undefined}
         inert={modalOpen || undefined}
@@ -1861,7 +1863,7 @@ export function DeviceFirstConfigurator({
                         затевалось: пришедший из чата монтируется сразу в подтверждение, запрос
                         минимума ещё в полёте. ⚠️ Точка, а не «·»: «·» скринридер не озвучивает,
                         и два предложения слипались на слух. */}
-                    {topUpMethods.isLoading ? null : '. '}
+                    {'. '}
                     <span>
                       {/* 🔴 Текст обязан описывать ТО, ЧТО НА ЭКРАНЕ, а не общий случай. Первая
                       редакция говорила «доплатить остаток или заплатить полную цену» всегда — и
@@ -1878,20 +1880,12 @@ export function DeviceFirstConfigurator({
                         и есть заслон от второго платежа за ту же подписку (пополнил, вернулся
                         по старой кнопке чата, заплатил ещё раз). Раз подменяем — говорим об
                         этом вслух и называем то, что он выбирал, по имени. */}
-                      {/* 🔴 Волна ревью РЕК-16.6, находка P1: пока балансный запрос не ответил,
-                        `topUpAction` ещё `null`, и плашка успевала нарисовать редакцию «доплатить
-                        нечем», а следующим кадром — «баланс покрывает часть». Обе теперь начинаются
-                        одинаково и утверждают ПРОТИВОПОЛОЖНОЕ: мерцание превратилось в переворот
-                        смысла на денежном экране. Пока ответа нет, тела нет вовсе — заголовок
-                        («На балансе есть ваши деньги») верен во всех трёх ветках. */}
-                      {topUpMethods.isLoading
-                        ? null
-                        : walletCoversTotal
-                          ? t('deviceFirst.autostartHeldCoveredText', {
-                              method: paymentMethodLabel(
-                                chatChosenMethodKeyRef.current ?? methodKey,
-                              ),
-                            })
+                      {walletCoversTotal
+                        ? t('deviceFirst.autostartHeldCoveredText', {
+                            method: paymentMethodLabel(heldChatMethod?.key ?? methodKey),
+                          })
+                        : !topUpAmountKnown
+                          ? t('deviceFirst.needTopup')
                           : topUpAction
                             ? t('deviceFirst.autostartHeldText')
                             : /* 🔴 Ветка «доплатить нечем» была единственной, где снятая фраза
@@ -1900,9 +1894,7 @@ export function DeviceFirstConfigurator({
                                через выбор нечем. Теперь ответ несёт названный по имени способ,
                                который он нажимал, — как в ветке полного баланса. */
                               t('deviceFirst.autostartHeldNoTopUpText', {
-                                method: paymentMethodLabel(
-                                  chatChosenMethodKeyRef.current ?? methodKey,
-                                ),
+                                method: paymentMethodLabel(heldChatMethod?.key ?? methodKey),
                               })}
                     </span>
                   </p>
@@ -1982,7 +1974,7 @@ export function DeviceFirstConfigurator({
                       действие, способы оплаты остаются настоящими кнопками под ней. Порядок
                       важен физически: на телефоне до нижних кнопок надо доскроллить. */}
                   {topUpSlot === 'first' && topUpAction}
-                  {methods.isLoading ? (
+                  {methods.isLoading && !chatChosenMethod ? (
                     <p role="status" className="text-sm text-dark-400">
                       {t('deviceFirst.paymentMethodsLoading')}
                     </p>
@@ -2006,7 +1998,7 @@ export function DeviceFirstConfigurator({
                         {t('deviceFirst.contactSupport')}
                       </button>
                     </div>
-                  ) : methods.data?.methods.length ? (
+                  ) : chatChosenMethod || methods.data?.methods.length ? (
                     <>
                       {/* 🔴 Этап Б-2. «ИЛИ оплатите полной суммой» — это союз при двух вариантах.
                       У человека с нулём на балансе второго варианта не существует: доплачивать
@@ -2077,7 +2069,7 @@ export function DeviceFirstConfigurator({
                         </div>
                       ) : (
                         <div className="grid gap-2">
-                          {methods.data.methods.map((method) =>
+                          {(methods.data?.methods ?? []).map((method) =>
                             renderPaymentMethodButton(method.key, false),
                           )}
                         </div>
@@ -2124,8 +2116,7 @@ export function DeviceFirstConfigurator({
                   // 🔴 РЕК-8а, мина EW. Уход с подтверждения гасит объяснение остановки: иначе
                   // на СЛЕДУЮЩЕМ подтверждении, открытом руками, человек снова прочитает
                   // «Мы не открыли оплату» там, где никто ничего не удерживал.
-                  setAutostartHeldForWallet(false);
-                  chatChosenMethodKeyRef.current = null;
+                  setHeldChatMethod(null);
                   // 🔴 РЕК-14.2, ТА ЖЕ МИНА ТРЕТИЙ РАЗ. Гасить надо в ДВУХ местах: этот
                   // обработчик уводит с ЛОКАЛЬНОГО подтверждения и `returnToConfiguration` не
                   // зовёт. Я погасил заряд только там и поймал это собственным сторожем —
