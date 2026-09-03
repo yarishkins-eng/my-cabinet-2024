@@ -20,6 +20,7 @@ import {
   type DeviceFirstPaymentAttempt,
 } from '@/api/deviceFirst';
 import { XIcon } from '@/components/icons';
+import { useToast } from '@/components/Toast';
 import { getGlassColors } from '@/utils/glassTheme';
 import { closedCartCopy, operatorReviewCopy } from '@/utils/deviceFirstMoney';
 import { useTheme } from '@/hooks/useTheme';
@@ -45,15 +46,17 @@ export function DeviceFirstConfigurator({
   fixtureCheckout,
   fixtureMethods,
 }: Props) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const queryClient = useQueryClient();
   const { isDark } = useTheme();
   const { openLink } = usePlatform();
+  const { showToast } = useToast();
   const g = getGlassColors(isDark);
   const paymentLinkOpenedRef = useRef(false);
   const paymentDeclinedRef = useRef(false);
+  const refreshInFlightRef = useRef(false);
   const [paymentDeclined, setPaymentDeclined] = useState(false);
   const markLeavingToPay = useCallback(() => {
     // 🔴 Оба выхода наружу обязаны отмечаться одинаково: и кнопка оплаты, и «скопировать
@@ -1301,9 +1304,43 @@ export function DeviceFirstConfigurator({
     // create key, but never confirmation/payment idempotency keys.
     returnToConfiguration();
   };
-  const refreshCheckout = () => {
-    void statusQuery.refetch();
-    void pendingPayment.refetch();
+  const refreshBusy = statusQuery.isFetching || pendingPayment.isFetching;
+  const refreshCheckout = async ({ announce = true }: { announce?: boolean } = {}) => {
+    if (refreshInFlightRef.current || refreshBusy) return;
+    refreshInFlightRef.current = true;
+    try {
+      const [statusResult] = await Promise.all([statusQuery.refetch(), pendingPayment.refetch()]);
+      if (!announce) return;
+      if (statusResult.isError || !statusResult.data) {
+        showToast({ type: 'error', message: t('deviceFirst.error') });
+        return;
+      }
+      const next = statusResult.data;
+      const invoiceClosed = [
+        'cancelled',
+        'conflict',
+        'expired',
+        'failed',
+        'reprice_required',
+      ].includes(next.ui_state);
+      const paymentFound =
+        next.ui_state !== checkout?.ui_state &&
+        ['processing', 'provisioning', 'ready'].includes(next.ui_state);
+      showToast({
+        type: paymentFound ? 'success' : invoiceClosed ? 'warning' : 'info',
+        message: t(
+          paymentFound
+            ? 'deviceFirst.refreshPaymentFound'
+            : next.ui_state === 'operator_review'
+              ? 'deviceFirst.errorOperatorReview'
+              : invoiceClosed
+                ? 'deviceFirst.errorInvoiceTerminal'
+                : 'deviceFirst.refreshUnchanged',
+        ),
+      });
+    } finally {
+      refreshInFlightRef.current = false;
+    }
   };
   useEffect(() => {
     // 🔴 Пункт 1 реза 22.08.2026. Мини-приложение больше не умирает при уходе на оплату,
@@ -1317,7 +1354,7 @@ export function DeviceFirstConfigurator({
       if (document.visibilityState !== 'visible') return;
       if (!paymentLinkOpenedRef.current) return;
       pollStartedAt.current = Date.now();
-      refreshCheckout();
+      void refreshCheckout({ announce: false });
     };
     document.addEventListener('visibilitychange', onVisible);
     return () => document.removeEventListener('visibilitychange', onVisible);
@@ -1333,7 +1370,7 @@ export function DeviceFirstConfigurator({
   const paymentMethodAmountLabel = (key: string, amount: string) =>
     t('deviceFirst.paymentMethodAmount', { method: paymentMethodLabel(key), amount });
   const invoiceDeadline = checkout?.provider_invoice_expires_at
-    ? new Intl.DateTimeFormat(undefined, { dateStyle: 'short', timeStyle: 'short' }).format(
+    ? new Intl.DateTimeFormat(i18n?.resolvedLanguage, { timeStyle: 'short' }).format(
         new Date(checkout.provider_invoice_expires_at),
       )
     : null;
@@ -1366,7 +1403,9 @@ export function DeviceFirstConfigurator({
   const directTextKey = !isDirectInvoice
     ? 'deviceFirst.armedNotice'
     : canPayNow
-      ? 'deviceFirst.invoiceReadyText'
+      ? invoiceDeadline
+        ? 'deviceFirst.invoiceReadyUntilText'
+        : 'deviceFirst.invoiceReadyText'
       : 'deviceFirst.paymentCheckingText';
 
   // 🔴 Этап Б-1: «человек имеет право потратить свой баланс в любой момент, а не когда будет
@@ -2185,7 +2224,9 @@ export function DeviceFirstConfigurator({
         >
           <h3 className="text-lg font-bold text-dark-50">{t(directTitleKey)}</h3>
           <Summary checkout={checkout} formatPrice={formatPrice} />
-          <p className="text-sm text-dark-400">{t(directTextKey)}</p>
+          <p className="text-sm text-dark-400">
+            {t(directTextKey, invoiceDeadline ? { date: invoiceDeadline } : undefined)}
+          </p>
           {/* 🔴 Мина AQ. Сообщение живёт ТОЛЬКО пока заказ не закрыт: как только он станет
               `cancelled`, слово берёт объяснение закрытого счёта, и два голоса про одно
               состояние были бы ровно тем, что запрещает пункт 4.2б.
@@ -2256,13 +2297,6 @@ export function DeviceFirstConfigurator({
               </p>
             </div>
           )}
-          {checkout.settlement_mode === 'direct_purchase_v2' &&
-            invoiceRedirectUrl &&
-            invoiceDeadline && (
-              <p className="text-sm text-dark-300">
-                {t('deviceFirst.invoiceValidUntil', { date: invoiceDeadline })}
-              </p>
-            )}
           {checkout.settlement_mode !== 'direct_purchase_v2' &&
             (checkout.top_up_surplus_kopeks ?? 0) > 0 && (
               <p role="status" className="text-sm text-dark-300">
@@ -2346,15 +2380,12 @@ export function DeviceFirstConfigurator({
               )}
               <button
                 type="button"
-                onClick={refreshCheckout}
-                className={`w-full rounded-2xl border border-dark-600 px-5 py-3.5 font-semibold text-dark-100 ${choiceClass}`}
+                disabled={refreshBusy}
+                onClick={() => void refreshCheckout()}
+                className={`w-full rounded-2xl border border-dark-600 px-5 py-3.5 font-semibold text-dark-100 disabled:opacity-50 ${choiceClass}`}
               >
-                {t('deviceFirst.refreshStatus')}
+                {t(refreshBusy ? 'common.loading' : 'deviceFirst.refreshStatus')}
               </button>
-              {/* 🔴 Пункт 4.11а: опрос перестал быть вечным, значит экран однажды замолкает.
-                  Молчащий экран без объяснения — это «оплатил, а тут ничего не меняется».
-                  Строка правдива в любой момент: и пока опрос идёт, и после того как затих. */}
-              <p className="text-xs text-dark-400">{t('deviceFirst.refreshStatusHint')}</p>
               {confirmAbandon ? (
                 <div className="space-y-3 rounded-xl border border-warning-500/40 bg-warning-500/10 p-4">
                   <p className="text-sm font-semibold text-dark-100">
@@ -2420,10 +2451,11 @@ export function DeviceFirstConfigurator({
               />
               <button
                 type="button"
-                onClick={refreshCheckout}
-                className={`w-full rounded-2xl border border-dark-600 px-5 py-3.5 font-semibold text-dark-100 ${choiceClass}`}
+                disabled={refreshBusy}
+                onClick={() => void refreshCheckout()}
+                className={`w-full rounded-2xl border border-dark-600 px-5 py-3.5 font-semibold text-dark-100 disabled:opacity-50 ${choiceClass}`}
               >
-                {t('deviceFirst.refreshStatus')}
+                {t(refreshBusy ? 'common.loading' : 'deviceFirst.refreshStatus')}
               </button>
               <button
                 type="button"
@@ -2574,10 +2606,11 @@ export function DeviceFirstConfigurator({
           />
           <button
             type="button"
-            onClick={refreshCheckout}
-            className={`w-full rounded-2xl border border-dark-600 px-5 py-3.5 font-semibold text-dark-100 ${choiceClass}`}
+            disabled={refreshBusy}
+            onClick={() => void refreshCheckout()}
+            className={`w-full rounded-2xl border border-dark-600 px-5 py-3.5 font-semibold text-dark-100 disabled:opacity-50 ${choiceClass}`}
           >
-            {t('deviceFirst.refreshStatus')}
+            {t(refreshBusy ? 'common.loading' : 'deviceFirst.refreshStatus')}
           </button>
           <button
             type="button"
@@ -2774,13 +2807,19 @@ function Summary({
   checkout: DeviceFirstCheckout;
   formatPrice: (value: number) => string;
 }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const periodText =
     checkout.period_days === 365
       ? t('deviceFirst.periodYearExact')
       : checkout.period_days % 30 === 0
         ? t('deviceFirst.periodMonths', { count: checkout.period_days / 30 })
         : t('deviceFirst.periodDays', { count: checkout.period_days });
+  const rawEndDate = new Intl.DateTimeFormat(i18n?.resolvedLanguage, {
+    dateStyle: 'medium',
+  }).format(new Date(checkout.estimated_end_at));
+  const endDate = i18n?.resolvedLanguage?.startsWith('ru')
+    ? rawEndDate.replace(/\s*г\.$/u, '')
+    : rawEndDate;
   return (
     <div className="space-y-3 rounded-2xl border border-dark-700 bg-dark-900/35 p-4">
       <div className="flex justify-between text-sm text-dark-300">
@@ -2798,11 +2837,7 @@ function Summary({
       </div>
       <div className="flex justify-between text-sm text-dark-300">
         <span>{t('deviceFirst.endsAt')}</span>
-        <strong>
-          {new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' }).format(
-            new Date(checkout.estimated_end_at),
-          )}
-        </strong>
+        <strong>{endDate}</strong>
       </div>
       {checkout.balance_kopeks !== null && (
         <div className="flex justify-between text-sm text-dark-300">

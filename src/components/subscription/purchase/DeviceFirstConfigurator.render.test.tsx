@@ -14,6 +14,7 @@ import type {
 vi.mock('@/platform', () => ({
   usePlatform: () => ({ openLink: vi.fn() }),
 }));
+vi.mock('@/components/Toast', () => ({ useToast: () => ({ showToast: vi.fn() }) }));
 // 🔴 Этап Б-2. Балансный `['payment-methods']` тянет за собой настоящий `i18n`, который в
 // тестовой среде не поднимается. Разметка снимается `renderToStaticMarkup` — эффекты и
 // запросы там не исполняются вовсе, так что мок нужен ровно ради цепочки импортов.
@@ -31,6 +32,7 @@ vi.mock('@/hooks/useCurrency', () => ({
 }));
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
+    i18n: { resolvedLanguage: 'ru' },
     t: (key: string, values?: { count?: number; amount?: number | string }) =>
       values?.amount !== undefined
         ? `${key}:${values.amount}`
@@ -245,6 +247,8 @@ describe('DeviceFirstConfigurator real state rendering', () => {
 
     expect(html).toContain('deviceFirst.periodYearExact');
     expect(html).not.toContain('deviceFirst.periodMonths:12');
+    expect(html).toContain('29 авг. 2026');
+    expect(html).not.toContain('2026 г.');
   });
 
   it('shows a previous device limit only for an explicitly paid target subscription', () => {

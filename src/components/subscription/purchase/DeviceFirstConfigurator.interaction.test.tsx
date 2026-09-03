@@ -50,6 +50,10 @@ const { openLink } = vi.hoisted(() => ({ openLink: vi.fn() }));
 vi.mock('@/platform', () => ({
   usePlatform: () => ({ openLink }),
 }));
+const { showToast } = vi.hoisted(() => ({ showToast: vi.fn() }));
+vi.mock('@/components/Toast', () => ({
+  useToast: () => ({ showToast }),
+}));
 vi.mock('@/utils/clipboard', () => ({
   copyToClipboard: vi.fn().mockResolvedValue(undefined),
 }));
@@ -977,6 +981,7 @@ describe('DeviceFirstConfigurator interaction safety', () => {
       document.dispatchEvent(new Event('visibilitychange'));
       await vi.advanceTimersByTimeAsync(100);
       const onReturn = polls();
+      expect(showToast).not.toHaveBeenCalled();
 
       // Часы перевзведены: экран снова опрашивает сервер сам.
       await vi.advanceTimersByTimeAsync(30_000);
@@ -1108,17 +1113,66 @@ describe('DeviceFirstConfigurator interaction safety', () => {
     ).toBeNull();
   });
 
-  it('tells the person what to do once the screen stops refreshing itself', async () => {
-    // Опрос теперь замолкает, и подсказка рядом с «Обновить статус» — единственное, что об
-    // этом говорит. Скептик показал, что её можно удалить при полностью зелёном наборе.
-    vi.mocked(deviceFirstApi.get).mockResolvedValue(directInvoice());
+  it.each([
+    ['processing', 'processing', 'deviceFirst.refreshUnchanged', 'info'],
+    ['awaiting_payment', 'processing', 'deviceFirst.refreshPaymentFound', 'success'],
+    ['awaiting_payment', 'cancelled', 'deviceFirst.errorInvoiceTerminal', 'warning'],
+    ['awaiting_payment', 'operator_review', 'deviceFirst.errorOperatorReview', 'info'],
+  ] as const)(
+    'reports the %s → %s refresh result',
+    async (initialState, uiState, message, type) => {
+      vi.mocked(deviceFirstApi.get).mockResolvedValue({
+        ...directInvoice(),
+        lifecycle_state: uiState,
+        ui_state: uiState,
+        terminal_reason: uiState === 'cancelled' ? 'cancelled_by_user_after_invoice' : null,
+      });
+      renderConfigurator({
+        fixtureCheckout: {
+          ...directInvoice(),
+          lifecycle_state: initialState,
+          ui_state: initialState,
+        },
+      });
 
-    renderConfigurator({ initialPath: '/subscription/purchase?checkout=checkout-owned' });
+      fireEvent.click(screen.getByRole('button', { name: 'deviceFirst.refreshStatus' }));
 
-    const refresh = await screen.findByRole('button', { name: 'deviceFirst.refreshStatus' });
-    const hint = screen.getByText('deviceFirst.refreshStatusHint');
-    // Подсказка идёт ПОСЛЕ кнопки, к которой относится: она объясняет уже увиденное.
-    expect(refresh.compareDocumentPosition(hint) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      await waitFor(() => expect(showToast).toHaveBeenCalledWith({ type, message }));
+      expect(screen.queryByText('deviceFirst.refreshStatusHint')).toBeNull();
+    },
+  );
+
+  it('ignores a second refresh while the first one is still running', async () => {
+    let finish!: (value: DeviceFirstCheckout) => void;
+    vi.mocked(deviceFirstApi.get).mockReturnValue(
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+    );
+    renderConfigurator({ fixtureCheckout: directInvoice() });
+    const refresh = screen.getByRole('button', { name: 'deviceFirst.refreshStatus' });
+
+    fireEvent.click(refresh);
+    fireEvent.click(refresh);
+    expect(deviceFirstApi.get).toHaveBeenCalledTimes(1);
+    await waitFor(() =>
+      expect(
+        (screen.getByRole('button', { name: 'common.loading' }) as HTMLButtonElement).disabled,
+      ).toBe(true),
+    );
+    finish(directInvoice());
+    await waitFor(() => expect(showToast).toHaveBeenCalled());
+  });
+
+  it('reports a failed refresh instead of pretending the status stayed unchanged', async () => {
+    vi.mocked(deviceFirstApi.get).mockRejectedValue(new Error('offline'));
+    renderConfigurator({ fixtureCheckout: directInvoice() });
+
+    fireEvent.click(screen.getByRole('button', { name: 'deviceFirst.refreshStatus' }));
+
+    await waitFor(() =>
+      expect(showToast).toHaveBeenCalledWith({ type: 'error', message: 'deviceFirst.error' }),
+    );
   });
 
   it('keeps polling after payment while the VPN is being provisioned', async () => {
