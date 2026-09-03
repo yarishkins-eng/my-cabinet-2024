@@ -4999,7 +4999,7 @@
     "autostartHeldTitle": "您的余额里有钱",
     "autostartHeldCoveredText": "您选择了「{{method}}」，但现在无需支付：全部金额已在您的余额中。",
     "autostartHeldNoTopUpText": "您选择了「{{method}}」。只能支付全款：余额不足，目前也无法充值。",
-    "autostartHeldText": "余额够付其中一部分。",
+    "autostartHeldText": "请支付全款——或只补足差额。",
     "payFullAmountNotice": "支付全款——您的 {{balance}} 将留在余额中",
     "otherMethods": "用其他方式支付",
     "whatIsIncluded": "套餐包含什么"
