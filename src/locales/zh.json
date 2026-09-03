@@ -4916,7 +4916,7 @@
     "invoiceReadyTitle": "订单等待支付",
     "invoiceReadyText": "请在账单有效期内付款：过期账单不再开通订阅。",
     "refreshStatusHint": "如果您已付款而此处没有变化，请点击“刷新状态”。",
-    "twoStepPayHint": "先确认订单，支付在下一步打开。",
+    "twoStepPayHint": "先下单，支付在下一步。",
     "invoiceValidUntil": "账单有效期至 {{date}}。",
     "existingInvoice": "已有一张通过“{{method}}”创建的账单。继续前请确认支付方式。",
     "continueExistingInvoice": "前往支付",
@@ -4999,8 +4999,9 @@
     "autostartHeldTitle": "您的余额里有钱",
     "autostartHeldCoveredText": "您选择了「{{method}}」，但现在无需支付：全部金额已在您的余额中。",
     "autostartHeldNoTopUpText": "您选择了「{{method}}」。只能支付全款：余额不足，目前也无法充值。",
-    "autostartHeldText": "余额够付其中一部分。请支付全款——或只补足差额。",
+    "autostartHeldText": "请支付全款——或只补足差额。",
     "payFullAmountNotice": "支付全款——您的 {{balance}} 将留在余额中",
-    "otherMethods": "用其他方式支付"
+    "otherMethods": "用其他方式支付",
+    "whatIsIncluded": "套餐包含什么"
   }
 }
