@@ -1825,15 +1825,30 @@ export function DeviceFirstConfigurator({
                         и есть заслон от второго платежа за ту же подписку (пополнил, вернулся
                         по старой кнопке чата, заплатил ещё раз). Раз подменяем — говорим об
                         этом вслух и называем то, что он выбирал, по имени. */}
-                    {walletCoversTotal
-                      ? t('deviceFirst.autostartHeldCoveredText', {
-                          method: paymentMethodLabel(chatChosenMethodKeyRef.current ?? methodKey),
-                        })
-                      : t(
-                          topUpAction
-                            ? 'deviceFirst.autostartHeldText'
-                            : 'deviceFirst.autostartHeldNoTopUpText',
-                        )}
+                    {/* 🔴 Волна ревью РЕК-16.6, находка P1: пока балансный запрос не ответил,
+                        `topUpAction` ещё `null`, и плашка успевала нарисовать редакцию «доплатить
+                        нечем», а следующим кадром — «баланс покрывает часть». Обе теперь начинаются
+                        одинаково и утверждают ПРОТИВОПОЛОЖНОЕ: мерцание превратилось в переворот
+                        смысла на денежном экране. Пока ответа нет, тела нет вовсе — заголовок
+                        («На балансе есть ваши деньги») верен во всех трёх ветках. */}
+                    {topUpMethods.isLoading
+                      ? null
+                      : walletCoversTotal
+                        ? t('deviceFirst.autostartHeldCoveredText', {
+                            method: paymentMethodLabel(chatChosenMethodKeyRef.current ?? methodKey),
+                          })
+                        : topUpAction
+                          ? t('deviceFirst.autostartHeldText')
+                          : /* 🔴 Ветка «доплатить нечем» была единственной, где снятая фраза
+                               «мы не открыли оплату» несла ВЕСЬ ответ на вопрос «почему я не в
+                               банке»: остановка не даёт человеку никакого выбора, и объяснять
+                               через выбор нечем. Теперь ответ несёт названный по имени способ,
+                               который он нажимал, — как в ветке полного баланса. */
+                            t('deviceFirst.autostartHeldNoTopUpText', {
+                              method: paymentMethodLabel(
+                                chatChosenMethodKeyRef.current ?? methodKey,
+                              ),
+                            })}
                   </p>
                 </div>
               )}
