@@ -4997,9 +4997,9 @@
     "shortage": "还差",
     "balanceIncludesTopUp": "含本次充值 {{amount}}",
     "autostartHeldTitle": "您的余额里有钱",
-    "autostartHeldCoveredText": "所以我们没有打开支付。您选择了「{{method}}」，但现在无需支付：全部金额已在您的余额中。",
-    "autostartHeldNoTopUpText": "所以我们没有直接打开支付。但余额不足以支付全款，目前也无法充值——只能支付全款。",
-    "autostartHeldText": "所以我们没有直接打开支付。请支付全款——或只补足差额。",
+    "autostartHeldCoveredText": "您选择了「{{method}}」，但现在无需支付：全部金额已在您的余额中。",
+    "autostartHeldNoTopUpText": "余额不足以支付全款，目前也无法充值——只能支付全款。",
+    "autostartHeldText": "它可以支付一部分。请支付全款——或只补足差额。",
     "payFullAmountNotice": "支付全款——您的 {{balance}} 将留在余额中",
     "otherMethods": "用其他方式支付"
   }
