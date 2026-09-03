@@ -425,7 +425,7 @@ export function DeviceFirstConfigurator({
   useEffect(() => {
     if (!isConfirmationStep) return;
     if (typeof window === 'undefined' || window.scrollY <= 0) return;
-    window.scrollTo({ top: 0 });
+    window.scrollTo?.({ top: 0, behavior: 'instant' });
   }, [isConfirmationStep]);
 
   useEffect(() => {
@@ -1201,6 +1201,10 @@ export function DeviceFirstConfigurator({
     const absolute = Math.abs(kopeks);
     const rubles = Math.floor(absolute / 100).toLocaleString('ru-RU');
     const remainder = absolute % 100;
+    // ⚠️ РЕК-18: пробел перед «₽» ОБЫЧНЫЙ, и это осознанно. На 375 px из-за него подпись
+    // «Карта российского банка · 1 090 ₽» переносится, роняя знак на вторую строку (76 px
+    // вместо 52). Неразрывный пробел это чинит — и ломает 55 тестов, которые сверяют разметку
+    // буквально, без нормализации пробелов. Цена правки выше выигрыша; оставлено как есть.
     return `${sign}${rubles}${remainder ? `,${String(remainder).padStart(2, '0')}` : ''} ₽`;
   };
   const pricePerDeviceMonth = (kopeks: number, deviceLimit: number, periodDays: number) => {
@@ -1583,8 +1587,11 @@ export function DeviceFirstConfigurator({
       /* 🔴 РЕК-18, попутная уборка: `pb-28` стоял ЗДЕСЬ и ещё раз на `<main>` в `AppShell`.
          Под последней кнопкой лежало 225 px пустоты, из которых нижней панели нужно 92 —
          133 px чистых потерь. Внутри секции нет ни одного `absolute`/`sticky` ребёнка,
-         ради которого запас держали бы. ⚠️ На сгиб это не влияет: отступ ниже контента. */
-      className="relative rounded-3xl p-4 min-[360px]:p-5 sm:p-7"
+         ради которого запас держали бы. ⚠️ На сгиб это не влияет: отступ ниже контента.
+         ⚠️ Убран НЕ до нуля: нижняя панель при `viewport-fit=cover` занимает с safe-area ~126 px,
+         а `main` резервирует 112 — без своего запаса нижние ~14 px последнего элемента ушли бы
+         под непрозрачную панель, и тап по ним уводил бы с экрана. Оставлено 24 px. */
+      className="relative rounded-3xl p-4 pb-6 min-[360px]:p-5 min-[360px]:pb-6 sm:p-7 sm:pb-7"
       style={{ background: g.cardBg, border: `1px solid ${g.cardBorder}`, boxShadow: g.shadow }}
     >
       {/* 🔴 РЕК-18.1. Замер живым прогоном: главная кнопка стояла на 766 px при сгибе 499 — на
@@ -1597,15 +1604,17 @@ export function DeviceFirstConfigurator({
         aria-hidden={modalOpen || undefined}
         inert={modalOpen || undefined}
       >
-        <h2
-          className={
-            isConfirmationStep
-              ? 'text-base font-semibold text-dark-50'
-              : 'text-xl font-bold text-dark-50'
-          }
-        >
-          {options.tariff?.name}
-        </h2>
+        {options.tariff?.name ? (
+          <h2
+            className={
+              isConfirmationStep
+                ? 'text-base font-semibold text-dark-50'
+                : 'text-xl font-bold text-dark-50'
+            }
+          >
+            {options.tariff.name}
+          </h2>
+        ) : null}
         {isConfirmationStep ? null : options.tariff?.description ? (
           <p className="mt-2 whitespace-pre-line text-sm text-dark-400">
             {options.tariff.description}
@@ -1845,8 +1854,10 @@ export function DeviceFirstConfigurator({
                       строками. Склеены в одну — 44 px. Заголовок остаётся ОТДЕЛЬНЫМ узлом, чтобы
                       сторожа продолжали находить его по ключу, а не по склейке. */}
                   <p className="text-sm text-dark-100">
-                    <span className="font-semibold">{t('deviceFirst.autostartHeldTitle')}</span>{' '}
-                    {/* 🔴 Текст обязан описывать ТО, ЧТО НА ЭКРАНЕ, а не общий случай. Первая
+                    <span className="font-semibold">{t('deviceFirst.autostartHeldTitle')}</span>
+                    {' · '}
+                    <span>
+                      {/* 🔴 Текст обязан описывать ТО, ЧТО НА ЭКРАНЕ, а не общий случай. Первая
                       редакция говорила «доплатить остаток или заплатить полную цену» всегда — и
                       врала целиком на самом ценном входе: при полном балансе на экране ровно
                       одна кнопка «Списать и оформить», ни доплаты, ни способов оплаты там нет
@@ -1854,37 +1865,40 @@ export function DeviceFirstConfigurator({
                       независимо. Третья ветка — когда доплачивать не через что: провайдеры
                       пополнения ответили и ни один не доступен, кнопки доплаты нет, и обещать
                       её нельзя. */}
-                    {/* 🔴 РЕК-16.2, решение владельца: «клиент выбрал, а мы ему другое
+                      {/* 🔴 РЕК-16.2, решение владельца: «клиент выбрал, а мы ему другое
                         подкидываем» — так нельзя. В этой ветке мы и правда подменяем его
                         выбор: он нажал способ оплаты, а экран показывает одну кнопку
                         «Списать … и оформить». Кнопки его способа здесь нет НАМЕРЕННО — она
                         и есть заслон от второго платежа за ту же подписку (пополнил, вернулся
                         по старой кнопке чата, заплатил ещё раз). Раз подменяем — говорим об
                         этом вслух и называем то, что он выбирал, по имени. */}
-                    {/* 🔴 Волна ревью РЕК-16.6, находка P1: пока балансный запрос не ответил,
+                      {/* 🔴 Волна ревью РЕК-16.6, находка P1: пока балансный запрос не ответил,
                         `topUpAction` ещё `null`, и плашка успевала нарисовать редакцию «доплатить
                         нечем», а следующим кадром — «баланс покрывает часть». Обе теперь начинаются
                         одинаково и утверждают ПРОТИВОПОЛОЖНОЕ: мерцание превратилось в переворот
                         смысла на денежном экране. Пока ответа нет, тела нет вовсе — заголовок
                         («На балансе есть ваши деньги») верен во всех трёх ветках. */}
-                    {topUpMethods.isLoading
-                      ? null
-                      : walletCoversTotal
-                        ? t('deviceFirst.autostartHeldCoveredText', {
-                            method: paymentMethodLabel(chatChosenMethodKeyRef.current ?? methodKey),
-                          })
-                        : topUpAction
-                          ? t('deviceFirst.autostartHeldText')
-                          : /* 🔴 Ветка «доплатить нечем» была единственной, где снятая фраза
+                      {topUpMethods.isLoading
+                        ? null
+                        : walletCoversTotal
+                          ? t('deviceFirst.autostartHeldCoveredText', {
+                              method: paymentMethodLabel(
+                                chatChosenMethodKeyRef.current ?? methodKey,
+                              ),
+                            })
+                          : topUpAction
+                            ? t('deviceFirst.autostartHeldText')
+                            : /* 🔴 Ветка «доплатить нечем» была единственной, где снятая фраза
                                «мы не открыли оплату» несла ВЕСЬ ответ на вопрос «почему я не в
                                банке»: остановка не даёт человеку никакого выбора, и объяснять
                                через выбор нечем. Теперь ответ несёт названный по имени способ,
                                который он нажимал, — как в ветке полного баланса. */
-                            t('deviceFirst.autostartHeldNoTopUpText', {
-                              method: paymentMethodLabel(
-                                chatChosenMethodKeyRef.current ?? methodKey,
-                              ),
-                            })}
+                              t('deviceFirst.autostartHeldNoTopUpText', {
+                                method: paymentMethodLabel(
+                                  chatChosenMethodKeyRef.current ?? methodKey,
+                                ),
+                              })}
+                    </span>
                   </p>
                 </div>
               )}
@@ -2129,14 +2143,17 @@ export function DeviceFirstConfigurator({
                   человек нажимал бы «посмотреть» и терял кнопку.
                   ⛔ `<details>`, а не своё состояние: компонент между заказами не
                   размонтируется, своё состояние пришлось бы гасить в трёх местах (мина EW). */}
+              {/* ⚠️ Оформление НАМЕРЕННО тише соседней свёртки «Оплатить другим способом»: та —
+                  денежный орган управления, эта — проза. Одинаковый вид делал бы их близнецами
+                  на одном экране. */}
               {options.tariff?.description ? (
-                <details className="rounded-xl border border-dark-700/60">
+                <details>
                   <summary
-                    className={`cursor-pointer px-4 py-3 text-sm font-semibold text-dark-200 ${choiceClass}`}
+                    className={`cursor-pointer px-1 py-2 text-sm text-dark-300 ${choiceClass}`}
                   >
                     {t('deviceFirst.whatIsIncluded')}
                   </summary>
-                  <p className="whitespace-pre-line px-4 pb-3 text-sm text-dark-300">
+                  <p className="whitespace-pre-line px-1 pb-2 text-sm text-dark-300">
                     {options.tariff.description}
                   </p>
                 </details>
@@ -2854,15 +2871,21 @@ function SelectionSummary({
         : t('deviceFirst.periodDays', { count: periodDays });
   return (
     <div className="space-y-1.5 border-y border-dark-700/60 py-3">
+      {/* 🔴 РЕК-18: две строки сведены в одну — 26 px. Оба факта сохранены дословно, включая
+          переход «было → станет» при продлении и точный срок: это единственное место на кассе,
+          где сказано, ЧТО покупается. Денежные строки ниже не трогаем. */}
       <div className="flex justify-between text-sm text-dark-300">
         <span>{t('deviceFirst.devices')}</span>
+        {/* ⚠️ Обе величины — ОТДЕЛЬНЫЕ узлы, хотя стоят в одной строке. Три сторожа берут их
+            как улику «приземление несёт ЕГО выбор, а не умолчание» и ищут каждую по тексту;
+            склей их в один узел — и сторожа падают, а защита исчезает вместе с ними. */}
         <strong>
-          {currentDeviceLimit !== null ? `${currentDeviceLimit} → ${deviceLimit}` : deviceLimit}
+          <span>
+            {currentDeviceLimit !== null ? `${currentDeviceLimit} → ${deviceLimit}` : deviceLimit}
+          </span>
+          {' · '}
+          <span>{periodText}</span>
         </strong>
-      </div>
-      <div className="flex justify-between text-sm text-dark-300">
-        <span>{t('deviceFirst.period')}</span>
-        <strong>{periodText}</strong>
       </div>
       {balanceKopeks !== null && (
         <div>
