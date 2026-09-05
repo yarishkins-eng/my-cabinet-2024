@@ -12,7 +12,6 @@ import { useHaptic, usePlatform } from '@/platform';
 import { staggerContainer, staggerItem } from '@/components/motion/transitions';
 import { Button } from '@/components/primitives/Button';
 import type { PaymentMethod, PaymentMethodOption } from '../types';
-import BentoCard from '../components/ui/BentoCard';
 import { saveTopUpPendingInfo } from '../utils/topUpStorage';
 import { getSafeRedirectPath } from '../utils/safeRedirect';
 import { copyToClipboard } from '@/utils/clipboard';
@@ -570,14 +569,14 @@ export default function TopUpAmount() {
     );
   }
 
-  const quickAmounts = (method.quick_amounts ?? [])
-    .map((amountKopeks) => amountKopeks / 100)
-    .filter((amountRubles) => amountRubles >= minRubles && amountRubles <= maxRubles);
-  const currencyDecimals = targetCurrency === 'IRR' || targetCurrency === 'RUB' ? 0 : 2;
-  const getQuickValue = (rub: number) =>
-    targetCurrency === 'IRR'
-      ? Math.round(convertAmount(rub)).toString()
-      : convertAmount(rub).toFixed(currencyDecimals);
+  // 🔴 РЕК-20, заказ владельца 03.09.2026: здесь стоял ряд кнопок с готовыми суммами
+  // (100 / 300 / 500 / 1000) и три помощника под него — `quickAmounts`, `currencyDecimals`,
+  // `getQuickValue`. Убраны вместе с блоком: других потребителей у них не было.
+  // Человек попадает на этот экран с УЖЕ названной суммой — её кладёт касса (`option` +
+  // `auto=1`), поле заполнено, счёт создаётся сам. Четыре чужих числа ему не нужны, а места
+  // занимали столько, что блок «Счёт создан» с кнопкой «Перейти к оплате» уезжал под нижнюю
+  // панель. Захочет другую сумму — впишет в поле, оно рядом и правится руками.
+  // ⚠️ Поле `quick_amounts` в ответе сервера и в типах НЕ тронуто: это контракт, а не экран.
   const isPending = topUpMutation.isPending || starsPaymentMutation.isPending;
 
   const handleOpenPayment = () => {
@@ -720,9 +719,10 @@ export default function TopUpAmount() {
             автосабмитом он приходит на готовый экран, ничего не нажав, и на телефоне 375×667
             видит ТОЛЬКО её — нужная «Перейти к оплате» уходит за сгиб на две сотни пикселей.
             Прячем её, пока счёт жив. Обратно она возвращается сама, как только человек меняет
-            сумму или способ: `paymentUrl` гасят ВСЕ ТРИ входа — поле, быстрая кнопка и чип
-            способа, — то есть выход не потерян. (Считать их пришлось критику полноты: я
-            написал «оба обработчика», а их три, и третий счёт не гасил.) */}
+            сумму или способ: `paymentUrl` гасят ОБА оставшихся входа — поле и чип способа, —
+            то есть выход не потерян. (Считать их пришлось критику полноты: я написал «оба
+            обработчика», а их было три, и третий счёт не гасил. ⚠️ РЕК-20 убрал третий —
+            быструю кнопку суммы, — поэтому здесь снова два, и это не откат прежней находки.) */}
         {!paymentUrl && (
           <Button
             type="button"
@@ -743,48 +743,6 @@ export default function TopUpAmount() {
           </Button>
         )}
       </motion.div>
-
-      {/* Quick amount buttons */}
-      {quickAmounts.length > 0 && (
-        <motion.div variants={staggerItem} className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-          {quickAmounts.map((a) => {
-            const val = getQuickValue(a);
-            const isSelected = amount === val;
-            return (
-              <BentoCard
-                key={a}
-                as="button"
-                type="button"
-                onClick={() => {
-                  setAmount(val);
-                  // 🔴 Нашёл критик полноты: обработчиков, меняющих сумму, ТРИ, а гасил счёт
-                  // я в одном. Быстрая кнопка оставляла живой счёт на прежнее число рядом с
-                  // новым — и, поскольку «Получить ссылку» уже спрятана, человек оставался с
-                  // единственной кнопкой «Перейти к оплате» на сумму, которой на экране нет.
-                  setPaymentUrl(null);
-                  inputRef.current?.blur();
-                }}
-                hover
-                glow={isSelected}
-                className={`flex flex-col items-center justify-center px-2 py-3 ${
-                  isSelected ? 'border-accent-500/50 bg-accent-500/10' : ''
-                }`}
-              >
-                <span
-                  className={`text-base font-bold ${isSelected ? 'text-accent-400' : 'text-dark-200'}`}
-                >
-                  {formatAmount(a, 0)}
-                </span>
-                <span
-                  className={`mt-0.5 text-xs ${isSelected ? 'text-accent-400/70' : 'text-dark-500'}`}
-                >
-                  {currencySymbol}
-                </span>
-              </BentoCard>
-            );
-          })}
-        </motion.div>
-      )}
 
       {/* Error message */}
       {error && (
