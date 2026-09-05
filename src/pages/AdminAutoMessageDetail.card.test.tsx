@@ -287,6 +287,39 @@ describe('AdminAutoMessageDetail: управление живёт здесь', (
     expect(screen.getByText('admin.autoMessages.detail.textBraces')).toBeTruthy();
   });
 
+  it('разметка письма показана как оформление, а не как скобки', async () => {
+    // 🔴 Клиент видит жирный заголовок; печатать ему `<b>` буквально — показывать то,
+    // чего у клиента нет. Владелец не программист: он прочитает это как поломку.
+    // Разметка есть в 21 письме из 22, так что это каждая карточка.
+    get.mockResolvedValue(card({ text: '⛔ <b>Подписка истекла</b>\n\nПродлите доступ.' }));
+    const { container } = renderCard();
+
+    await waitFor(() => expect(container.querySelector('b')).toBeTruthy());
+    expect(container.querySelector('b')?.textContent).toBe('Подписка истекла');
+    expect(container.textContent).not.toContain('<b>');
+  });
+
+  it('на экране сказано, что текст пока только показывается', async () => {
+    // Владелец пришёл сюда из просьбы «видно и можно править». Молчание про это
+    // означает, что он будет тыкать в текст пальцем на каждой из 22 карточек.
+    get.mockResolvedValue(card({ text: 'Пробный период завершён.' }));
+    renderCard();
+
+    await waitFor(() =>
+      expect(screen.getByText('admin.autoMessages.detail.textReadOnly')).toBeTruthy(),
+    );
+  });
+
+  it('подписи про фигурные скобки нет там, где скобок нет', async () => {
+    // Четыре письма из 22 не содержат ни одной метки. Подпись про скобки на них
+    // заставила бы искать на экране то, чего в этом письме нет вовсе.
+    get.mockResolvedValue(card({ text: 'Подключения мы пока не видим. Что-то помешало?' }));
+    renderCard();
+
+    await waitFor(() => expect(screen.getByText(/Подключения мы пока не видим/)).toBeTruthy());
+    expect(screen.queryByText('admin.autoMessages.detail.textBraces')).toBeNull();
+  });
+
   it('пока сервер текста не прислал, блока нет вовсе — а не пустая рамка', async () => {
     // Кабинет выкладывается ПЕРВЫМ, и несколько минут отвечает старый бот. Карточка
     // обязана выглядеть ровно как до правки: пустая рамка «Текст письма» читалась бы
