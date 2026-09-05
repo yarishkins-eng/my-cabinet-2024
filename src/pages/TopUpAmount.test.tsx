@@ -419,7 +419,12 @@ describe('TopUpAmount — короткий путь кассы', () => {
   // 🔴 Нашёл критик полноты: обработчиков, меняющих сумму, ТРИ. Быстрая кнопка оставляла живой
   // счёт на ПРЕЖНЕЕ число рядом с новым — а «Получить ссылку» уже спрятана, и человек
   // оставался с единственной кнопкой «Перейти к оплате» на сумму, которой на экране нет.
-  it('drops the live invoice when a quick amount replaces the number under it', async () => {
+  // 🔴 РЕК-20 перенёс спусковой крючок этой проверки, и это ЗАЯВЛЕНИЕ, а не подкрутка. Раньше
+  // она жала кнопку готовой суммы «100» — кнопок больше нет, их убрали по заказу владельца.
+  // Защита осталась та же: обработчиков, гасящих живой счёт при смене суммы, три, и ввод в
+  // поле — один из них (`TopUpAmount.tsx`, `onChange` делает `setPaymentUrl(null)` вслед за
+  // `setAmount`). Исчез только исполнитель, которого больше нет на экране.
+  it('drops the live invoice when a new number replaces the one under it', async () => {
     renderScreen(`?amount=298&option=11&auto=1&returnTo=${encodeURIComponent(CHECKOUT_RETURN)}`, {
       warmCache: [platega],
     });
@@ -427,7 +432,7 @@ describe('TopUpAmount — короткий путь кассы', () => {
     await settle();
     expect(screen.getByText('balance.openPaymentPage')).toBeTruthy();
 
-    fireEvent.click(screen.getByText('100'));
+    fireEvent.change(screen.getByRole('spinbutton'), { target: { value: '100' } });
     await settle();
     // Счёт на прежнее число погашен вместе с числом.
     expect(screen.queryByText('balance.openPaymentPage')).toBeNull();
