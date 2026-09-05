@@ -16,7 +16,15 @@ import { describe, expect, it } from 'vitest';
 // fileURLToPath, а не url.pathname: в пути проекта кириллица (урок РЕК-1).
 const HERE = dirname(fileURLToPath(import.meta.url));
 
-const KEYS = ['text', 'textBraces', 'textSharesWith', 'textSuffix', 'textInserts', 'textReadOnly'];
+const KEYS = [
+  'text',
+  'textBraces',
+  'textSharesWith',
+  'textSuffix',
+  'textInserts',
+  'textVariantWhen',
+  'textReadOnly',
+];
 
 function detailNode(lang: string): Record<string, unknown> {
   const dictionary = JSON.parse(readFileSync(join(HERE, `${lang}.json`), 'utf8'));

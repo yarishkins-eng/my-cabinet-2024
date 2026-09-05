@@ -14,7 +14,7 @@ import { BackIcon } from '@/components/icons';
 // клиента нет: он прочитает это либо как «письма сломаны», либо как «экрану верить нельзя».
 // Список тегов — ровно тот, что разрешает бот (`app/utils/telegram_html.py`), ни тегом шире.
 // Ссылки без href-схемы отсекает сам DOMPurify.
-const TELEGRAM_TAGS = ['b', 'strong', 'i', 'em', 'u', 's', 'a', 'code', 'pre', 'blockquote'];
+const TELEGRAM_TAGS = ['b', 'i', 'u', 's', 'a', 'code', 'pre', 'blockquote'];
 
 function renderTelegramHtml(raw: string): string {
   return DOMPurify.sanitize(raw.trim(), {
@@ -426,11 +426,18 @@ export default function AdminAutoMessageDetail() {
                     <code className="text-xs text-dark-100">{`{${insert.name}}`}</code>
                     <ul className="mt-1 space-y-1">
                       {(insert.variants ?? []).map((variant) => (
-                        <li
-                          key={variant}
-                          className="whitespace-pre-wrap break-words border-l border-dark-600 pl-2 text-xs leading-snug text-dark-300"
-                          dangerouslySetInnerHTML={{ __html: renderTelegramHtml(variant) }}
-                        />
+                        <li key={variant.text} className="border-l border-dark-600 pl-2">
+                          {/* Условие СВЕРХУ: без него владелец читает список сверху вниз
+                              и достраивает письмо, которого не бывает — в письмо встаёт
+                              ровно одна фраза из этих. */}
+                          <p className="text-[11px] leading-snug text-dark-400">
+                            {t('admin.autoMessages.detail.textVariantWhen', { when: variant.when })}
+                          </p>
+                          <p
+                            className="whitespace-pre-wrap break-words text-xs leading-snug text-dark-200"
+                            dangerouslySetInnerHTML={{ __html: renderTelegramHtml(variant.text) }}
+                          />
+                        </li>
                       ))}
                     </ul>
                   </li>

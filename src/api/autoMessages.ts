@@ -73,10 +73,16 @@ export interface AutoMessageHistoryRow {
   claimed: boolean | null;
 }
 
+export interface AutoMessageInsertVariant {
+  text: string;
+  /** При каком условии встаёт именно эта фраза. В письмо попадает ровно одна из них. */
+  when: string;
+}
+
 export interface AutoMessageInsert {
   name: string;
   /** Чем метка может обернуться. Это целые фразы из соседних ключей, а не числа. */
-  variants: string[];
+  variants: AutoMessageInsertVariant[];
 }
 
 export interface AutoMessageDetail extends AutoMessageItem {

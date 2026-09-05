@@ -311,8 +311,9 @@ describe('AdminAutoMessageDetail: управление живёт здесь', (
   });
 
   it('подписи про фигурные скобки нет там, где скобок нет', async () => {
-    // Четыре письма из 22 не содержат ни одной метки. Подпись про скобки на них
-    // заставила бы искать на экране то, чего в этом письме нет вовсе.
+    // Есть письма без единой метки. Подпись про скобки на них заставила бы искать
+    // на экране то, чего в этом письме нет вовсе. Точное число не называю: оно
+    // зависит от режима бота и уже один раз было записано неверно.
     get.mockResolvedValue(card({ text: 'Подключения мы пока не видим. Что-то помешало?' }));
     renderCard();
 
@@ -348,7 +349,15 @@ describe('AdminAutoMessageDetail: управление живёт здесь', (
     get.mockResolvedValue(
       card({
         text: 'Автоплатёж: {autopay_status}',
-        text_inserts: [{ name: 'autopay_status', variants: ['карта привязана', 'карты нет'] }],
+        text_inserts: [
+          {
+            name: 'autopay_status',
+            variants: [
+              { text: 'карта привязана', when: 'автоплатёж включён' },
+              { text: 'карты нет', when: 'автоплатёж выключен' },
+            ],
+          },
+        ],
       }),
     );
     renderCard();
@@ -356,6 +365,11 @@ describe('AdminAutoMessageDetail: управление живёт здесь', (
     await waitFor(() => expect(screen.getByText('{autopay_status}')).toBeTruthy());
     expect(screen.getByText('карта привязана')).toBeTruthy();
     expect(screen.getByText('карты нет')).toBeTruthy();
+    // Условие обязано стоять рядом с фразой: без него владелец читает список сверху
+    // вниз и достраивает письмо, которого не бывает.
+    expect(
+      screen.getByText('admin.autoMessages.detail.textVariantWhen автоплатёж включён'),
+    ).toBeTruthy();
   });
 
   it('у пары с общим текстом это написано словами', async () => {
