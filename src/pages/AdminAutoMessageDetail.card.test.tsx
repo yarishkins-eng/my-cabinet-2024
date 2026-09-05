@@ -276,6 +276,70 @@ describe('AdminAutoMessageDetail: управление живёт здесь', (
     );
   });
 
+  it('текст письма виден — тот, что придёт клиенту', async () => {
+    // Это и есть весь смысл АС-10: до него владелец включал рассылку живым людям,
+    // не зная её содержания.
+    get.mockResolvedValue(card({ text: '🎁 <b>Тестовая подписка</b>\n\nОсталось {hours_text}.' }));
+    renderCard();
+
+    await waitFor(() => expect(screen.getByText('admin.autoMessages.detail.text')).toBeTruthy());
+    expect(screen.getByText(/Осталось \{hours_text\}/)).toBeTruthy();
+    expect(screen.getByText('admin.autoMessages.detail.textBraces')).toBeTruthy();
+  });
+
+  it('пока сервер текста не прислал, блока нет вовсе — а не пустая рамка', async () => {
+    // Кабинет выкладывается ПЕРВЫМ, и несколько минут отвечает старый бот. Карточка
+    // обязана выглядеть ровно как до правки: пустая рамка «Текст письма» читалась бы
+    // как «у письма нет текста».
+    get.mockResolvedValue(card({ text: undefined }));
+    renderCard();
+
+    await waitFor(() => expect(screen.getByRole('switch')).toBeTruthy());
+    expect(screen.queryByText('admin.autoMessages.detail.text')).toBeNull();
+    expect(screen.queryByText('admin.autoMessages.detail.textBraces')).toBeNull();
+  });
+
+  it('хвост, который бот дописывает сам, показан и подписан как хвост', async () => {
+    get.mockResolvedValue(
+      card({ text: '⛔ Подписка истекла', text_suffixes: ['\n\n🌐 Продлить можно и в браузере'] }),
+    );
+    renderCard();
+
+    await waitFor(() => expect(screen.getByText(/Продлить можно и в браузере/)).toBeTruthy());
+    expect(screen.getByText('admin.autoMessages.detail.textSuffix')).toBeTruthy();
+  });
+
+  it('метка, вместо которой встаёт целая фраза, расшифрована вариантами', async () => {
+    // Показать шаблон и промолчать про такие метки — значит показать предложение
+    // с невидимыми дырами: у писем об истечении их две из трёх.
+    get.mockResolvedValue(
+      card({
+        text: 'Автоплатёж: {autopay_status}',
+        text_inserts: [{ name: 'autopay_status', variants: ['карта привязана', 'карты нет'] }],
+      }),
+    );
+    renderCard();
+
+    await waitFor(() => expect(screen.getByText('{autopay_status}')).toBeTruthy());
+    expect(screen.getByText('карта привязана')).toBeTruthy();
+    expect(screen.getByText('карты нет')).toBeTruthy();
+  });
+
+  it('у пары с общим текстом это написано словами', async () => {
+    // «Поменял одно — изменилось два» уже случалось с общим выключателем; с текстом
+    // ошибка была бы той же формы, только последствие видит клиент.
+    get.mockResolvedValue(
+      card({ text: '⚠️ Подписка истекает', shares_text_with: 'Подписка истекает завтра' }),
+    );
+    renderCard();
+
+    await waitFor(() =>
+      expect(
+        screen.getByText('admin.autoMessages.detail.textSharesWith Подписка истекает завтра'),
+      ).toBeTruthy(),
+    );
+  });
+
   it('у незыблемого сообщения переключателя нет, но сказано почему', async () => {
     // Осталось ровно одно: рычаг гасит не письмо, а сам бонус в две недели VPN.
     get.mockResolvedValue(card({ control: 'server', enabled: null, params: null }));

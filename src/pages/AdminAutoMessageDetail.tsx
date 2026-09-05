@@ -356,6 +356,63 @@ export default function AdminAutoMessageDetail() {
         )}
       </div>
 
+      {/* 🔴 Текст письма — первое, что нужно увидеть: до этапа АС-10 владелец включал
+          рассылку живым людям, не зная её содержания. Блок рисуется только когда сервер
+          текст прислал: пока бот не выложен, карточка обязана выглядеть как раньше, а не
+          показывать пустую рамку. */}
+      {data.text && (
+        <div className="mb-4 rounded-xl border border-dark-700 bg-dark-800 p-4">
+          <div className="mb-3 text-[11px] uppercase tracking-wider text-dark-500">
+            {t('admin.autoMessages.detail.text')}
+          </div>
+          {/* `whitespace-pre-wrap`: у писем есть свои абзацы, без него они схлопнутся
+              в один ком и владелец увидит не то письмо, которое придёт. */}
+          <p className="whitespace-pre-wrap break-words rounded-lg border border-dark-600 bg-dark-900 px-3 py-3 text-sm leading-relaxed text-dark-100">
+            {data.text.trim()}
+          </p>
+          {(data.text_suffixes ?? []).map((suffix) => (
+            <div key={suffix} className="mt-2">
+              <p className="whitespace-pre-wrap break-words rounded-lg border border-dashed border-dark-600 bg-dark-900 px-3 py-2 text-sm leading-relaxed text-dark-300">
+                {suffix.trim()}
+              </p>
+              <p className="mt-1 px-1 text-[11px] text-dark-500">
+                {t('admin.autoMessages.detail.textSuffix')}
+              </p>
+            </div>
+          ))}
+          <p className="mt-2 px-1 text-[11px] text-dark-500">
+            {t('admin.autoMessages.detail.textBraces')}
+          </p>
+          {data.shares_text_with && (
+            <p className="mt-3 rounded-lg border border-dark-700 bg-dark-900 px-3 py-2 text-xs text-dark-300">
+              {t('admin.autoMessages.detail.textSharesWith', { other: data.shares_text_with })}
+            </p>
+          )}
+          {(data.text_inserts ?? []).length > 0 && (
+            <div className="mt-3 rounded-lg border border-dark-700 bg-dark-900 px-3 py-2">
+              <p className="text-xs text-dark-300">{t('admin.autoMessages.detail.textInserts')}</p>
+              <ul className="mt-2 space-y-2">
+                {(data.text_inserts ?? []).map((insert) => (
+                  <li key={insert.name}>
+                    <code className="text-xs text-dark-200">{`{${insert.name}}`}</code>
+                    <ul className="mt-1 space-y-1">
+                      {insert.variants.map((variant) => (
+                        <li
+                          key={variant}
+                          className="whitespace-pre-wrap break-words pl-3 text-[11px] leading-snug text-dark-400"
+                        >
+                          {variant.trim()}
+                        </li>
+                      ))}
+                    </ul>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+      )}
+
       {error && (
         <div className="mb-4 rounded-xl border border-error-500/40 bg-error-500/10 p-3 text-sm text-error-300">
           {error}
