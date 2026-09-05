@@ -1,3 +1,4 @@
+import DOMPurify from 'dompurify';
 import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router';
 import { useTranslation } from 'react-i18next';
@@ -7,6 +8,20 @@ import { AutoMessageParams, AutoMessagePatch, autoMessagesApi } from '../api/aut
 import { useDestructiveConfirm } from '../platform/hooks/useNativeDialog';
 import { usePlatform } from '../platform/hooks/usePlatform';
 import { BackIcon } from '@/components/icons';
+
+// 🔴 Тексты писем размечены HTML Телеграма (`parse_mode='HTML'`), и клиент видит его как
+// оформление, а не как скобки. Печатать `<b>` буквально — показывать владельцу то, чего у
+// клиента нет: он прочитает это либо как «письма сломаны», либо как «экрану верить нельзя».
+// Список тегов — ровно тот, что разрешает бот (`app/utils/telegram_html.py`), ни тегом шире.
+// Ссылки без href-схемы отсекает сам DOMPurify.
+const TELEGRAM_TAGS = ['b', 'i', 'u', 's', 'a', 'code', 'pre', 'blockquote'];
+
+function renderTelegramHtml(raw: string): string {
+  return DOMPurify.sanitize(raw.trim(), {
+    ALLOWED_TAGS: TELEGRAM_TAGS,
+    ALLOWED_ATTR: ['href'],
+  });
+}
 
 type Field = keyof AutoMessageParams;
 
@@ -355,6 +370,83 @@ export default function AdminAutoMessageDetail() {
           </p>
         )}
       </div>
+
+      {/* 🔴 Текст письма — первое, что нужно увидеть: до этапа АС-10 владелец включал
+          рассылку живым людям, не зная её содержания. Блок рисуется только когда сервер
+          прислал непустой текст: пока бот не выложен, карточка обязана выглядеть как
+          раньше, а не показывать пустую рамку. */}
+      {data.text?.trim() && (
+        <div className="mb-4 rounded-xl border border-dark-700 bg-dark-800 p-4">
+          <div className="mb-3 text-[11px] uppercase tracking-wider text-dark-400">
+            {t('admin.autoMessages.detail.text')}
+          </div>
+          {/* `whitespace-pre-wrap`: у писем есть свои абзацы, без него они схлопнутся
+              в один ком и владелец увидит не то письмо, которое придёт. */}
+          <div className="max-w-prose rounded-lg border border-dark-500 bg-dark-900 px-3 py-3">
+            <p
+              className="whitespace-pre-wrap break-words text-sm leading-relaxed text-dark-100"
+              dangerouslySetInnerHTML={{ __html: renderTelegramHtml(data.text) }}
+            />
+            {/* Хвост показан ВНУТРИ того же листа и тем же цветом: в письме он приклеен
+                к телу без зазора, и отдельная пунктирная коробка читалась бы как
+                черновик. Подпись стоит СВЕРХУ — иначе она слипается со следующей. */}
+            {(data.text_suffixes ?? []).map((suffix) => (
+              <div key={suffix} className="mt-3 border-t border-dark-600 pt-2">
+                <p className="mb-1 text-[11px] text-dark-300">
+                  {t('admin.autoMessages.detail.textSuffix')}
+                </p>
+                <p
+                  className="whitespace-pre-wrap break-words text-sm leading-relaxed text-dark-100"
+                  dangerouslySetInnerHTML={{ __html: renderTelegramHtml(suffix) }}
+                />
+              </div>
+            ))}
+          </div>
+          {/* Подпись про скобки — только там, где скобки есть. Иначе владелец ищет на
+              экране то, чего в этом письме нет вовсе (четыре письма без единой метки). */}
+          {data.text.includes('{') && (
+            <p className="mt-2 px-1 text-xs text-dark-300">
+              {t('admin.autoMessages.detail.textBraces')}
+            </p>
+          )}
+          <p className="mt-2 px-1 text-xs text-dark-300">
+            {t('admin.autoMessages.detail.textReadOnly')}
+          </p>
+          {data.shares_text_with && (
+            <p className="mt-3 rounded-lg border border-dark-500 bg-dark-900 px-3 py-2 text-xs text-dark-200">
+              {t('admin.autoMessages.detail.textSharesWith', { other: data.shares_text_with })}
+            </p>
+          )}
+          {(data.text_inserts ?? []).length > 0 && (
+            <div className="mt-3 rounded-lg border border-dark-500 bg-dark-900 px-3 py-2">
+              <p className="text-xs text-dark-200">{t('admin.autoMessages.detail.textInserts')}</p>
+              <ul className="mt-2 space-y-2">
+                {(data.text_inserts ?? []).map((insert) => (
+                  <li key={insert.name}>
+                    <code className="text-xs text-dark-100">{`{${insert.name}}`}</code>
+                    <ul className="mt-1 space-y-1">
+                      {(insert.variants ?? []).map((variant) => (
+                        <li key={variant.text} className="border-l border-dark-600 pl-2">
+                          {/* Условие СВЕРХУ: без него владелец читает список сверху вниз
+                              и достраивает письмо, которого не бывает — в письмо встаёт
+                              ровно одна фраза из этих. */}
+                          <p className="text-[11px] leading-snug text-dark-400">
+                            {t('admin.autoMessages.detail.textVariantWhen', { when: variant.when })}
+                          </p>
+                          <p
+                            className="whitespace-pre-wrap break-words text-xs leading-snug text-dark-200"
+                            dangerouslySetInnerHTML={{ __html: renderTelegramHtml(variant.text) }}
+                          />
+                        </li>
+                      ))}
+                    </ul>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+      )}
 
       {error && (
         <div className="mb-4 rounded-xl border border-error-500/40 bg-error-500/10 p-3 text-sm text-error-300">

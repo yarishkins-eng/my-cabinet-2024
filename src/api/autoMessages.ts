@@ -73,10 +73,32 @@ export interface AutoMessageHistoryRow {
   claimed: boolean | null;
 }
 
+export interface AutoMessageInsertVariant {
+  text: string;
+  /** При каком условии встаёт именно эта фраза. В письмо попадает ровно одна из них. */
+  when: string;
+}
+
+export interface AutoMessageInsert {
+  name: string;
+  /** Чем метка может обернуться. Это целые фразы из соседних ключей, а не числа. */
+  variants: AutoMessageInsertVariant[];
+}
+
 export interface AutoMessageDetail extends AutoMessageItem {
   buttons: AutoMessageButton[];
   history: AutoMessageHistoryRow[];
   history_note: string;
+  /** Текст письма, прочитанный оттуда же, откуда его берёт отправитель.
+   *  Необязательные: пока бот не выложен, старый ответ этих полей не содержит,
+   *  и экран обязан выглядеть ровно как до правки, а не рисовать пустой блок. */
+  text?: string | null;
+  /** Куски, которые бот дописывает к письму сам: ссылка на кабинет, строка тарифа. */
+  text_suffixes?: string[];
+  /** Метки, вместо которых подставляется не число, а другой текст. */
+  text_inserts?: AutoMessageInsert[];
+  /** Сообщение, у которого ТОТ ЖЕ текст. Правка одного изменит оба письма. */
+  shares_text_with?: string | null;
 }
 
 export interface AutoMessagePatch {
