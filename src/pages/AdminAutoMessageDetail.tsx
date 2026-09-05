@@ -15,6 +15,7 @@ const FIELD_LABELS: Record<Field, string> = {
   discount_percent: 'admin.autoMessages.detail.percent',
   valid_hours: 'admin.autoMessages.detail.hours',
   trigger_days: 'admin.autoMessages.detail.days',
+  not_connected_after_hours: 'admin.autoMessages.detail.notConnectedHours',
 };
 
 const FIELD_HINTS: Record<Field, string> = {
@@ -22,6 +23,7 @@ const FIELD_HINTS: Record<Field, string> = {
   discount_percent: 'admin.autoMessages.detail.percentHint',
   valid_hours: 'admin.autoMessages.detail.hoursHint',
   trigger_days: 'admin.autoMessages.detail.daysHint',
+  not_connected_after_hours: 'admin.autoMessages.detail.notConnectedHoursHint',
 };
 
 /** Готовые значения вместо шага. Шаг 12 не давал попасть ни в сутки, ни в двое суток. */
@@ -29,6 +31,7 @@ const FIELD_CHOICES: Partial<Record<Field, number[]>> = {
   warn_hours: [2, 3, 4, 6, 12, 24, 48],
   valid_hours: [6, 12, 24, 48, 72, 168],
   discount_percent: [5, 10, 15, 20, 25, 30, 40, 50],
+  not_connected_after_hours: [1, 2, 3, 4, 6, 12, 24],
 };
 
 /** Запасные границы. Настоящие приходят с сервера в `limits`. */
@@ -37,6 +40,7 @@ const FALLBACK_RANGE: Record<Field, [number, number]> = {
   discount_percent: [1, 50],
   valid_hours: [1, 168],
   trigger_days: [1, 30],
+  not_connected_after_hours: [1, 24],
 };
 
 function unitFor(field: Field): string {

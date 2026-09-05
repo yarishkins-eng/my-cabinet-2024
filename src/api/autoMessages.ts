@@ -12,6 +12,8 @@ export interface AutoMessageParams {
   discount_percent?: number;
   valid_hours?: number;
   trigger_days?: number;
+  /** Через сколько часов ПОСЛЕ начала пробного написать тому, кто не подключился. */
+  not_connected_after_hours?: number;
 }
 
 export interface AutoMessageItem {
@@ -83,6 +85,7 @@ export interface AutoMessagePatch {
   discount_percent?: number;
   valid_hours?: number;
   trigger_days?: number;
+  not_connected_after_hours?: number;
 }
 
 export const GROUP_TITLES: Record<AutoMessageGroup, string> = {
