@@ -348,7 +348,9 @@ export default function AdminAutoMessageDetail() {
         {data.warning && (
           // Янтарный, не красный: красным на этом экране помечены отказы, и красить им
           // разрешённое осознанное действие — значит научить пролистывать красное.
-          <p className="mt-3 rounded-lg border border-warning-500/40 bg-warning-500/10 px-3 py-2 text-xs text-warning-300">
+          // `whitespace-pre-line`: длинное предупреждение читается абзацами, а не одним
+          // комом. Без него переносы из текста сервера схлопываются в пробелы.
+          <p className="mt-3 whitespace-pre-line rounded-lg border border-warning-500/40 bg-warning-500/10 px-3 py-2 text-xs text-warning-300">
             {data.warning}
           </p>
         )}
@@ -483,7 +485,13 @@ export default function AdminAutoMessageDetail() {
                 </div>
               )}
               <p className="mt-3 text-xs text-dark-500">
-                {t('admin.autoMessages.detail.futureOnly')}
+                {/* Про сгоревший процент говорим ТОЛЬКО сообщениям со скидкой: у писем
+                    без неё эта строка читалась как будто письмо раздаёт скидки. */}
+                {t(
+                  draft && 'discount_percent' in draft
+                    ? 'admin.autoMessages.detail.futureOnlyDiscount'
+                    : 'admin.autoMessages.detail.futureOnly',
+                )}
               </p>
             </div>
           )}
