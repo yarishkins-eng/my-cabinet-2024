@@ -36,6 +36,9 @@ const KEYS = [
   'textMarkers',
   'textMarkerExample',
   'textRussianOnly',
+  'textEditHintPlain',
+  'textNoEnglish',
+  'textResetAskShared',
 ];
 
 function detailNode(lang: string): Record<string, unknown> {

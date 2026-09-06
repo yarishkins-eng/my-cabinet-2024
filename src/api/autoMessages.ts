@@ -113,6 +113,12 @@ export interface AutoMessageDetail extends AutoMessageItem {
   text_source?: 'code' | 'custom';
   /** Расшифровка каждой метки показанного текста. */
   text_markers?: AutoMessageMarker[];
+  /** Есть ли у письма английская версия. У восьми писем её нет: они уходят по-русски всем. */
+  text_has_english?: boolean;
+  /** Уходит ли письмо фотографией с логотипом — только тогда потолок подписи что-то значит. */
+  text_with_logo?: boolean;
+  /** Пределы длины с сервера: `max` — отказ, `caption` — граница подписи под картинкой. */
+  text_limits?: { max: number; caption: number };
 }
 
 export interface AutoMessagePatch {

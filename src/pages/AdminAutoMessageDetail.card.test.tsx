@@ -45,6 +45,11 @@ function card(overrides: Record<string, unknown> = {}) {
     title: 'Пробный скоро закончится',
     when: 'За 2 часа до конца пробного периода',
     text: 'Ваша тестовая подписка истекает через 2 часа.',
+    text_source: 'code',
+    text_has_english: true,
+    text_with_logo: true,
+    text_limits: { max: 4000, caption: 1024 },
+    text_markers: [] as { name: string; what: string; example: string }[],
     control: 'toggle',
     enabled: true,
     state: 'live',
@@ -279,7 +284,12 @@ describe('AdminAutoMessageDetail: управление живёт здесь', (
   it('текст письма виден — тот, что придёт клиенту', async () => {
     // Это и есть весь смысл АС-10: до него владелец включал рассылку живым людям,
     // не зная её содержания.
-    get.mockResolvedValue(card({ text: '🎁 <b>Тестовая подписка</b>\n\nОсталось {hours_text}.' }));
+    get.mockResolvedValue(
+      card({
+        text: '🎁 <b>Тестовая подписка</b>\n\nОсталось {hours_text}.',
+        text_markers: [{ name: 'hours_text', what: 'сколько осталось', example: '2 часа' }],
+      }),
+    );
     renderCard();
 
     await waitFor(() => expect(screen.getByText('admin.autoMessages.detail.text')).toBeTruthy());
@@ -489,6 +499,128 @@ describe('AdminAutoMessageDetail: управление живёт здесь', (
 
     await waitFor(() => expect(screen.getByText('{percent}')).toBeTruthy());
     expect(screen.getByText(/размер скидки/)).toBeTruthy();
+  });
+
+  it('верхний предпросмотр показывает то, что печатают прямо сейчас', async () => {
+    // 🔴 Без этого на экране два вида одного письма: сверху жирным, снизу с тегами, и
+    // верхний не менялся при наборе. Человек не понимал, какой из них настоящий.
+    get.mockResolvedValue(card({ text: '<b>Старый</b> текст.' }));
+    const { container } = renderCard();
+
+    await waitFor(() =>
+      expect(screen.getByText('admin.autoMessages.detail.textEdit')).toBeTruthy(),
+    );
+    fireEvent.click(screen.getByText('admin.autoMessages.detail.textEdit'));
+    fireEvent.change(container.querySelector('textarea') as HTMLTextAreaElement, {
+      target: { value: '<b>Новый</b> текст.' },
+    });
+
+    expect(container.querySelector('b')?.textContent).toBe('Новый');
+  });
+
+  it('отказ сервера показывается рядом с кнопкой, а не за экраном', async () => {
+    // Прежде плашка стояла на 300–600 px ниже: владелец не видел, почему не сохранилось,
+    // и жал ещё раз.
+    get.mockResolvedValue(card({ text: 'Текст {hours_text}.' }));
+    patch.mockRejectedValue({ response: { data: { detail: 'Не хватает метки {hours_text}' } } });
+    const { container } = renderCard();
+
+    await waitFor(() =>
+      expect(screen.getByText('admin.autoMessages.detail.textEdit')).toBeTruthy(),
+    );
+    fireEvent.click(screen.getByText('admin.autoMessages.detail.textEdit'));
+    fireEvent.change(container.querySelector('textarea') as HTMLTextAreaElement, {
+      target: { value: 'Текст без метки.' },
+    });
+    fireEvent.click(screen.getByText('admin.autoMessages.detail.textSave'));
+
+    const alert = await screen.findByRole('alert');
+    expect(alert.textContent).toContain('Не хватает метки');
+    // Набранное не потеряно.
+    expect((container.querySelector('textarea') as HTMLTextAreaElement).value).toBe(
+      'Текст без метки.',
+    );
+  });
+
+  it('у письма без английской версии сказано, что правка коснётся всех', async () => {
+    get.mockResolvedValue(card({ text: 'Русский текст.', text_has_english: false }));
+    renderCard();
+
+    await waitFor(() =>
+      expect(screen.getByText('admin.autoMessages.detail.textNoEnglish')).toBeTruthy(),
+    );
+    expect(screen.queryByText('admin.autoMessages.detail.textRussianOnly')).toBeNull();
+  });
+
+  it('про логотип молчит там, где логотипа не бывает', async () => {
+    get.mockResolvedValue(card({ text: 'Короткий.', text_with_logo: false }));
+    const { container } = renderCard();
+
+    await waitFor(() =>
+      expect(screen.getByText('admin.autoMessages.detail.textEdit')).toBeTruthy(),
+    );
+    fireEvent.click(screen.getByText('admin.autoMessages.detail.textEdit'));
+    fireEvent.change(container.querySelector('textarea') as HTMLTextAreaElement, {
+      target: { value: 'я'.repeat(1500) },
+    });
+
+    expect(screen.queryByText(/textNoLogo/)).toBeNull();
+  });
+
+  it('сохранение не нажимается, пока текст не изменили', async () => {
+    // Иначе «Изменить → Сохранить» без единой правки записывает копию кодового текста,
+    // и значок «текст изменён» загорается навсегда.
+    get.mockResolvedValue(card({ text: 'Ровно тот же текст.' }));
+    renderCard();
+
+    await waitFor(() =>
+      expect(screen.getByText('admin.autoMessages.detail.textEdit')).toBeTruthy(),
+    );
+    fireEvent.click(screen.getByText('admin.autoMessages.detail.textEdit'));
+    expect(
+      (screen.getByText('admin.autoMessages.detail.textSave') as HTMLButtonElement).disabled,
+    ).toBe(true);
+  });
+
+  it('про общий текст сказано ДО кнопки правки и в подтверждении сброса', async () => {
+    get.mockResolvedValue(
+      card({
+        text: 'Общий текст.',
+        shares_text_with: 'Подписка истекает завтра',
+        text_source: 'custom',
+      }),
+    );
+    confirmOff.mockResolvedValue(true);
+    renderCard();
+
+    await waitFor(() =>
+      expect(
+        screen.getByText('admin.autoMessages.detail.textSharesWith Подписка истекает завтра'),
+      ).toBeTruthy(),
+    );
+    fireEvent.click(screen.getByText('admin.autoMessages.detail.textEdit'));
+    fireEvent.click(screen.getByText('admin.autoMessages.detail.textReset'));
+
+    await waitFor(() => expect(confirmOff).toHaveBeenCalled());
+    expect(confirmOff.mock.calls[0][0]).toContain('textResetAskShared');
+  });
+
+  it('пределы длины берутся с сервера, а не зашиты в экране', async () => {
+    get.mockResolvedValue(card({ text: 'Короткий.', text_limits: { max: 50, caption: 20 } }));
+    const { container } = renderCard();
+
+    await waitFor(() =>
+      expect(screen.getByText('admin.autoMessages.detail.textEdit')).toBeTruthy(),
+    );
+    fireEvent.click(screen.getByText('admin.autoMessages.detail.textEdit'));
+    fireEvent.change(container.querySelector('textarea') as HTMLTextAreaElement, {
+      target: { value: 'я'.repeat(60) },
+    });
+
+    expect(screen.getByText(/textTooLong/)).toBeTruthy();
+    expect(
+      (screen.getByText('admin.autoMessages.detail.textSave') as HTMLButtonElement).disabled,
+    ).toBe(true);
   });
 
   it('у незыблемого сообщения переключателя нет, но сказано почему', async () => {
