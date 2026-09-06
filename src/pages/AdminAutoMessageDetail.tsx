@@ -475,8 +475,15 @@ export default function AdminAutoMessageDetail() {
               {t('admin.autoMessages.detail.textBraces')}
             </p>
           )}
+          {/* Ответ сервера показывается ПОСЛЕ сохранения, то есть когда поле уже закрылось.
+              Прежде плашка жила внутри поля и не показывалась НИКОГДА. */}
+          {textDraft === null && textWarning && (
+            <p className="mt-3 rounded-lg border border-warning-500/40 bg-warning-500/10 px-3 py-2 text-xs text-warning-300 light:text-warning-700">
+              {textWarning}
+            </p>
+          )}
           {textDraft === null ? (
-            <div className="mt-3">
+            <div className="mt-3 flex flex-wrap gap-2">
               <button
                 type="button"
                 className="btn btn-secondary min-h-[44px] px-3 text-sm"
@@ -489,6 +496,28 @@ export default function AdminAutoMessageDetail() {
               >
                 {t('admin.autoMessages.detail.textEdit')}
               </button>
+              {/* Возврат виден и БЕЗ открытия правки: иначе владелец, желающий отменить
+                  свою правку, кнопки просто не находит. */}
+              {data.text_source === 'custom' && (
+                <button
+                  type="button"
+                  className="btn btn-danger min-h-[44px] px-3 text-sm"
+                  disabled={busy}
+                  onClick={async () => {
+                    const ok = await confirmOff(
+                      data.shares_text_with
+                        ? t('admin.autoMessages.detail.textResetAskShared', {
+                            other: data.shares_text_with,
+                          })
+                        : t('admin.autoMessages.detail.textResetAsk'),
+                      t('admin.autoMessages.detail.textReset'),
+                    );
+                    if (ok) textMutation.mutate({ reset_text: true });
+                  }}
+                >
+                  {t('admin.autoMessages.detail.textReset')}
+                </button>
+              )}
             </div>
           ) : (
             <div className="mt-3">
@@ -509,7 +538,7 @@ export default function AdminAutoMessageDetail() {
                   ? t('admin.autoMessages.detail.textTooLong', { count: draftLength, max: textMax })
                   : t('admin.autoMessages.detail.textCounter', {
                       count: draftLength,
-                      max: captionMax,
+                      max: textMax,
                     })}
               </p>
               {data.text_with_logo && draftLength > captionMax && !tooLong && (
@@ -532,11 +561,6 @@ export default function AdminAutoMessageDetail() {
                   {error}
                 </p>
               )}
-              {textWarning && (
-                <p className="mt-2 rounded-lg border border-warning-500/40 bg-warning-500/10 px-3 py-2 text-xs text-warning-300 light:text-warning-700">
-                  {textWarning}
-                </p>
-              )}
               <div className="mt-3 flex flex-wrap gap-2">
                 <button
                   type="button"
@@ -555,30 +579,6 @@ export default function AdminAutoMessageDetail() {
                   {t('admin.autoMessages.detail.textCancel')}
                 </button>
               </div>
-              {/* Возврат — отдельной строкой и красной кнопкой: он стирает работу, а в общем
-                  ряду выглядел как безобидная «Отмена» и на телефоне вставал прямо под палец. */}
-              {data.text_source === 'custom' && (
-                <div className="mt-3 border-t border-dark-600 pt-3">
-                  <button
-                    type="button"
-                    className="btn btn-danger min-h-[44px] px-3 text-sm"
-                    disabled={busy}
-                    onClick={async () => {
-                      const ok = await confirmOff(
-                        data.shares_text_with
-                          ? t('admin.autoMessages.detail.textResetAskShared', {
-                              other: data.shares_text_with,
-                            })
-                          : t('admin.autoMessages.detail.textResetAsk'),
-                        t('admin.autoMessages.detail.textReset'),
-                      );
-                      if (ok) textMutation.mutate({ reset_text: true });
-                    }}
-                  >
-                    {t('admin.autoMessages.detail.textReset')}
-                  </button>
-                </div>
-              )}
             </div>
           )}
           {data.text_has_english ? (
@@ -635,7 +635,7 @@ export default function AdminAutoMessageDetail() {
         </div>
       )}
 
-      {error && (
+      {error && !editorOpen && (
         <div className="mb-4 rounded-xl border border-error-500/40 bg-error-500/10 p-3 text-sm text-error-300">
           {error}
         </div>

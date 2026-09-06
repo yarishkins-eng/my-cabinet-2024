@@ -481,7 +481,7 @@ describe('AdminAutoMessageDetail: управление живёт здесь', (
     await waitFor(() =>
       expect(screen.getByText('admin.autoMessages.detail.textEdited')).toBeTruthy(),
     );
-    fireEvent.click(screen.getByText('admin.autoMessages.detail.textEdit'));
+    // Возврат виден СРАЗУ, без открытия правки.
     fireEvent.click(screen.getByText('admin.autoMessages.detail.textReset'));
 
     await waitFor(() => expect(patch).toHaveBeenCalledWith('trial-2h', { reset_text: true }));
@@ -598,7 +598,6 @@ describe('AdminAutoMessageDetail: управление живёт здесь', (
         screen.getByText('admin.autoMessages.detail.textSharesWith Подписка истекает завтра'),
       ).toBeTruthy(),
     );
-    fireEvent.click(screen.getByText('admin.autoMessages.detail.textEdit'));
     fireEvent.click(screen.getByText('admin.autoMessages.detail.textReset'));
 
     await waitFor(() => expect(confirmOff).toHaveBeenCalled());
@@ -621,6 +620,62 @@ describe('AdminAutoMessageDetail: управление живёт здесь', (
     expect(
       (screen.getByText('admin.autoMessages.detail.textSave') as HTMLButtonElement).disabled,
     ).toBe(true);
+  });
+
+  it('предупреждение сервера показывается ПОСЛЕ сохранения, когда поле уже закрылось', async () => {
+    // 🔴 Прежде плашка жила внутри поля правки, а сохранение это поле закрывает — значит
+    // единственное, что сервер говорит владельцу после сохранения, не показывалось никогда.
+    get.mockResolvedValue(card({ text: 'Короткий.' }));
+    patch.mockResolvedValue({ text_warning: 'Сохранено. Письмо уйдёт без логотипа.' });
+    const { container } = renderCard();
+
+    await waitFor(() =>
+      expect(screen.getByText('admin.autoMessages.detail.textEdit')).toBeTruthy(),
+    );
+    fireEvent.click(screen.getByText('admin.autoMessages.detail.textEdit'));
+    fireEvent.change(container.querySelector('textarea') as HTMLTextAreaElement, {
+      target: { value: 'Другой текст.' },
+    });
+    fireEvent.click(screen.getByText('admin.autoMessages.detail.textSave'));
+
+    await waitFor(() =>
+      expect(screen.getByText('Сохранено. Письмо уйдёт без логотипа.')).toBeTruthy(),
+    );
+    expect(container.querySelector('textarea')).toBeNull();
+  });
+
+  it('отказ печатается один раз, а не двумя плашками', async () => {
+    get.mockResolvedValue(card({ text: 'Текст.' }));
+    patch.mockRejectedValue({ response: { data: { detail: 'Метка потерялась' } } });
+    const { container } = renderCard();
+
+    await waitFor(() =>
+      expect(screen.getByText('admin.autoMessages.detail.textEdit')).toBeTruthy(),
+    );
+    fireEvent.click(screen.getByText('admin.autoMessages.detail.textEdit'));
+    fireEvent.change(container.querySelector('textarea') as HTMLTextAreaElement, {
+      target: { value: 'Другой.' },
+    });
+    fireEvent.click(screen.getByText('admin.autoMessages.detail.textSave'));
+
+    await screen.findByRole('alert');
+    expect(screen.getAllByText('Метка потерялась')).toHaveLength(1);
+  });
+
+  it('счётчик считает до настоящего предела, а не до границы подписи', async () => {
+    // 1024 — это не запрет, а порог логотипа, и у девяти писем из 22 он ничего не значит.
+    get.mockResolvedValue(card({ text: 'Короткий.', text_limits: { max: 4000, caption: 1024 } }));
+    const { container } = renderCard();
+
+    await waitFor(() =>
+      expect(screen.getByText('admin.autoMessages.detail.textEdit')).toBeTruthy(),
+    );
+    fireEvent.click(screen.getByText('admin.autoMessages.detail.textEdit'));
+    fireEvent.change(container.querySelector('textarea') as HTMLTextAreaElement, {
+      target: { value: 'я'.repeat(1500) },
+    });
+
+    expect(screen.getByText(/textCounter 1500 4000/)).toBeTruthy();
   });
 
   it('у незыблемого сообщения переключателя нет, но сказано почему', async () => {

@@ -3701,7 +3701,7 @@
         "textInserts": "These markers are replaced by ONE of these phrases, not a number:",
         "textVariantWhen": "if {{when}}:",
         "textEdit": "Edit text",
-        "textEditHint": "The new text starts going out with the next message. Anyone the bot already wrote to will not get it again. Leave the placeholders in braces alone — without them the message will not be sent.",
+        "textEditHint": "The new text starts going out with the next message. Anyone the bot already wrote to will not get it again. Leave the placeholders in braces alone — you will not be able to save without them. Tags like <b> mean bold: the preview above shows how it looks to the client.",
         "textEditHintPlain": "The new text starts going out with the next message. Anyone the bot already wrote to will not get it again.",
         "textEdited": "edited",
         "textSave": "Save text",
