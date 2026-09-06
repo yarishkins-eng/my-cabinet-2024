@@ -39,6 +39,8 @@ export interface AutoMessageItem {
   /** Границы полей ИМЕННО этого сообщения. Зашивать их на экране нельзя: пол
    *  «через сколько дней» у разных сообщений разный. */
   limits: Record<string, [number, number]> | null;
+  /** Приходит только в ответе на сохранение текста: «сохранено, но уйдёт без логотипа». */
+  text_warning?: string | null;
 }
 
 export interface AutoMessageSummary {
@@ -85,6 +87,14 @@ export interface AutoMessageInsert {
   variants: AutoMessageInsertVariant[];
 }
 
+export interface AutoMessageMarker {
+  name: string;
+  /** Что это простыми словами: «размер скидки», «остаток на счету клиента». */
+  what: string;
+  /** Форма значения, которую подставит бот. Не выдумка — так выглядит настоящее. */
+  example: string;
+}
+
 export interface AutoMessageDetail extends AutoMessageItem {
   buttons: AutoMessageButton[];
   history: AutoMessageHistoryRow[];
@@ -99,10 +109,18 @@ export interface AutoMessageDetail extends AutoMessageItem {
   text_inserts?: AutoMessageInsert[];
   /** Сообщение, у которого ТОТ ЖЕ текст. Правка одного изменит оба письма. */
   shares_text_with?: string | null;
+  /** 'code' — текст как в коде, 'custom' — владелец его правил. */
+  text_source?: 'code' | 'custom';
+  /** Расшифровка каждой метки показанного текста. */
+  text_markers?: AutoMessageMarker[];
 }
 
 export interface AutoMessagePatch {
   enabled?: boolean;
+  /** Новый текст письма. */
+  text?: string;
+  /** Вернуть текст, который лежит в коде. */
+  reset_text?: boolean;
   warn_hours?: number;
   discount_percent?: number;
   valid_hours?: number;

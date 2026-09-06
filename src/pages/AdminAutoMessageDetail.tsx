@@ -16,6 +16,17 @@ import { BackIcon } from '@/components/icons';
 // Ссылки без href-схемы отсекает сам DOMPurify.
 const TELEGRAM_TAGS = ['b', 'i', 'u', 's', 'a', 'code', 'pre', 'blockquote'];
 
+// Бот считает длину ПОСЛЕ снятия разметки и в кодовых единицах UTF-16
+// (`telegram_visible_length`). Строки JavaScript — тоже UTF-16, поэтому снятие тегов через
+// DOM и `.length` дают то же число: счётчик на экране не разойдётся с отказом сервера.
+const TEXT_LIMIT = 4000;
+const CAPTION_LIMIT = 1024;
+
+function visibleLength(raw: string): number {
+  const doc = new DOMParser().parseFromString(raw, 'text/html');
+  return (doc.body.textContent ?? '').length;
+}
+
 function renderTelegramHtml(raw: string): string {
   return DOMPurify.sanitize(raw.trim(), {
     ALLOWED_TAGS: TELEGRAM_TAGS,
@@ -232,6 +243,24 @@ export default function AdminAutoMessageDetail() {
     },
   });
 
+  // 🔴 Замок: без него текст, который читают живые клиенты, правится случайным касанием
+  // при прокрутке. Прямое требование владельца — «через какой-то замочек».
+  const [textDraft, setTextDraft] = useState<string | null>(null);
+  const [textWarning, setTextWarning] = useState<string | null>(null);
+
+  const textMutation = useMutation({
+    mutationFn: (payload: AutoMessagePatch) => autoMessagesApi.patch(id as string, payload),
+    onSuccess: (item) => {
+      setError(null);
+      setSaved(true);
+      setTextDraft(null);
+      setTextWarning(item?.text_warning ?? null);
+      queryClient.invalidateQueries({ queryKey: ['admin-auto-message', id] });
+      queryClient.invalidateQueries({ queryKey: ['admin-auto-messages'] });
+    },
+    onError: showError,
+  });
+
   const toggleMutation = useMutation({
     mutationFn: (enabled: boolean) => autoMessagesApi.patch(id as string, { enabled }),
     onSuccess: () => {
@@ -268,7 +297,7 @@ export default function AdminAutoMessageDetail() {
 
   // Пока идёт любая из двух правок, вторая недоступна: иначе ответы приходят вразнобой
   // и плашка «Сохранено» всплывает уже после выключения сообщения.
-  const busy = saveMutation.isPending || toggleMutation.isPending;
+  const busy = saveMutation.isPending || toggleMutation.isPending || textMutation.isPending;
   const manageable = data.control === 'toggle';
   const quiet = data.state === 'quiet';
 
@@ -409,9 +438,120 @@ export default function AdminAutoMessageDetail() {
               {t('admin.autoMessages.detail.textBraces')}
             </p>
           )}
+          {/* Правка. Замок — это отсутствие поля до явного нажатия: пока владелец не сказал
+              «изменить», текст физически нельзя задеть пальцем при прокрутке. */}
+          {textDraft === null ? (
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                className="btn btn-secondary min-h-[44px] px-3 text-sm"
+                onClick={() => {
+                  setTextWarning(null);
+                  setError(null);
+                  setTextDraft(data.text ?? '');
+                }}
+              >
+                {t('admin.autoMessages.detail.textEdit')}
+              </button>
+              {data.text_source === 'custom' && (
+                <span className="rounded bg-accent-500/15 px-2 py-1 text-[11px] text-accent-300">
+                  {t('admin.autoMessages.detail.textEdited')}
+                </span>
+              )}
+            </div>
+          ) : (
+            <div className="mt-3">
+              <textarea
+                className="input min-h-[220px] w-full font-mono text-sm leading-relaxed"
+                value={textDraft}
+                spellCheck
+                onChange={(event) => setTextDraft(event.target.value)}
+              />
+              <p
+                className={`mt-1 px-1 text-[11px] ${
+                  visibleLength(textDraft) > TEXT_LIMIT ? 'text-error-300' : 'text-dark-300'
+                }`}
+              >
+                {visibleLength(textDraft) > TEXT_LIMIT
+                  ? t('admin.autoMessages.detail.textTooLong', {
+                      count: visibleLength(textDraft),
+                      max: TEXT_LIMIT,
+                    })
+                  : t('admin.autoMessages.detail.textCounter', {
+                      count: visibleLength(textDraft),
+                      max: TEXT_LIMIT,
+                    })}
+              </p>
+              {visibleLength(textDraft) > CAPTION_LIMIT &&
+                visibleLength(textDraft) <= TEXT_LIMIT && (
+                  <p className="mt-1 px-1 text-[11px] text-warning-300">
+                    {t('admin.autoMessages.detail.textNoLogo', { limit: CAPTION_LIMIT })}
+                  </p>
+                )}
+              <p className="mt-2 px-1 text-xs text-dark-300">
+                {t('admin.autoMessages.detail.textEditHint')}
+              </p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  className="btn btn-primary min-h-[44px] px-3 text-sm"
+                  disabled={busy || !textDraft.trim() || visibleLength(textDraft) > TEXT_LIMIT}
+                  onClick={() => textMutation.mutate({ text: textDraft })}
+                >
+                  {t('admin.autoMessages.detail.textSave')}
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-secondary min-h-[44px] px-3 text-sm"
+                  disabled={busy}
+                  onClick={() => setTextDraft(null)}
+                >
+                  {t('admin.autoMessages.detail.textCancel')}
+                </button>
+                {data.text_source === 'custom' && (
+                  <button
+                    type="button"
+                    className="btn btn-secondary min-h-[44px] px-3 text-sm"
+                    disabled={busy}
+                    onClick={async () => {
+                      const ok = await confirmOff(
+                        t('admin.autoMessages.detail.textResetAsk'),
+                        t('admin.autoMessages.detail.textReset'),
+                      );
+                      if (ok) textMutation.mutate({ reset_text: true });
+                    }}
+                  >
+                    {t('admin.autoMessages.detail.textReset')}
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+          {textWarning && (
+            <p className="mt-2 rounded-lg border border-warning-500/40 bg-warning-500/10 px-3 py-2 text-xs text-warning-300">
+              {textWarning}
+            </p>
+          )}
           <p className="mt-2 px-1 text-xs text-dark-300">
-            {t('admin.autoMessages.detail.textReadOnly')}
+            {t('admin.autoMessages.detail.textRussianOnly')}
           </p>
+          {/* Расшифровка меток: без неё значок остаётся загадкой, и владелец боится
+              трогать текст — прямое замечание 06.09.2026. */}
+          {(data.text_markers ?? []).length > 0 && (
+            <div className="mt-3 rounded-lg border border-dark-500 bg-dark-900 px-3 py-2">
+              <p className="text-xs text-dark-200">{t('admin.autoMessages.detail.textMarkers')}</p>
+              <ul className="mt-2 space-y-1">
+                {(data.text_markers ?? []).map((marker) => (
+                  <li key={marker.name} className="text-xs leading-snug text-dark-300">
+                    <code className="text-dark-100">{`{${marker.name}}`}</code> — {marker.what}
+                    {marker.example
+                      ? `, ${t('admin.autoMessages.detail.textMarkerExample', { example: marker.example })}`
+                      : ''}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
           {data.shares_text_with && (
             <p className="mt-3 rounded-lg border border-dark-500 bg-dark-900 px-3 py-2 text-xs text-dark-200">
               {t('admin.autoMessages.detail.textSharesWith', { other: data.shares_text_with })}
