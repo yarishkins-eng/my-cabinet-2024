@@ -23,7 +23,22 @@ const KEYS = [
   'textSuffix',
   'textInserts',
   'textVariantWhen',
-  'textReadOnly',
+  'textEdit',
+  'textEditHint',
+  'textEdited',
+  'textSave',
+  'textCancel',
+  'textReset',
+  'textResetAsk',
+  'textCounter',
+  'textTooLong',
+  'textNoLogo',
+  'textMarkers',
+  'textMarkerExample',
+  'textRussianOnly',
+  'textEditHintPlain',
+  'textNoEnglish',
+  'textResetAskShared',
 ];
 
 function detailNode(lang: string): Record<string, unknown> {

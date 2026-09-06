@@ -1,5 +1,5 @@
 import DOMPurify from 'dompurify';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -15,6 +15,14 @@ import { BackIcon } from '@/components/icons';
 // Список тегов — ровно тот, что разрешает бот (`app/utils/telegram_html.py`), ни тегом шире.
 // Ссылки без href-схемы отсекает сам DOMPurify.
 const TELEGRAM_TAGS = ['b', 'i', 'u', 's', 'a', 'code', 'pre', 'blockquote'];
+
+// Бот считает длину ПОСЛЕ снятия разметки и в кодовых единицах UTF-16
+// (`telegram_visible_length`). Строки JavaScript — тоже UTF-16, поэтому снятие тегов через
+// DOM и `.length` дают то же число: счётчик на экране не разойдётся с отказом сервера.
+function visibleLength(raw: string): number {
+  const doc = new DOMParser().parseFromString(raw, 'text/html');
+  return (doc.body.textContent ?? '').length;
+}
 
 function renderTelegramHtml(raw: string): string {
   return DOMPurify.sanitize(raw.trim(), {
@@ -232,6 +240,36 @@ export default function AdminAutoMessageDetail() {
     },
   });
 
+  // 🔴 Замок: без него текст, который читают живые клиенты, правится случайным касанием
+  // при прокрутке. Прямое требование владельца — «через какой-то замочек».
+  const [textDraft, setTextDraft] = useState<string | null>(null);
+  const [textWarning, setTextWarning] = useState<string | null>(null);
+  const textFieldRef = useRef<HTMLTextAreaElement | null>(null);
+  const editorOpen = textDraft !== null;
+
+  // Открыли поле — ставим на него курсор и подтягиваем в кадр. Без этого блок в 330 px
+  // уезжает под сгиб, и нажатие «Изменить текст» выглядит как «ничего не произошло».
+  useEffect(() => {
+    if (textDraft === null) return;
+    const field = textFieldRef.current;
+    if (!field) return;
+    field.focus();
+    field.scrollIntoView?.({ block: 'center', behavior: 'smooth' });
+  }, [editorOpen]);
+
+  const textMutation = useMutation({
+    mutationFn: (payload: AutoMessagePatch) => autoMessagesApi.patch(id as string, payload),
+    onSuccess: (item) => {
+      setError(null);
+      setSaved(true);
+      setTextDraft(null);
+      setTextWarning(item?.text_warning ?? null);
+      queryClient.invalidateQueries({ queryKey: ['admin-auto-message', id] });
+      queryClient.invalidateQueries({ queryKey: ['admin-auto-messages'] });
+    },
+    onError: showError,
+  });
+
   const toggleMutation = useMutation({
     mutationFn: (enabled: boolean) => autoMessagesApi.patch(id as string, { enabled }),
     onSuccess: () => {
@@ -268,7 +306,14 @@ export default function AdminAutoMessageDetail() {
 
   // Пока идёт любая из двух правок, вторая недоступна: иначе ответы приходят вразнобой
   // и плашка «Сохранено» всплывает уже после выключения сообщения.
-  const busy = saveMutation.isPending || toggleMutation.isPending;
+  const busy = saveMutation.isPending || toggleMutation.isPending || textMutation.isPending;
+  // Пределы приезжают с сервера: правило раздела с этапа АС-1 — «экран берёт их оттуда,
+  // а не зашивает у себя». Запасные значения только на случай старого бота.
+  const textMax = data?.text_limits?.max ?? 4000;
+  const captionMax = data?.text_limits?.caption ?? 1024;
+  const draftLength = textDraft === null ? 0 : visibleLength(textDraft);
+  const tooLong = draftLength > textMax;
+  const hasMarkers = (data?.text_markers ?? []).length > 0 || (data?.text_inserts ?? []).length > 0;
   const manageable = data.control === 'toggle';
   const quiet = data.state === 'quiet';
 
@@ -375,17 +420,37 @@ export default function AdminAutoMessageDetail() {
           рассылку живым людям, не зная её содержания. Блок рисуется только когда сервер
           прислал непустой текст: пока бот не выложен, карточка обязана выглядеть как
           раньше, а не показывать пустую рамку. */}
+      {/* 🔴 Текст письма — первое, что нужно увидеть: до этапа АС-10 владелец включал
+          рассылку живым людям, не зная её содержания. Блок рисуется только когда сервер
+          прислал непустой текст: пока бот не выложен, карточка обязана выглядеть как
+          раньше, а не показывать пустую рамку. */}
       {data.text?.trim() && (
         <div className="mb-4 rounded-xl border border-dark-700 bg-dark-800 p-4">
-          <div className="mb-3 text-[11px] uppercase tracking-wider text-dark-400">
-            {t('admin.autoMessages.detail.text')}
+          <div className="mb-3 flex flex-wrap items-center gap-2">
+            <span className="text-[11px] uppercase tracking-wider text-dark-400">
+              {t('admin.autoMessages.detail.text')}
+            </span>
+            {/* Значок виден и во время правки: именно тогда важнее всего понимать,
+                чей текст перед тобой. */}
+            {data.text_source === 'custom' && (
+              <span className="rounded bg-accent-500/15 px-2 py-1 text-[11px] text-accent-300 light:text-accent-700">
+                {t('admin.autoMessages.detail.textEdited')}
+              </span>
+            )}
           </div>
-          {/* `whitespace-pre-wrap`: у писем есть свои абзацы, без него они схлопнутся
-              в один ком и владелец увидит не то письмо, которое придёт. */}
+          {/* 🔴 Про общий текст сказано ДО кнопки правки, а не под ней: пока поле открыто,
+              всё, что ниже, уезжает за экран, и человек правит два письма, думая, что одно. */}
+          {data.shares_text_with && (
+            <p className="mb-3 rounded-lg border border-dark-500 bg-dark-900 px-3 py-2 text-xs text-dark-200">
+              {t('admin.autoMessages.detail.textSharesWith', { other: data.shares_text_with })}
+            </p>
+          )}
+          {/* Верхняя панель — живой предпросмотр: пока человек печатает, здесь видно то,
+              что увидит клиент. Иначе он правит теги, не понимая, что они делают. */}
           <div className="max-w-prose rounded-lg border border-dark-500 bg-dark-900 px-3 py-3">
             <p
               className="whitespace-pre-wrap break-words text-sm leading-relaxed text-dark-100"
-              dangerouslySetInnerHTML={{ __html: renderTelegramHtml(data.text) }}
+              dangerouslySetInnerHTML={{ __html: renderTelegramHtml(textDraft ?? data.text) }}
             />
             {/* Хвост показан ВНУТРИ того же листа и тем же цветом: в письме он приклеен
                 к телу без зазора, и отдельная пунктирная коробка читалась бы как
@@ -402,20 +467,145 @@ export default function AdminAutoMessageDetail() {
               </div>
             ))}
           </div>
-          {/* Подпись про скобки — только там, где скобки есть. Иначе владелец ищет на
-              экране то, чего в этом письме нет вовсе (четыре письма без единой метки). */}
-          {data.text.includes('{') && (
+
+          {/* Подпись про скобки — только там, где скобки есть, и только пока поле закрыто:
+              при открытом поле то же самое говорит подсказка над кнопками. */}
+          {textDraft === null && hasMarkers && (
             <p className="mt-2 px-1 text-xs text-dark-300">
               {t('admin.autoMessages.detail.textBraces')}
             </p>
           )}
-          <p className="mt-2 px-1 text-xs text-dark-300">
-            {t('admin.autoMessages.detail.textReadOnly')}
-          </p>
-          {data.shares_text_with && (
-            <p className="mt-3 rounded-lg border border-dark-500 bg-dark-900 px-3 py-2 text-xs text-dark-200">
-              {t('admin.autoMessages.detail.textSharesWith', { other: data.shares_text_with })}
+          {/* Ответ сервера показывается ПОСЛЕ сохранения, то есть когда поле уже закрылось.
+              Прежде плашка жила внутри поля и не показывалась НИКОГДА. */}
+          {textDraft === null && textWarning && (
+            <p className="mt-3 rounded-lg border border-warning-500/40 bg-warning-500/10 px-3 py-2 text-xs text-warning-300 light:text-warning-700">
+              {textWarning}
             </p>
+          )}
+          {textDraft === null ? (
+            <div className="mt-3 flex flex-wrap gap-2">
+              <button
+                type="button"
+                className="btn btn-secondary min-h-[44px] px-3 text-sm"
+                onClick={() => {
+                  setTextWarning(null);
+                  setError(null);
+                  setSaved(false);
+                  setTextDraft(data.text ?? '');
+                }}
+              >
+                {t('admin.autoMessages.detail.textEdit')}
+              </button>
+              {/* Возврат виден и БЕЗ открытия правки: иначе владелец, желающий отменить
+                  свою правку, кнопки просто не находит. */}
+              {data.text_source === 'custom' && (
+                <button
+                  type="button"
+                  className="btn btn-danger min-h-[44px] px-3 text-sm"
+                  disabled={busy}
+                  onClick={async () => {
+                    const ok = await confirmOff(
+                      data.shares_text_with
+                        ? t('admin.autoMessages.detail.textResetAskShared', {
+                            other: data.shares_text_with,
+                          })
+                        : t('admin.autoMessages.detail.textResetAsk'),
+                      t('admin.autoMessages.detail.textReset'),
+                    );
+                    if (ok) textMutation.mutate({ reset_text: true });
+                  }}
+                >
+                  {t('admin.autoMessages.detail.textReset')}
+                </button>
+              )}
+            </div>
+          ) : (
+            <div className="mt-3">
+              <textarea
+                ref={textFieldRef}
+                aria-label={t('admin.autoMessages.detail.text')}
+                className="input min-h-[150px] w-full text-sm leading-relaxed light:border-champagne-500"
+                value={textDraft}
+                spellCheck={false}
+                autoCorrect="off"
+                autoCapitalize="off"
+                onChange={(event) => setTextDraft(event.target.value)}
+              />
+              <p
+                className={`mt-1 px-1 text-[11px] ${tooLong ? 'text-error-300 light:text-error-700' : 'text-dark-300'}`}
+              >
+                {tooLong
+                  ? t('admin.autoMessages.detail.textTooLong', { count: draftLength, max: textMax })
+                  : t('admin.autoMessages.detail.textCounter', {
+                      count: draftLength,
+                      max: textMax,
+                    })}
+              </p>
+              {data.text_with_logo && draftLength > captionMax && !tooLong && (
+                <p className="mt-1 px-1 text-[11px] text-dark-300">
+                  {t('admin.autoMessages.detail.textNoLogo', { limit: captionMax })}
+                </p>
+              )}
+              <p className="mt-2 px-1 text-xs text-dark-300">
+                {hasMarkers
+                  ? t('admin.autoMessages.detail.textEditHint')
+                  : t('admin.autoMessages.detail.textEditHintPlain')}
+              </p>
+              {/* Отказ и подтверждение стоят ВПЛОТНУЮ к кнопкам: прежде они рисовались
+                  на 300–600 px ниже, и человек не видел, почему сохранение не прошло. */}
+              {error && (
+                <p
+                  role="alert"
+                  className="mt-2 rounded-lg border border-error-500/40 bg-error-500/10 px-3 py-2 text-xs text-error-300 light:text-error-700"
+                >
+                  {error}
+                </p>
+              )}
+              <div className="mt-3 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  className="btn btn-primary min-h-[44px] px-3 text-sm"
+                  disabled={busy || !textDraft.trim() || tooLong || textDraft === data.text}
+                  onClick={() => textMutation.mutate({ text: textDraft })}
+                >
+                  {t('admin.autoMessages.detail.textSave')}
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-secondary min-h-[44px] px-3 text-sm"
+                  disabled={busy}
+                  onClick={() => setTextDraft(null)}
+                >
+                  {t('admin.autoMessages.detail.textCancel')}
+                </button>
+              </div>
+            </div>
+          )}
+          {data.text_has_english ? (
+            <p className="mt-2 px-1 text-xs text-dark-300">
+              {t('admin.autoMessages.detail.textRussianOnly')}
+            </p>
+          ) : (
+            <p className="mt-2 px-1 text-xs text-dark-300">
+              {t('admin.autoMessages.detail.textNoEnglish')}
+            </p>
+          )}
+          {/* Расшифровка меток: без неё значок остаётся загадкой, и владелец боится
+              трогать текст — прямое замечание 06.09.2026. */}
+          {(data.text_markers ?? []).length > 0 && (
+            <div className="mt-3 rounded-lg border border-dark-500 bg-dark-900 px-3 py-2">
+              <p className="text-xs text-dark-200">{t('admin.autoMessages.detail.textMarkers')}</p>
+              <ul className="mt-2 space-y-1">
+                {(data.text_markers ?? []).map((marker) => (
+                  <li key={marker.name} className="text-xs leading-snug text-dark-300">
+                    <code className="text-dark-100">{`{${marker.name}}`}</code> — {marker.what}
+                    {marker.example
+                      ? `, ${t('admin.autoMessages.detail.textMarkerExample', { example: marker.example })}`
+                      : ''}
+                  </li>
+                ))}
+              </ul>
+            </div>
           )}
           {(data.text_inserts ?? []).length > 0 && (
             <div className="mt-3 rounded-lg border border-dark-500 bg-dark-900 px-3 py-2">
@@ -427,9 +617,6 @@ export default function AdminAutoMessageDetail() {
                     <ul className="mt-1 space-y-1">
                       {(insert.variants ?? []).map((variant) => (
                         <li key={variant.text} className="border-l border-dark-600 pl-2">
-                          {/* Условие СВЕРХУ: без него владелец читает список сверху вниз
-                              и достраивает письмо, которого не бывает — в письмо встаёт
-                              ровно одна фраза из этих. */}
                           <p className="text-[11px] leading-snug text-dark-400">
                             {t('admin.autoMessages.detail.textVariantWhen', { when: variant.when })}
                           </p>
@@ -448,7 +635,7 @@ export default function AdminAutoMessageDetail() {
         </div>
       )}
 
-      {error && (
+      {error && !editorOpen && (
         <div className="mb-4 rounded-xl border border-error-500/40 bg-error-500/10 p-3 text-sm text-error-300">
           {error}
         </div>
