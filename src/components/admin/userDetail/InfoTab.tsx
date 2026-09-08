@@ -11,6 +11,7 @@ import type {
 import type { PromoGroup } from '../../../api/promocodes';
 import { ServerIcon } from '@/components/icons';
 import { TestAccountResetCard } from './TestAccountResetCard';
+import { TestAccountMembership } from './TestAccountMembership';
 
 // ──────────────────────────────────────────────────────────────────
 // Local status badge (parent has its own — duplicating here to keep
@@ -475,9 +476,16 @@ export function InfoTab(props: InfoTabProps) {
         </div>
       )}
 
-      {/* Тестовый стенд владельца — карточки нет ни у кого, кроме аккаунтов
-          из TEST_ACCOUNT_TELEGRAM_IDS. */}
-      {user.is_test_account && hasPermission('users:delete') && (
+      {user.can_manage_test_account && (
+        <TestAccountMembership
+          key={`membership-${user.id}`}
+          user={user}
+          onDone={props.onReloadUser}
+        />
+      )}
+
+      {/* Only the owner can reset an explicitly enrolled test account. */}
+      {user.is_test_account && user.can_manage_test_account && hasPermission('users:delete') && (
         <TestAccountResetCard key={user.id} userId={user.id} onDone={props.onReloadUser} />
       )}
 

@@ -7,9 +7,9 @@ import { useCurrency } from '../../../hooks/useCurrency';
 // ──────────────────────────────────────────────────────────────────
 // Обнуление тестового стенда.
 //
-// Карточка рисуется ТОЛЬКО у аккаунта из списка на сервере
-// (`TEST_ACCOUNT_TELEGRAM_IDS`). Это подсказка экрану, а не защита:
-// сам маршрут проверяет список заново и отбивает чужой запрос.
+// Only a server-configured superadmin can see this on an enrolled fixture.
+// Membership lives in the DB with a legacy environment fallback; the backend
+// rechecks both authorization and membership on every request.
 //
 // Два нажатия намеренно. Первое ничего не меняет и спрашивает сервер,
 // что именно исчезнет; второе выполняет. План и выполнение считает
@@ -33,7 +33,11 @@ export function TestAccountResetCard({ userId, onDone }: TestAccountResetCardPro
     setLoading(true);
     setError(null);
     try {
-      const result = await adminUsersApi.testAccountReset(userId, confirm);
+      const result = await adminUsersApi.testAccountReset(
+        userId,
+        confirm,
+        confirm ? plan?.preview_token : undefined,
+      );
       setPlan(result);
       if (result.done) onDone();
     } catch (err) {
@@ -73,6 +77,9 @@ export function TestAccountResetCard({ userId, onDone }: TestAccountResetCardPro
         {t('admin.users.testReset.title')}
       </div>
       <div className="mb-3 text-xs text-dark-400">{t('admin.users.testReset.subtitle')}</div>
+      <div className="mb-3 text-xs text-warning-300">
+        {t('admin.users.testReset.clientCleanup')}
+      </div>
 
       {error && (
         <div className="mb-3 rounded-lg border border-error-500/30 bg-error-500/10 p-3 text-xs text-error-300">
@@ -85,6 +92,11 @@ export function TestAccountResetCard({ userId, onDone }: TestAccountResetCardPro
           <div className="font-medium">{t('admin.users.testReset.doneTitle')}</div>
           <div className="mt-1">{t('admin.users.testReset.doneHint')}</div>
         </div>
+      )}
+      {plan?.reset_state === 'failed' && (
+        <p role="status" className="mb-3 text-sm text-warning-300">
+          {t('admin.users.testReset.resumeHint')}
+        </p>
       )}
 
       {plan && !plan.done && !plan.allowed && (
