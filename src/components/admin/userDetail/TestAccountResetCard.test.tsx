@@ -36,6 +36,7 @@ const plan = {
   panel_linked: true,
   panel_deleted: false,
   deleted_rows: {},
+  preview_token: 'preview-196-v1',
 };
 
 beforeEach(() => {
@@ -53,7 +54,7 @@ describe('TestAccountResetCard', () => {
     await waitFor(() => expect(adminUsersApi.testAccountReset).toHaveBeenCalledTimes(1));
     // Улика: ровно false. Проверка «вызвано один раз» без этого прошла бы и
     // на кнопке, которая сразу сносит аккаунт.
-    expect(adminUsersApi.testAccountReset).toHaveBeenCalledWith(196, false);
+    expect(adminUsersApi.testAccountReset).toHaveBeenCalledWith(196, false, undefined);
   });
 
   it('сносит только вторым нажатием и сообщает наверх', async () => {
@@ -70,8 +71,50 @@ describe('TestAccountResetCard', () => {
     fireEvent.click(screen.getByText('admin.users.testReset.confirm'));
 
     await waitFor(() => expect(onDone).toHaveBeenCalledTimes(1));
-    expect(adminUsersApi.testAccountReset).toHaveBeenNthCalledWith(2, 196, true);
+    expect(adminUsersApi.testAccountReset).toHaveBeenNthCalledWith(2, 196, true, 'preview-196-v1');
     expect(screen.getByText('admin.users.testReset.doneTitle')).toBeTruthy();
+  });
+
+  it('не подтверждает сброс по протухшему preview и требует запросить новый план', async () => {
+    vi.mocked(adminUsersApi.testAccountReset)
+      .mockResolvedValueOnce(plan)
+      .mockResolvedValueOnce({
+        ...plan,
+        allowed: false,
+        preview_token: 'preview-196-v2',
+        blocked_reason: 'Данные изменились. Нажмите «Проверить сброс» и подтвердите новый список.',
+      });
+    render(<TestAccountResetCard userId={196} onDone={vi.fn()} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'admin.users.testReset.check' }));
+    await screen.findByText('admin.users.testReset.willDelete');
+    fireEvent.click(screen.getByRole('button', { name: 'admin.users.testReset.confirm' }));
+
+    await screen.findByText(/Данные изменились/);
+    expect(adminUsersApi.testAccountReset).toHaveBeenNthCalledWith(2, 196, true, 'preview-196-v1');
+    expect(screen.queryByRole('button', { name: 'admin.users.testReset.confirm' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'admin.users.testReset.check' })).toBeTruthy();
+  });
+
+  it('показывает незавершённый сброс и позволяет запросить новый preview для resume', async () => {
+    vi.mocked(adminUsersApi.testAccountReset)
+      .mockResolvedValueOnce({
+        ...plan,
+        allowed: false,
+        reset_state: 'failed',
+        blocked_reason: 'Сброс прерван. Повторите его из этой карточки.',
+      })
+      .mockResolvedValueOnce({ ...plan, preview_token: 'preview-196-resume' });
+    render(<TestAccountResetCard userId={196} onDone={vi.fn()} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'admin.users.testReset.check' }));
+    await screen.findByRole('status');
+    expect(screen.getByRole('status').textContent).toContain('admin.users.testReset.resumeHint');
+
+    fireEvent.click(screen.getByRole('button', { name: 'admin.users.testReset.check' }));
+    await screen.findByText('admin.users.testReset.willDelete');
+    expect(adminUsersApi.testAccountReset).toHaveBeenNthCalledWith(2, 196, false, undefined);
+    expect(screen.getByRole('button', { name: 'admin.users.testReset.confirm' })).toBeTruthy();
   });
 
   it('отказ сервера показывается словами, и подтверждающей кнопки нет', async () => {

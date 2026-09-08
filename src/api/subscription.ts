@@ -513,6 +513,7 @@ export const subscriptionApi = {
     happ_cryptolink?: string | null;
     happ_crypto_link?: string | null;
     happ_link?: string | null;
+    test_reset_at?: string | null;
     connect_mode: string;
     hide_link: boolean;
     instructions: {

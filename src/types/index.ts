@@ -126,6 +126,7 @@ export interface Subscription {
 export interface SubscriptionStatusResponse {
   has_subscription: boolean;
   subscription: Subscription | null;
+  test_link_strict?: boolean;
 }
 
 // Multi-tariff subscription list item (from GET /cabinet/subscriptions)

@@ -26,18 +26,25 @@ export default function ConnectionLinkCard({
   subscriptionId,
   subscriptionUrl,
   visible,
+  requireFreshLink = false,
 }: {
   subscriptionId: number | undefined;
   /** Фолбэк-URL из подписки (на случай, если эндпоинт ссылки ещё/уже недоступен). */
   subscriptionUrl: string | null;
   /** ScreenState.linkVisible — ссылка разрешена в текущем состоянии. */
   visible: boolean;
+  requireFreshLink?: boolean;
 }) {
   const { t } = useTranslation();
   const [copied, setCopied] = useState(false);
   const [showHint, setShowHint] = useState(false);
+  const [copyError, setCopyError] = useState(false);
 
-  const { data: connectionLink, isLoading } = useQuery({
+  const {
+    data: connectionLink,
+    isLoading,
+    isError,
+  } = useQuery({
     queryKey: ['connection-link', subscriptionId],
     queryFn: () => subscriptionApi.getConnectionLink(subscriptionId),
     retry: false,
@@ -45,18 +52,21 @@ export default function ConnectionLinkCard({
     enabled: visible && subscriptionId != null,
   });
 
+  const strictLink = requireFreshLink || Boolean(connectionLink?.test_reset_at);
   const displayedUrl = useMemo(
     () =>
-      resolveConnectionUrlForUi({
-        mode: connectionLink?.connect_mode,
-        happSchemeLink: connectionLink?.happ_scheme_link,
-        displayLink: connectionLink?.display_link,
-        subscriptionUrl: connectionLink?.subscription_url,
-        happCryptLink: connectionLink?.happ_cryptolink,
-        happCryptoLink: connectionLink?.happ_crypto_link,
-        happLink: connectionLink?.happ_link,
-        fallbackUrl: isLoading ? null : subscriptionUrl,
-      }),
+      strictLink && isError
+        ? null
+        : resolveConnectionUrlForUi({
+            mode: connectionLink?.connect_mode,
+            happSchemeLink: connectionLink?.happ_scheme_link,
+            displayLink: connectionLink?.display_link,
+            subscriptionUrl: connectionLink?.subscription_url,
+            happCryptLink: connectionLink?.happ_cryptolink,
+            happCryptoLink: connectionLink?.happ_crypto_link,
+            happLink: connectionLink?.happ_link,
+            fallbackUrl: isLoading || strictLink ? null : subscriptionUrl,
+          }),
     [
       connectionLink?.connect_mode,
       connectionLink?.display_link,
@@ -65,7 +75,10 @@ export default function ConnectionLinkCard({
       connectionLink?.happ_link,
       connectionLink?.happ_scheme_link,
       connectionLink?.subscription_url,
+      connectionLink?.test_reset_at,
       isLoading,
+      isError,
+      strictLink,
       subscriptionUrl,
     ],
   );
@@ -74,18 +87,36 @@ export default function ConnectionLinkCard({
     if (!displayedUrl) return;
     try {
       await copyToClipboard(displayedUrl);
+      setCopyError(false);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch {
-      // Keep the actionable label when both clipboard strategies are unavailable.
+      setCopyError(true);
     }
   };
 
   // Скрыта состоянием, спрятана сервером, или ещё не разрешилась — ничего не рисуем.
-  if (!visible || connectionLink?.hide_link || !displayedUrl) return null;
+  if (!visible || connectionLink?.hide_link) return null;
+  if (strictLink && isError)
+    return (
+      <p role="alert" className="text-sm text-error-300">
+        {t('admin.users.testReset.linkLoadError')}
+      </p>
+    );
+  if (!displayedUrl) return null;
 
   return (
     <section className="space-y-2">
+      {connectionLink?.test_reset_at && (
+        <p className="rounded-xl bg-warning-500/10 p-3 text-sm text-warning-300">
+          {t('admin.users.testReset.clientCleanup')}
+        </p>
+      )}
+      {strictLink && copyError && (
+        <p role="alert" className="text-sm text-error-300">
+          {t('admin.users.testReset.copyError')}
+        </p>
+      )}
       <div className="flex items-center gap-1.5 px-1">
         <span className="text-sm font-medium text-dark-50/70">{t('home.link.title')}</span>
         <button
@@ -117,7 +148,14 @@ export default function ConnectionLinkCard({
       </button>
 
       {/* Сама ссылка — мелким приглушённым (для доверия, что копируется), но не как главный элемент. */}
-      <div className="truncate px-1 font-mono text-[10px] text-dark-50/25" title={displayedUrl}>
+      <div
+        className={
+          copyError && strictLink
+            ? 'select-all break-all px-1 font-mono text-xs'
+            : 'truncate px-1 font-mono text-[10px] text-dark-50/25'
+        }
+        title={displayedUrl}
+      >
         {displayedUrl}
       </div>
     </section>

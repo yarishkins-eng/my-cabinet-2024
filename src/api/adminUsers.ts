@@ -150,9 +150,11 @@ export interface UserDetailResponse {
   account_erasure_state: string | null;
   account_erasure_resolution_code: string | null;
   account_erasure_requested_at: string | null;
-  /** Телеграм стоит в TEST_ACCOUNT_TELEGRAM_IDS на сервере. Только у такого
+  /** Explicit test membership (DB override, legacy server allowlist fallback). Only such
    *  аккаунта рисуется кнопка обнуления — сервер проверяет это ещё раз сам. */
   is_test_account: boolean;
+  can_manage_test_account?: boolean;
+  test_reset_state?: string | null;
 }
 
 /** План обнуления стенда — он же отчёт после выполнения. */
@@ -170,6 +172,8 @@ export interface TestAccountResetResponse {
   panel_linked: boolean;
   panel_deleted: boolean;
   deleted_rows: Record<string, number>;
+  preview_token?: string | null;
+  reset_state?: string | null;
 }
 
 export interface UserPanelInfo {
@@ -737,9 +741,27 @@ export const adminUsersApi = {
 
   // Обнуление тестового аккаунта. confirm=false НИЧЕГО не меняет и возвращает
   // план: показ и выполнение идут одним и тем же кодом на сервере.
-  testAccountReset: async (userId: number, confirm: boolean): Promise<TestAccountResetResponse> => {
-    const response = await apiClient.post(`/cabinet/admin/users/${userId}/test-reset`, { confirm });
+  testAccountReset: async (
+    userId: number,
+    confirm: boolean,
+    previewToken?: string | null,
+  ): Promise<TestAccountResetResponse> => {
+    const response = await apiClient.post(`/cabinet/admin/users/${userId}/test-reset`, {
+      confirm,
+      preview_token: previewToken,
+    });
     return response.data;
+  },
+
+  setTestMembership: async (
+    userId: number,
+    telegramId: number,
+    enabled: boolean,
+  ): Promise<void> => {
+    await apiClient.put(`/cabinet/admin/users/${userId}/test-membership`, {
+      telegram_id: telegramId,
+      enabled,
+    });
   },
 
   // Disable user

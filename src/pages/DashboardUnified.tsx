@@ -552,6 +552,9 @@ export default function DashboardUnified() {
                   <ConnectionLinkCard
                     subscriptionId={subscriptionId}
                     subscriptionUrl={subscription.subscription_url}
+                    requireFreshLink={
+                      subscriptionResponse?.test_link_strict || bootstrapResponse?.test_link_strict
+                    }
                     visible={state.linkVisible}
                   />
                   <DevicesPanel
