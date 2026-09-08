@@ -156,7 +156,12 @@ export default function DashboardUnified() {
   const subscriptionId = bootstrapResponse?.subscription?.id;
 
   // Каноническая подписка под id-ключом (тем же, что у шторок/детали/WS/refreshTraffic).
-  const { data: subscriptionResponse } = useQuery({
+  const {
+    data: subscriptionResponse,
+    isFetchedAfterMount: subscriptionFetchedAfterMount,
+    isFetching: isSubscriptionFetching,
+    isError: isSubscriptionError,
+  } = useQuery({
     queryKey: ['subscription', subscriptionId],
     queryFn: () => subscriptionApi.getSubscription(subscriptionId),
     retry: false,
@@ -164,6 +169,8 @@ export default function DashboardUnified() {
     enabled: !isMultiTariff && subscriptionId != null,
     initialData: subscriptionId != null ? bootstrapResponse : undefined,
     initialDataUpdatedAt: () => queryClient.getQueryState(['subscription'])?.dataUpdatedAt,
+    // A cached pre-reset ``false`` must not authorise a cached bearer URL.
+    refetchOnMount: 'always',
   });
 
   const subscription =
@@ -554,6 +561,19 @@ export default function DashboardUnified() {
                     subscriptionUrl={subscription.subscription_url}
                     requireFreshLink={
                       subscriptionResponse?.test_link_strict || bootstrapResponse?.test_link_strict
+                    }
+                    requireFreshMetadata={
+                      subscriptionId != null &&
+                      (!subscriptionFetchedAfterMount ||
+                        isSubscriptionError ||
+                        ((subscriptionResponse?.test_link_strict === true ||
+                          bootstrapResponse?.test_link_strict === true) &&
+                          isSubscriptionFetching))
+                    }
+                    testResetAt={
+                      subscriptionResponse !== undefined
+                        ? subscriptionResponse.test_reset_at
+                        : bootstrapResponse?.test_reset_at
                     }
                     visible={state.linkVisible}
                   />

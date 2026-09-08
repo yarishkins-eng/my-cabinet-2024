@@ -127,6 +127,26 @@ export interface SubscriptionStatusResponse {
   has_subscription: boolean;
   subscription: Subscription | null;
   test_link_strict?: boolean;
+  test_reset_at?: string | null;
+}
+
+/** Canonical, server-resolved connection metadata. */
+export interface ConnectionLinkResponse {
+  subscription_url: string | null;
+  display_link: string | null;
+  happ_redirect_link: string | null;
+  happ_scheme_link: string | null;
+  happ_cryptolink?: string | null;
+  happ_crypto_link?: string | null;
+  happ_link?: string | null;
+  /** Test-account reset requires the current endpoint, never a cache fallback. */
+  test_link_strict?: boolean;
+  test_reset_at?: string | null;
+  connect_mode: string;
+  hide_link: boolean;
+  instructions: {
+    steps: string[];
+  };
 }
 
 // Multi-tariff subscription list item (from GET /cabinet/subscriptions)
@@ -607,6 +627,9 @@ export interface AppConfig {
   hasSubscription: boolean;
   subscriptionUrl: string | null;
   hideLink?: boolean;
+  /** Matches connection-link strictness so guides cannot use a stale config URL. */
+  test_link_strict?: boolean;
+  test_reset_at?: string | null;
   branding?: {
     name?: string;
     logoUrl?: string;

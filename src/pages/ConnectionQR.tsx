@@ -1,14 +1,20 @@
-import { useEffect } from 'react';
+import { useEffect, useMemo } from 'react';
 import { useLocation, useNavigate } from 'react-router';
 import { useTranslation } from 'react-i18next';
+import { useQuery } from '@tanstack/react-query';
 import { QRCodeSVG } from 'qrcode.react';
 import { useBranding } from '../hooks/useBranding';
 import { AdminBackButton } from '@/components/admin';
+import { subscriptionApi } from '../api/subscription';
+import { resolveConnectionUrlForUi } from '../utils/connectionLink';
+import { strictTestLinkEpoch } from '../utils/testLinkFence';
+import type { AppConfig } from '../types';
 
 interface ConnectionQRState {
   url: string;
   hideLink: boolean;
   subscriptionId?: number;
+  testResetAt?: string | null;
 }
 
 function isValidState(state: unknown): state is ConnectionQRState {
@@ -27,14 +33,99 @@ export default function ConnectionQR() {
   const validState = isValidState(state) ? state : null;
   const subId = validState?.subscriptionId;
   const connectionPath = subId ? `/connection?sub=${subId}` : '/connection';
+  const {
+    data: appConfig,
+    isFetchedAfterMount: appConfigFetchedAfterMount,
+    isError: isAppConfigError,
+    isFetching: isAppConfigFetching,
+  } = useQuery<AppConfig>({
+    queryKey: ['appConfig', subId],
+    queryFn: () => subscriptionApi.getAppConfig(subId),
+    retry: false,
+    staleTime: 0,
+    refetchOnMount: 'always',
+    enabled: validState != null,
+  });
+  const {
+    data: connectionLink,
+    isFetching: isConnectionLinkFetching,
+    isError: isConnectionLinkError,
+  } = useQuery({
+    queryKey: ['connectionLink', subId],
+    queryFn: () => subscriptionApi.getConnectionLink(subId),
+    retry: false,
+    staleTime: 0,
+    refetchOnMount: 'always',
+    enabled: validState != null,
+  });
+  const {
+    data: subscriptionResponse,
+    isFetchedAfterMount: subscriptionFetchedAfterMount,
+    isError: isSubscriptionError,
+    isFetching: isSubscriptionFetching,
+  } = useQuery({
+    queryKey: ['subscription', subId],
+    queryFn: () => subscriptionApi.getSubscription(subId),
+    retry: false,
+    staleTime: 0,
+    refetchOnMount: 'always',
+    enabled: validState != null,
+  });
+
+  const resetFence = strictTestLinkEpoch(subscriptionResponse, appConfig, connectionLink);
+  const metadataPending =
+    validState != null && (!appConfigFetchedAfterMount || !subscriptionFetchedAfterMount);
+  const strictPending =
+    metadataPending ||
+    (resetFence.strict &&
+      (isAppConfigFetching || isSubscriptionFetching || isConnectionLinkFetching));
+  const freshQrUrl = useMemo(
+    () =>
+      resolveConnectionUrlForUi({
+        mode: connectionLink?.connect_mode,
+        happSchemeLink: connectionLink?.happ_scheme_link,
+        displayLink: connectionLink?.display_link,
+        subscriptionUrl: connectionLink?.subscription_url,
+        happCryptLink: connectionLink?.happ_cryptolink,
+        happCryptoLink: connectionLink?.happ_crypto_link,
+        happLink: connectionLink?.happ_link,
+        fallbackUrl:
+          strictPending || resetFence.strict ? null : (appConfig?.subscriptionUrl ?? null),
+      }),
+    [
+      appConfig?.subscriptionUrl,
+      connectionLink?.connect_mode,
+      connectionLink?.display_link,
+      connectionLink?.happ_cryptolink,
+      connectionLink?.happ_crypto_link,
+      connectionLink?.happ_link,
+      connectionLink?.happ_scheme_link,
+      connectionLink?.subscription_url,
+      resetFence.strict,
+      strictPending,
+    ],
+  );
+  const stateMatchesFreshLink =
+    validState != null &&
+    freshQrUrl != null &&
+    validState.url === freshQrUrl &&
+    (!resetFence.strict || validState.testResetAt === resetFence.epoch);
+  const mustLeaveQr =
+    !validState ||
+    (!strictPending &&
+      (isAppConfigError ||
+        isSubscriptionError ||
+        (resetFence.strict && isConnectionLinkError) ||
+        !resetFence.matches ||
+        !stateMatchesFreshLink));
 
   useEffect(() => {
-    if (!validState) {
+    if (mustLeaveQr) {
       navigate(connectionPath, { replace: true });
     }
-  }, [validState, navigate, connectionPath]);
+  }, [mustLeaveQr, navigate, connectionPath]);
 
-  if (!validState) {
+  if (!validState || strictPending || mustLeaveQr || !stateMatchesFreshLink) {
     return null;
   }
 
@@ -59,7 +150,7 @@ export default function ConnectionQR() {
 
           <div className="rounded-3xl bg-white p-6">
             <QRCodeSVG
-              value={validState.url}
+              value={freshQrUrl}
               size={280}
               level="M"
               includeMargin={false}
@@ -67,9 +158,9 @@ export default function ConnectionQR() {
             />
           </div>
 
-          {!validState.hideLink && (
+          {!(connectionLink?.hide_link ?? appConfig?.hideLink ?? validState.hideLink) && (
             <p className="mt-6 max-w-full truncate text-center font-mono text-xs text-dark-500">
-              {validState.url}
+              {freshQrUrl}
             </p>
           )}
         </div>

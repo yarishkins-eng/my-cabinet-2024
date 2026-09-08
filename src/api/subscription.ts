@@ -12,6 +12,7 @@ import type {
   PurchaseSelection,
   PurchasePreview,
   AppConfig,
+  ConnectionLinkResponse,
 } from '../types';
 
 /** Helper: build query params with optional subscription_id */
@@ -503,23 +504,7 @@ export const subscriptionApi = {
 
   // ── Connection ──────────────────────────────────────────────────────
 
-  getConnectionLink: async (
-    subscriptionId?: number,
-  ): Promise<{
-    subscription_url: string | null;
-    display_link: string | null;
-    happ_redirect_link: string | null;
-    happ_scheme_link: string | null;
-    happ_cryptolink?: string | null;
-    happ_crypto_link?: string | null;
-    happ_link?: string | null;
-    test_reset_at?: string | null;
-    connect_mode: string;
-    hide_link: boolean;
-    instructions: {
-      steps: string[];
-    };
-  }> => {
+  getConnectionLink: async (subscriptionId?: number): Promise<ConnectionLinkResponse> => {
     const response = await apiClient.get(
       '/cabinet/subscription/connection-link',
       withSubId(subscriptionId),

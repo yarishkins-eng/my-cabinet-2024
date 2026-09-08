@@ -9,6 +9,7 @@ import { useHaptic } from '@/platform';
 import { SettingsIcon } from '@/components/icons';
 import { resolveTemplate, hasTemplates } from '../utils/templateEngine';
 import { isHappCryptolinkMode, resolveConnectionUrlForUi } from '../utils/connectionLink';
+import { strictTestLinkEpoch } from '../utils/testLinkFence';
 import { useAuthStore } from '../store/auth';
 import type { AppConfig, RemnawavePlatformData } from '../types';
 import InstallationGuide from '../components/connection/InstallationGuide';
@@ -30,16 +31,57 @@ export default function Connection() {
     data: appConfig,
     isLoading,
     error,
+    isFetchedAfterMount: appConfigFetchedAfterMount,
+    isFetching: isAppConfigFetching,
   } = useQuery<AppConfig>({
     queryKey: ['appConfig', subId],
     queryFn: () => subscriptionApi.getAppConfig(subId),
+    retry: false,
+    staleTime: 0,
+    refetchOnMount: 'always',
   });
-  const { data: connectionLink, isLoading: isConnectionLinkLoading } = useQuery({
+  const {
+    data: connectionLink,
+    isLoading: isConnectionLinkLoading,
+    isFetching: isConnectionLinkFetching,
+    isError: isConnectionLinkError,
+  } = useQuery({
     queryKey: ['connectionLink', subId],
     queryFn: () => subscriptionApi.getConnectionLink(subId),
     retry: false,
     staleTime: 0,
+    refetchOnMount: 'always',
   });
+  const {
+    data: subscriptionResponse,
+    isFetchedAfterMount: subscriptionFetchedAfterMount,
+    isError: isSubscriptionError,
+    isFetching: isSubscriptionFetching,
+  } = useQuery({
+    queryKey: ['subscription', subId],
+    queryFn: () => subscriptionApi.getSubscription(subId),
+    retry: false,
+    staleTime: 0,
+    refetchOnMount: 'always',
+  });
+
+  const resetFence = strictTestLinkEpoch(subscriptionResponse, appConfig, connectionLink);
+  const strictMetadataPending = !subscriptionFetchedAfterMount || !appConfigFetchedAfterMount;
+  const strictConnectionPending =
+    strictMetadataPending ||
+    (resetFence.strict &&
+      (isAppConfigFetching || isSubscriptionFetching || isConnectionLinkFetching));
+  const strictConnectionReady =
+    !strictConnectionPending &&
+    (!resetFence.strict || (resetFence.matches && !isConnectionLinkError));
+  const freshConnectionSourceUrl =
+    connectionLink?.subscription_url ??
+    connectionLink?.display_link ??
+    connectionLink?.happ_scheme_link ??
+    connectionLink?.happ_cryptolink ??
+    connectionLink?.happ_crypto_link ??
+    connectionLink?.happ_link ??
+    null;
 
   const qrConnectionUrl = useMemo(
     () =>
@@ -51,7 +93,10 @@ export default function Connection() {
         happCryptLink: connectionLink?.happ_cryptolink,
         happCryptoLink: connectionLink?.happ_crypto_link,
         happLink: connectionLink?.happ_link,
-        fallbackUrl: appConfig?.subscriptionUrl,
+        fallbackUrl:
+          strictConnectionPending || resetFence.strict
+            ? null
+            : (appConfig?.subscriptionUrl ?? null),
       }),
     [
       appConfig?.subscriptionUrl,
@@ -62,7 +107,26 @@ export default function Connection() {
       connectionLink?.happ_link,
       connectionLink?.happ_scheme_link,
       connectionLink?.subscription_url,
+      resetFence.strict,
+      strictConnectionPending,
     ],
+  );
+
+  // Guides, templates and TV pairing receive only the current endpoint source.
+  // The config URL remains the ordinary-user fallback after fresh metadata says
+  // that this account is not a reset-history account.
+  const guideAppConfig = useMemo<AppConfig | null>(
+    () =>
+      appConfig
+        ? {
+            ...appConfig,
+            subscriptionUrl: resetFence.strict
+              ? freshConnectionSourceUrl
+              : (freshConnectionSourceUrl ?? appConfig.subscriptionUrl),
+            hideLink: connectionLink?.hide_link ?? appConfig.hideLink,
+          }
+        : null,
+    [appConfig, connectionLink?.hide_link, freshConnectionSourceUrl, resetFence.strict],
   );
 
   const handleGoBack = useCallback(() => {
@@ -77,6 +141,7 @@ export default function Connection() {
         url: qrConnectionUrl,
         hideLink: connectionLink?.hide_link ?? appConfig?.hideLink ?? false,
         subscriptionId: subId,
+        testResetAt: resetFence.epoch,
       },
     });
   }, [
@@ -85,6 +150,7 @@ export default function Connection() {
     connectionLink?.hide_link,
     appConfig?.hideLink,
     isTelegramWebApp,
+    resetFence.epoch,
     subId,
   ]);
 
@@ -101,13 +167,13 @@ export default function Connection() {
 
   const resolveUrl = useCallback(
     (url: string): string => {
-      if (!hasTemplates(url) || !appConfig?.subscriptionUrl) return url;
+      if (!hasTemplates(url) || !guideAppConfig?.subscriptionUrl) return url;
       return resolveTemplate(url, {
-        subscriptionUrl: appConfig.subscriptionUrl,
+        subscriptionUrl: guideAppConfig.subscriptionUrl,
         username: user?.username ?? undefined,
       });
     },
-    [appConfig?.subscriptionUrl, user?.username],
+    [guideAppConfig?.subscriptionUrl, user?.username],
   );
 
   const openDeepLink = useCallback(
@@ -147,7 +213,11 @@ export default function Connection() {
     );
   }, [appConfig?.platforms]);
 
-  if (isLoading || isConnectionLinkLoading) {
+  if (
+    (isLoading || strictConnectionPending || isConnectionLinkLoading) &&
+    !error &&
+    !isSubscriptionError
+  ) {
     return (
       <div className="flex flex-1 items-center justify-center py-20">
         <div className="h-10 w-10 animate-spin rounded-full border-[3px] border-accent-500/30 border-t-accent-500" />
@@ -155,7 +225,14 @@ export default function Connection() {
     );
   }
 
-  if (error || !appConfig || !hasApps) {
+  if (
+    error ||
+    isSubscriptionError ||
+    !appConfig ||
+    !hasApps ||
+    !strictConnectionReady ||
+    !guideAppConfig
+  ) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center p-8 text-center">
         <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-dark-800">
@@ -192,7 +269,7 @@ export default function Connection() {
   }
 
   // No subscription
-  if (!appConfig.hasSubscription) {
+  if (!guideAppConfig.hasSubscription) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center p-8 text-center">
         <h3 className="mb-2 text-xl font-bold text-dark-100">
@@ -208,7 +285,7 @@ export default function Connection() {
 
   return (
     <InstallationGuide
-      appConfig={appConfig}
+      appConfig={guideAppConfig}
       onOpenDeepLink={openDeepLink}
       isTelegramWebApp={isTelegramWebApp}
       onGoBack={handleGoBack}

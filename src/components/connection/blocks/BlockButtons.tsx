@@ -7,6 +7,7 @@ import { blockButtonClass } from './buttonStyles';
 
 // eslint-disable-next-line no-script-url
 const dangerousSchemes = ['javascript:', 'data:', 'vbscript:', 'file:'];
+const bearerTemplate = /\{\{(?:SUBSCRIPTION_LINK|HAPP_CRYPT[34]_LINK)\}\}/;
 
 function isValidDeepLink(url: string | undefined): boolean {
   if (!url) return false;
@@ -27,6 +28,8 @@ interface BlockButtonsProps {
   variant: 'light' | 'subtle';
   isLight?: boolean;
   subscriptionUrl: string | null;
+  /** Reset-history accounts may not reuse panel-resolved cached bearer URLs. */
+  strictLink?: boolean;
   hideLink?: boolean;
   deepLink?: string | null;
   getLocalizedText: (text: LocalizedText | undefined) => string;
@@ -40,6 +43,7 @@ export function BlockButtons({
   variant,
   isLight,
   subscriptionUrl,
+  strictLink,
   hideLink,
   deepLink,
   getLocalizedText,
@@ -73,7 +77,12 @@ export function BlockButtons({
         ) : null;
 
         if (btn.type === 'subscriptionLink') {
-          const url = btn.resolvedUrl || btn.url || btn.link || deepLink || subscriptionUrl;
+          const strictTemplate = [btn.url, btn.link].find((candidate): candidate is string =>
+            Boolean(candidate && bearerTemplate.test(candidate)),
+          );
+          const url = strictLink
+            ? deepLink || strictTemplate || subscriptionUrl
+            : btn.resolvedUrl || btn.url || btn.link || deepLink || subscriptionUrl;
           if (!url || !isValidDeepLink(url)) return null;
           return (
             <button
@@ -89,7 +98,7 @@ export function BlockButtons({
 
         if (btn.type === 'copyButton') {
           if (hideLink) return null;
-          const url = btn.resolvedUrl || subscriptionUrl;
+          const url = strictLink ? subscriptionUrl : btn.resolvedUrl || subscriptionUrl;
           if (!url) return null;
           return (
             <button

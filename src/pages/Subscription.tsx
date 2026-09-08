@@ -30,6 +30,7 @@ import {
 } from '../components/icons';
 import { useHaptic } from '../platform';
 import { resolveConnectionUrlForUi } from '../utils/connectionLink';
+import { strictTestLinkEpoch } from '../utils/testLinkFence';
 import {
   getErrorMessage,
   getInsufficientBalanceError,
@@ -225,18 +226,30 @@ export default function Subscription() {
   });
   const isMultiTariff = multiSubData?.multi_tariff_enabled ?? false;
 
-  const { data: subscriptionResponse, isLoading } = useQuery({
+  const {
+    data: subscriptionResponse,
+    isLoading,
+    isFetchedAfterMount: subscriptionFetchedAfterMount,
+    isFetching: isSubscriptionFetching,
+    isError: isSubscriptionError,
+  } = useQuery({
     queryKey: ['subscription', subscriptionId],
     queryFn: () => subscriptionApi.getSubscription(subscriptionId),
     retry: false,
     staleTime: 0,
     refetchOnMount: 'always',
   });
-  const { data: connectionLink, isLoading: isConnectionLinkLoading } = useQuery({
+  const {
+    data: connectionLink,
+    isLoading: isConnectionLinkLoading,
+    isFetching: isConnectionLinkFetching,
+    isError: isConnectionLinkError,
+  } = useQuery({
     queryKey: ['connection-link', subscriptionId],
     queryFn: () => subscriptionApi.getConnectionLink(subscriptionId),
     retry: false,
     staleTime: 0,
+    refetchOnMount: 'always',
   });
 
   // Extract subscription from response (null if no subscription)
@@ -248,18 +261,39 @@ export default function Subscription() {
     enabled: !!subscription,
   });
 
+  const resetFence = strictTestLinkEpoch(subscriptionResponse, connectionLink);
+  const strictConnectionLink =
+    !subscriptionFetchedAfterMount || isSubscriptionError || resetFence.strict;
+  const strictConnectionLinkReady =
+    !strictConnectionLink ||
+    (subscriptionFetchedAfterMount &&
+      !isSubscriptionError &&
+      resetFence.matches &&
+      !isSubscriptionFetching &&
+      !isConnectionLinkFetching &&
+      !isConnectionLinkLoading &&
+      !isConnectionLinkError);
+
   const displayedConnectionUrl = useMemo(
     () =>
-      resolveConnectionUrlForUi({
-        mode: connectionLink?.connect_mode,
-        happSchemeLink: connectionLink?.happ_scheme_link,
-        displayLink: connectionLink?.display_link,
-        subscriptionUrl: connectionLink?.subscription_url,
-        happCryptLink: connectionLink?.happ_cryptolink,
-        happCryptoLink: connectionLink?.happ_crypto_link,
-        happLink: connectionLink?.happ_link,
-        fallbackUrl: isConnectionLinkLoading ? null : (subscription?.subscription_url ?? null),
-      }),
+      strictConnectionLink && !strictConnectionLinkReady
+        ? null
+        : resolveConnectionUrlForUi({
+            mode: connectionLink?.connect_mode,
+            happSchemeLink: connectionLink?.happ_scheme_link,
+            displayLink: connectionLink?.display_link,
+            subscriptionUrl: connectionLink?.subscription_url,
+            happCryptLink: connectionLink?.happ_cryptolink,
+            happCryptoLink: connectionLink?.happ_crypto_link,
+            happLink: connectionLink?.happ_link,
+            fallbackUrl:
+              strictConnectionLink ||
+              !strictConnectionLinkReady ||
+              isConnectionLinkLoading ||
+              isConnectionLinkFetching
+                ? null
+                : (subscription?.subscription_url ?? null),
+          }),
     [
       connectionLink?.connect_mode,
       connectionLink?.display_link,
@@ -269,6 +303,9 @@ export default function Subscription() {
       connectionLink?.happ_scheme_link,
       connectionLink?.subscription_url,
       isConnectionLinkLoading,
+      isConnectionLinkFetching,
+      strictConnectionLink,
+      strictConnectionLinkReady,
       subscription?.subscription_url,
     ],
   );
