@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { subscriptionApi } from '../../api/subscription';
 import { resolveConnectionUrlForUi } from '../../utils/connectionLink';
+import { strictTestLinkEpoch } from '../../utils/testLinkFence';
 import { copyToClipboard } from '../../utils/clipboard';
 import { CopyIcon, CheckIcon } from '@/components/icons';
 
@@ -27,6 +28,8 @@ export default function ConnectionLinkCard({
   subscriptionUrl,
   visible,
   requireFreshLink = false,
+  requireFreshMetadata = false,
+  testResetAt,
 }: {
   subscriptionId: number | undefined;
   /** Фолбэк-URL из подписки (на случай, если эндпоинт ссылки ещё/уже недоступен). */
@@ -34,6 +37,10 @@ export default function ConnectionLinkCard({
   /** ScreenState.linkVisible — ссылка разрешена в текущем состоянии. */
   visible: boolean;
   requireFreshLink?: boolean;
+  /** Do not trust an initial cached ``test_link_strict:false`` before status refetches. */
+  requireFreshMetadata?: boolean;
+  /** Fresh reset epoch from `/cabinet/subscription`; link metadata must match it. */
+  testResetAt?: string | null;
 }) {
   const { t } = useTranslation();
   const [copied, setCopied] = useState(false);
@@ -43,19 +50,29 @@ export default function ConnectionLinkCard({
   const {
     data: connectionLink,
     isLoading,
+    isFetching,
     isError,
   } = useQuery({
     queryKey: ['connection-link', subscriptionId],
     queryFn: () => subscriptionApi.getConnectionLink(subscriptionId),
     retry: false,
     staleTime: 0,
+    refetchOnMount: 'always',
     enabled: visible && subscriptionId != null,
   });
 
-  const strictLink = requireFreshLink || Boolean(connectionLink?.test_reset_at);
+  const endpointMetadata = strictTestLinkEpoch(connectionLink);
+  const strictLink =
+    requireFreshLink || requireFreshMetadata || endpointMetadata.strict || testResetAt != null;
+  const hasStatusEpoch = testResetAt !== undefined;
+  const expectedEpoch = hasStatusEpoch ? testResetAt : endpointMetadata.epoch;
+  const endpointMatchesEpoch =
+    !strictLink ||
+    (endpointMetadata.matches &&
+      (!hasStatusEpoch || connectionLink?.test_reset_at === expectedEpoch));
   const displayedUrl = useMemo(
     () =>
-      strictLink && isError
+      strictLink && (requireFreshMetadata || isFetching || isError || !endpointMatchesEpoch)
         ? null
         : resolveConnectionUrlForUi({
             mode: connectionLink?.connect_mode,
@@ -65,7 +82,7 @@ export default function ConnectionLinkCard({
             happCryptLink: connectionLink?.happ_cryptolink,
             happCryptoLink: connectionLink?.happ_crypto_link,
             happLink: connectionLink?.happ_link,
-            fallbackUrl: isLoading || strictLink ? null : subscriptionUrl,
+            fallbackUrl: isLoading || isFetching || strictLink ? null : subscriptionUrl,
           }),
     [
       connectionLink?.connect_mode,
@@ -75,9 +92,11 @@ export default function ConnectionLinkCard({
       connectionLink?.happ_link,
       connectionLink?.happ_scheme_link,
       connectionLink?.subscription_url,
-      connectionLink?.test_reset_at,
+      endpointMatchesEpoch,
       isLoading,
+      isFetching,
       isError,
+      requireFreshMetadata,
       strictLink,
       subscriptionUrl,
     ],
@@ -97,7 +116,7 @@ export default function ConnectionLinkCard({
 
   // Скрыта состоянием, спрятана сервером, или ещё не разрешилась — ничего не рисуем.
   if (!visible || connectionLink?.hide_link) return null;
-  if (strictLink && isError)
+  if (strictLink && (isError || (!isFetching && !requireFreshMetadata && !endpointMatchesEpoch)))
     return (
       <p role="alert" className="text-sm text-error-300">
         {t('admin.users.testReset.linkLoadError')}

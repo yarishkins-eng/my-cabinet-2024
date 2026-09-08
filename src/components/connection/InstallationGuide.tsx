@@ -137,6 +137,7 @@ export default function InstallationGuide({
         variant={variant}
         isLight={isLight}
         subscriptionUrl={appConfig.subscriptionUrl}
+        strictLink={appConfig.test_link_strict}
         hideLink={appConfig.hideLink}
         deepLink={selectedApp?.deepLink}
         getLocalizedText={getLocalizedText}
@@ -148,6 +149,7 @@ export default function InstallationGuide({
     [
       appConfig.subscriptionUrl,
       appConfig.hideLink,
+      appConfig.test_link_strict,
       selectedApp?.deepLink,
       isLight,
       getLocalizedText,

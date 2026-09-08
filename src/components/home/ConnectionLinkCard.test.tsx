@@ -14,6 +14,7 @@ let queryResult: {
         happ_redirect_link: string | null;
         happ_scheme_link: string | null;
         happ_crypto_link: string | null;
+        test_link_strict?: boolean;
         test_reset_at?: string | null;
         connect_mode: string;
         hide_link: boolean;
@@ -21,6 +22,7 @@ let queryResult: {
       }
     | undefined;
   isLoading: boolean;
+  isFetching?: boolean;
   isError: boolean;
 };
 
@@ -50,6 +52,7 @@ describe('ConnectionLinkCard', () => {
         instructions: { steps: [] },
       },
       isLoading: false,
+      isFetching: false,
       isError: false,
     };
     copyToClipboard.mockResolvedValue(undefined);
@@ -160,6 +163,64 @@ describe('ConnectionLinkCard', () => {
     expect(screen.queryByTitle(retiredUrl)).toBeNull();
     expect(screen.queryByRole('button', { name: 'home.link.copy' })).toBeNull();
     expect(copyToClipboard).not.toHaveBeenCalled();
+  });
+
+  it('fences a cached URL while a newer reset epoch is still refetching', () => {
+    const retiredUrl = 'https://example.com/retired-previous-reset';
+    queryResult = {
+      data: {
+        ...queryResult.data!,
+        subscription_url: retiredUrl,
+        display_link: retiredUrl,
+        test_link_strict: true,
+        test_reset_at: '2026-09-08T12:00:00+00:00',
+      },
+      isLoading: false,
+      isFetching: true,
+      isError: false,
+    };
+
+    render(
+      <ConnectionLinkCard
+        subscriptionId={17}
+        subscriptionUrl={retiredUrl}
+        visible
+        requireFreshLink
+        testResetAt="2026-09-08T13:00:00+00:00"
+      />,
+    );
+
+    expect(screen.queryByTitle(retiredUrl)).toBeNull();
+    expect(screen.queryByRole('button', { name: 'home.link.copy' })).toBeNull();
+  });
+
+  it('rejects a completed prior reset epoch even when the query is no longer fetching', () => {
+    const retiredUrl = 'https://example.com/retired-epoch-mismatch';
+    queryResult = {
+      data: {
+        ...queryResult.data!,
+        subscription_url: retiredUrl,
+        display_link: retiredUrl,
+        test_link_strict: true,
+        test_reset_at: '2026-09-08T12:00:00+00:00',
+      },
+      isLoading: false,
+      isFetching: false,
+      isError: false,
+    };
+
+    render(
+      <ConnectionLinkCard
+        subscriptionId={17}
+        subscriptionUrl={retiredUrl}
+        visible
+        requireFreshLink
+        testResetAt="2026-09-08T13:00:00+00:00"
+      />,
+    );
+
+    expect(screen.getByRole('alert').textContent).toContain('admin.users.testReset.linkLoadError');
+    expect(screen.queryByTitle(retiredUrl)).toBeNull();
   });
 
   it('keeps the ordinary cached fallback when the endpoint is unavailable and fresh-link mode is off', () => {
