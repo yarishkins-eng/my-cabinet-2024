@@ -126,6 +126,42 @@ describe('DeviceAddonFlow', () => {
   });
   afterEach(() => cleanup());
 
+  it('offers only supported add-on methods without mutating ordinary wallet methods', async () => {
+    getQuote.mockResolvedValue({ ...quote, balance_kopeks: 0, missing_kopeks: 12345 });
+    const methods = [
+      {
+        ...platega,
+        options: [
+          { id: '2', name: 'SBP', description: '' },
+          { id: '11', name: 'Card', description: '' },
+          { id: '13', name: 'Crypto', description: '' },
+        ],
+      },
+    ];
+    getPaymentMethods.mockResolvedValue(methods);
+    const { queryClient } = renderFlow();
+    await screen.findByRole('button', { name: 'SBP' });
+    expect(screen.getByRole('button', { name: 'Card' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Crypto' })).toBeNull();
+    expect(queryClient.getQueryData(['payment-methods'])).toEqual(methods);
+    expect(methods[0].options).toHaveLength(3);
+    expect(createTopup).not.toHaveBeenCalled();
+  });
+
+  it('disables add-on top-up when only an unsupported wallet method is enabled', async () => {
+    getQuote.mockResolvedValue({ ...quote, balance_kopeks: 0, missing_kopeks: 12345 });
+    getPaymentMethods.mockResolvedValue([
+      { ...platega, options: [{ id: '13', name: 'Crypto', description: '' }] },
+    ]);
+    renderFlow();
+    await screen.findByText('subscription.deviceAddon.paymentUnavailable');
+    const topup = screen.getByRole('button', { name: /subscription\.deviceAddon\.topup/ });
+    expect(topup).toHaveProperty('disabled', true);
+    fireEvent.click(topup);
+    expect(createIntent).not.toHaveBeenCalled();
+    expect(createTopup).not.toHaveBeenCalled();
+  });
+
   it('treats a canonical paid attempt as balance credit, never as a payment URL success', async () => {
     const draft = {
       id: 'intent-1',

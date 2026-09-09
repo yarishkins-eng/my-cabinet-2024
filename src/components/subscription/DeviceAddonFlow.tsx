@@ -146,14 +146,17 @@ export function DeviceAddonFlow({
     queryFn: balanceApi.getPaymentMethods,
     enabled: needsTopup,
   });
-  const platega = useMemo(
-    () => methodsQuery.data?.find((method) => method.id === 'platega' && method.is_available),
-    [methodsQuery.data],
-  );
+  const platega = useMemo(() => {
+    const method = methodsQuery.data?.find((item) => item.id === 'platega' && item.is_available);
+    // First add-on release supports the verified SBP/card provider contracts.
+    // Keep the shared balance-method cache intact for ordinary wallet top-ups.
+    const options = method?.options?.filter((option) => ['2', '11'].includes(option.id));
+    return method && options?.length ? { ...method, options } : undefined;
+  }, [methodsQuery.data]);
 
   useEffect(() => {
-    if (!platega?.options?.length || selectedOption) return;
-    if (platega.options.length === 1) setSelectedOption(platega.options[0].id);
+    if (selectedOption && platega?.options.some((option) => option.id === selectedOption)) return;
+    setSelectedOption(platega?.options.length === 1 ? platega.options[0].id : null);
   }, [platega, selectedOption]);
 
   const finish = (next: DeviceAddonIntent) => {
