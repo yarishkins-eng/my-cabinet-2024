@@ -354,6 +354,8 @@ export interface TariffServer {
 }
 
 export interface Tariff {
+  // Explicit permission from current purchase-options, absent in old caches.
+  legacy_purchase_allowed?: boolean;
   id: number;
   name: string;
   description: string | null;
