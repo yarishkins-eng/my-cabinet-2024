@@ -98,6 +98,12 @@ describe('resolveStartParamPath — разбор метки запуска', () 
     );
   });
 
+  it('докупка устройств возвращается только к owned payment attempt без статуса из URL', () => {
+    expect(resolveStartParamPath(`dtu-${ORDER}`)).toBe(
+      `/subscription/device-topup/payment/${ORDER}`,
+    );
+  });
+
   // 🔴 Две метки не должны перехватывать друг друга: разделители у них разные намеренно.
   it('метки двух дорог не путаются между собой', () => {
     expect(resolveStartParamPath(`tup_platega_ok`)).toBeNull();
@@ -110,6 +116,8 @@ describe('resolveStartParamPath — разбор метки запуска', () 
     ['номер с подчёркиванием', 'co_550e8400_e29b_ok'],
     ['попытка подставить адрес', `co_${ORDER}_ok/../../evil`],
     ['пустой номер', 'co__ok'],
+    ['докупка со статусом из внешней строки', `dtu-${ORDER}-ok`],
+    ['докупка с недопустимым uuid', 'dtu-../../evil'],
   ])('чужую или кривую метку заказа не трогает: %s', (_name, raw) => {
     expect(resolveStartParamPath(raw)).toBeNull();
   });

@@ -29,6 +29,11 @@ const TOP_UP_START_PARAM_RE = /^tup-([a-z0-9_]{1,32})-(ok|fail)$/;
  *  (`app/services/device_first_payment_service.py`) — менять только ПАРОЙ. */
 const CHECKOUT_START_PARAM_RE = /^co_([A-Za-z0-9-]{1,64})_(ok|fail)$/;
 
+// A device add-on marker carries only an opaque attempt UUID. The receiving
+// route reads its owned server record; no redirect status is trusted here.
+const DEVICE_TOPUP_START_PARAM_RE =
+  /^dtu-([0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})$/i;
+
 /**
  * Превратить метку запуска во внутренний адрес мини-приложения.
  *
@@ -60,6 +65,9 @@ export function resolveStartParamPath(raw: string | null | undefined): string | 
     if (checkout[2] === 'fail') params.set('payment', 'failed');
     return `/subscription/purchase?${params}`;
   }
+
+  const deviceTopup = DEVICE_TOPUP_START_PARAM_RE.exec(raw);
+  if (deviceTopup) return `/subscription/device-topup/payment/${deviceTopup[1]}`;
 
   return null;
 }

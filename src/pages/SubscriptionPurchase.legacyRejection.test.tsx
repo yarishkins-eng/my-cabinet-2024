@@ -3,7 +3,7 @@
 // Exercise the real old form, mutation, parent gate and QueryClient together.
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { MemoryRouter } from 'react-router';
 import SubscriptionPurchase from './SubscriptionPurchase';
 import { deviceFirstApi } from '@/api/deviceFirst';
@@ -51,6 +51,24 @@ vi.mock('@/components/subscription/purchase/TariffPickerGrid', () => ({
 }));
 
 const clients: QueryClient[] = [];
+const originalScrollIntoView = Object.getOwnPropertyDescriptor(
+  HTMLElement.prototype,
+  'scrollIntoView',
+);
+beforeAll(() => {
+  // The real form schedules scrolling; jsdom has no layout or scrolling API.
+  Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
+    configurable: true,
+    value: vi.fn(),
+  });
+});
+afterAll(() => {
+  if (originalScrollIntoView) {
+    Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', originalScrollIntoView);
+  } else {
+    Reflect.deleteProperty(HTMLElement.prototype, 'scrollIntoView');
+  }
+});
 afterEach(() => {
   cleanup();
   clients.splice(0).forEach((client) => client.clear());
