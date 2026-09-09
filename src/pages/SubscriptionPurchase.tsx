@@ -1,7 +1,7 @@
-import { useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
-import { useSearchParams } from 'react-router';
+import { Link, useSearchParams } from 'react-router';
 import { subscriptionApi } from '../api/subscription';
 import { WebBackButton } from '../components/WebBackButton';
 import { getGlassColors } from '../utils/glassTheme';
@@ -13,7 +13,7 @@ import { TariffPurchaseForm } from '../components/subscription/purchase/TariffPu
 import { TariffPickerGrid } from '../components/subscription/purchase/TariffPickerGrid';
 import { ClassicPurchaseWizard } from '../components/subscription/purchase/ClassicPurchaseWizard';
 import { ExclamationIcon, SparklesIcon } from '@/components/icons';
-import { deviceFirstApi } from '@/api/deviceFirst';
+import { deviceFirstApi, type DeviceFirstOptions } from '@/api/deviceFirst';
 import { DeviceFirstConfigurator } from '@/components/subscription/purchase/DeviceFirstConfigurator';
 
 export default function SubscriptionPurchase() {
@@ -36,36 +36,18 @@ export default function SubscriptionPurchase() {
   });
   const subscription = subscriptionResponse?.subscription ?? null;
 
-  const { data: deviceFirstOptions, isLoading: deviceFirstLoading } = useQuery({
+  const {
+    data: deviceFirstOptions,
+    isPending: deviceFirstPending,
+    isFetching: deviceFirstFetching,
+    isFetchedAfterMount: deviceFirstFetched,
+    fetchStatus: deviceFirstFetchStatus,
+    isError: deviceFirstError,
+    refetch: refetchDeviceFirst,
+  } = useQuery({
     queryKey: ['device-first-options'],
     queryFn: deviceFirstApi.getOptions,
-    // 🔴 РЕК-3.1, мина FH. Было `retry: false`, и одной сетевой осечки хватало, чтобы касса не
-    // нарисовалась ВООБЩЕ: без ответа `deviceFirstOptions?.eligible` ложно, а на дороге возврата
-    // с доплаты в адресе нет `?checkout=` — значит второе условие отрисовки (`:161`) тоже ложно,
-    // и человек падает на старую сетку тарифов ниже по файлу. Раньше сюда приходили редко и
-    // своими руками; теперь это АВТОМАТИЧЕСКОЕ приземление после доплаты. Пока запрос повторяется,
-    // `deviceFirstLoading` держится и заслон выше показывает загрузку — то есть цена промаха
-    // теперь лишние полсекунды, а не чужой экран.
-    // ⚠️ Это НЕ снимает FH целиком: три подряд отказа по-прежнему уводят на старую сетку.
-    // ⚠️ И повтор помогает НЕ ВЕЗДЕ, поправлено критиком полноты. Если сорвётся САМЫЙ ПЕРВЫЙ
-    // запрос сессии, перехватчик (`api/client.ts`) немедленно ставит полноэкранное «сервис
-    // недоступен» (`api/health.ts`, ветка `!everReachedBackend`), и повтор крутится под ним
-    // впустую. На дороге возврата первым идёт не этот запрос, а авторизация, поэтому в
-    // обычном случае заслон уже снят и повтор работает как задумано.
-    // Правка того же рода, какую этап В-1 уже сделал соседнему запросу этого же экрана
-    // (`DeviceFirstConfigurator.tsx`, `restoredCheckout`), — поведение не изобретается.
-    //
-    // 🔴 ЦЕНА НАЗВАНА ЧЕСТНО, ПОПРАВЛЕНО РЕВЬЮ. Слепой `retry: 2` стоил бы не «полсекунды»:
-    // у клиента таймаут 30 с (`config/constants.ts`, `API.TIMEOUT_MS`), пауза между попытками
-    // у react-query растёт, и на зависшей связи человек смотрел бы голый спиннер до ПОЛУТОРА
-    // МИНУТ — на экране, у которого в этой ветке нет ни текста ошибки, ни кнопки «повторить».
-    // ⚠️ И это ещё нижняя оценка, поправил скептик: если к моменту запроса протух токен,
-    // перехватчик сначала синхронно ждёт его обновления — отдельный запрос со СВОИМ таймаутом
-    // 30 с, которого эта функция не видит вовсе.
-    // Поэтому повторяем только БЫСТРУЮ осечку (связь отвалилась, DNS, отказ соединения) —
-    // ровно тот случай, ради которого правка и делается, — и НЕ повторяем таймаут: он уже
-    // стоил тридцать секунд, и вторая попытка стоит столько же. Пауза 300 мс взята у соседа
-    // по файлу (`pendingPayment`), чтобы не изобретать своё число.
+    // Retry brief failures, but a 30-second transport timeout needs an explicit retry.
     retry: (failureCount, error) => {
       const code = (error as { code?: string } | null | undefined)?.code;
       const timedOut = code === 'ECONNABORTED' || code === 'ETIMEDOUT';
@@ -73,6 +55,7 @@ export default function SubscriptionPurchase() {
     },
     retryDelay: 300,
     staleTime: 0,
+    refetchOnMount: 'always',
   });
 
   // Purchase options
@@ -80,6 +63,9 @@ export default function SubscriptionPurchase() {
     data: purchaseOptions,
     isLoading: optionsLoading,
     isError: optionsError,
+    isFetching: optionsFetching,
+    isFetchedAfterMount: optionsFetched,
+    fetchStatus: optionsFetchStatus,
     refetch: refetchOptions,
   } = useQuery({
     queryKey: ['purchase-options', subscriptionId],
@@ -92,7 +78,9 @@ export default function SubscriptionPurchase() {
   const isTariffsMode = purchaseOptions?.sales_mode === 'tariffs';
   const classicOptions = !isTariffsMode ? (purchaseOptions as ClassicPurchaseOptions) : null;
   const tariffs =
-    isTariffsMode && purchaseOptions && 'tariffs' in purchaseOptions ? purchaseOptions.tariffs : [];
+    isTariffsMode && purchaseOptions && 'tariffs' in purchaseOptions
+      ? purchaseOptions.tariffs.filter((tariff) => tariff.legacy_purchase_allowed === true)
+      : [];
 
   // Multi-tariff: check via subscriptions list query
   const { data: multiSubData } = useQuery({
@@ -110,6 +98,8 @@ export default function SubscriptionPurchase() {
   // Tariffs mode state
   const [selectedTariff, setSelectedTariff] = useState<Tariff | null>(null);
   const [showTariffPurchase, setShowTariffPurchase] = useState(false);
+  const [legacyRejected, setLegacyRejected] = useState(false);
+  const currentSelectedTariff = tariffs.find((tariff) => tariff.id === selectedTariff?.id);
   // (selectedTariffPeriod / customDays / customTrafficGb / useCustomDays /
   //  useCustomTraffic moved into <TariffPurchaseForm>; form remounts with
   //  fresh state via key=tariff.id when the parent picks a new tariff)
@@ -139,66 +129,133 @@ export default function SubscriptionPurchase() {
 
   // (classic-mode helpers moved into <ClassicPurchaseWizard>)
 
-  if (!deviceFirstCheckoutId && (isLoading || optionsLoading || deviceFirstLoading)) {
-    return (
-      <div className="flex min-h-64 items-center justify-center">
-        <div className="h-10 w-10 animate-spin rounded-full border-2 border-accent-500 border-t-transparent" />
-      </div>
-    );
-  }
+  const hasDeviceFirst = deviceFirstOptions?.eligible === true;
+  const legacyAllowed =
+    !legacyRejected &&
+    deviceFirstOptions?.eligible === false &&
+    (!isTariffsMode || deviceFirstOptions.legacy_tariff_purchase_allowed === true);
 
-  if (!deviceFirstCheckoutId && (optionsError || (!purchaseOptions && !optionsLoading))) {
-    return (
-      <div className="space-y-6">
-        <h1 className="text-2xl font-bold text-dark-50 sm:text-3xl">{t('subscription.extend')}</h1>
-        <div
-          className="rounded-3xl p-6 text-center"
-          style={{
-            background: g.cardBg,
-            border: `1px solid ${g.cardBorder}`,
-          }}
-        >
-          <p className="mb-4 text-dark-300">
-            {t('subscription.loadError', 'Не удалось загрузить варианты подписки')}
-          </p>
-          <button
-            onClick={() => refetchOptions()}
-            className="rounded-xl bg-accent-500 px-6 py-2 text-sm font-medium text-white transition-colors hover:bg-accent-600"
-          >
-            {t('common.retry')}
-          </button>
+  // Keep an already admitted configurator mounted during a failed background
+  // refresh. Its local selection and in-flight payment must survive retry.
+  // A cached response or first failed fetch can never admit a configurator.
+  const [validatedDeviceFirst, setValidatedDeviceFirst] = useState<DeviceFirstOptions | null>(null);
+  useEffect(() => {
+    if (deviceFirstFetched && !deviceFirstFetching && !deviceFirstError) {
+      setValidatedDeviceFirst(deviceFirstOptions?.eligible === true ? deviceFirstOptions : null);
+    }
+  }, [deviceFirstFetched, deviceFirstFetching, deviceFirstError, deviceFirstOptions]);
+
+  const retryCheckout = () => {
+    setShowTariffPurchase(false);
+    setSelectedTariff(null);
+    setSwitchTariffId(null);
+    void refetchDeviceFirst();
+    void refetchOptions();
+  };
+  const handleCheckoutRequired = () => {
+    // A definitive server rejection takes precedence even if the next options
+    // response still permits legacy generally (for example, an AP-only tariff).
+    setLegacyRejected(true);
+    retryCheckout();
+  };
+
+  // A failed or missing response is not an eligibility decision. Cached legacy
+  // permission is also unusable until its background refresh completes.
+  // Existing invoices always keep their independent recovery path.
+  let availability: ReactNode = null;
+  if (!deviceFirstCheckoutId) {
+    const offline =
+      deviceFirstFetchStatus === 'paused' || (!hasDeviceFirst && optionsFetchStatus === 'paused');
+    const loadFailed =
+      offline ||
+      deviceFirstError ||
+      (!deviceFirstPending && typeof deviceFirstOptions?.eligible !== 'boolean') ||
+      (!hasDeviceFirst && optionsError);
+    const loading =
+      deviceFirstPending ||
+      !deviceFirstFetched ||
+      (!hasDeviceFirst && deviceFirstFetching) ||
+      (!hasDeviceFirst && (isLoading || optionsLoading || optionsFetching || !optionsFetched));
+    if (loading && !loadFailed) {
+      availability = (
+        <div className="flex min-h-64 items-center justify-center" role="status">
+          <span className="sr-only">{t('common.loading')}</span>
+          <div className="h-10 w-10 animate-spin rounded-full border-2 border-accent-500 border-t-transparent" />
         </div>
-      </div>
-    );
+      );
+    }
+
+    if (
+      !availability &&
+      (loadFailed || (!hasDeviceFirst && (!legacyAllowed || !purchaseOptions)))
+    ) {
+      availability = (
+        <div className="space-y-6">
+          <WebBackButton to="/subscriptions" />
+          <h1 className="text-2xl font-bold text-dark-50 sm:text-3xl">
+            {t('subscription.getSubscription')}
+          </h1>
+          <div
+            className="rounded-3xl p-6 text-center"
+            style={{ background: g.cardBg, border: `1px solid ${g.cardBorder}` }}
+          >
+            <p className="mb-4 text-dark-300" role="alert">
+              {t(
+                loadFailed ? 'subscription.checkoutLoadError' : 'subscription.checkoutUnavailable',
+              )}
+            </p>
+            <button
+              onClick={retryCheckout}
+              disabled={deviceFirstFetching}
+              className="rounded-xl bg-accent-500 px-6 py-2 text-sm font-medium text-white transition-colors hover:bg-accent-600 disabled:opacity-50"
+            >
+              {t('common.retry')}
+            </button>
+            <Link to="/support" className="ml-4 text-accent-400">
+              {t('nav.support')}
+            </Link>
+          </div>
+        </div>
+      );
+    }
   }
 
   return (
     <div className="space-y-6">
+      {availability}
       {/* Header */}
-      <div className="flex items-center gap-3">
-        <WebBackButton
-          to={subscriptionId ? `/subscriptions/${subscriptionId}` : '/subscriptions'}
-        />
-        <h1 className="text-2xl font-bold text-dark-50 sm:text-3xl">
-          {isMultiTariff && !subscriptionId
-            ? t('subscription.newTariff', 'Новый тариф')
-            : !isMultiTariff && subscription?.is_daily && !subscription?.is_trial
-              ? t('subscription.switchTariff.title')
-              : subscription && !subscription.is_trial
-                ? t('subscription.extend')
-                : t('subscription.getSubscription')}
-        </h1>
-      </div>
+      {!availability && (
+        <div className="flex items-center gap-3">
+          <WebBackButton
+            to={subscriptionId ? `/subscriptions/${subscriptionId}` : '/subscriptions'}
+          />
+          <h1 className="text-2xl font-bold text-dark-50 sm:text-3xl">
+            {isMultiTariff && !subscriptionId
+              ? t('subscription.newTariff', 'Новый тариф')
+              : !isMultiTariff && subscription?.is_daily && !subscription?.is_trial
+                ? t('subscription.switchTariff.title')
+                : subscription && !subscription.is_trial
+                  ? t('subscription.extend')
+                  : t('subscription.getSubscription')}
+          </h1>
+        </div>
+      )}
 
-      {(deviceFirstOptions?.eligible || deviceFirstCheckoutId) && (
-        <DeviceFirstConfigurator
-          options={deviceFirstOptions ?? { eligible: true }}
-          initialCheckoutId={deviceFirstCheckoutId}
-        />
+      {(deviceFirstCheckoutId ||
+        (!availability && hasDeviceFirst) ||
+        (validatedDeviceFirst &&
+          (deviceFirstError || deviceFirstFetching || deviceFirstFetchStatus === 'paused'))) && (
+        <div hidden={!!availability} inert={!!availability}>
+          <DeviceFirstConfigurator
+            options={deviceFirstOptions ?? validatedDeviceFirst ?? { eligible: true }}
+            initialCheckoutId={deviceFirstCheckoutId}
+          />
+        </div>
       )}
 
       {/* Tariffs Section */}
-      {!deviceFirstOptions?.eligible &&
+      {!availability &&
+        legacyAllowed &&
         !deviceFirstCheckoutId &&
         isTariffsMode &&
         tariffs.length > 0 && (
@@ -318,7 +375,7 @@ export default function SubscriptionPurchase() {
               }}
             />
 
-            {!showTariffPurchase ? (
+            {!showTariffPurchase || !currentSelectedTariff ? (
               <TariffPickerGrid
                 tariffs={tariffs}
                 subscription={subscription}
@@ -332,13 +389,14 @@ export default function SubscriptionPurchase() {
                 onSwitchTariff={(tariffId) => setSwitchTariffId(tariffId)}
               />
             ) : (
-              selectedTariff && (
+              currentSelectedTariff && (
                 /* Tariff Purchase Form (extracted into its own component) */
                 <TariffPurchaseForm
-                  key={selectedTariff.id}
-                  tariff={selectedTariff}
+                  key={currentSelectedTariff.id}
+                  tariff={currentSelectedTariff}
                   subscriptionId={subscriptionId}
                   balanceKopeks={purchaseOptions?.balance_kopeks}
+                  onCheckoutRequired={handleCheckoutRequired}
                   onBack={() => {
                     setShowTariffPurchase(false);
                     setSelectedTariff(null);
@@ -350,7 +408,8 @@ export default function SubscriptionPurchase() {
         )}
 
       {/* Purchase/Extend Section - Classic Mode */}
-      {!deviceFirstOptions?.eligible &&
+      {!availability &&
+        legacyAllowed &&
         !deviceFirstCheckoutId &&
         classicOptions &&
         classicOptions.periods.length > 0 && (
@@ -362,7 +421,8 @@ export default function SubscriptionPurchase() {
         )}
 
       {/* No options available fallback */}
-      {!deviceFirstOptions?.eligible &&
+      {!availability &&
+        legacyAllowed &&
         !deviceFirstCheckoutId &&
         purchaseOptions &&
         !optionsLoading &&
@@ -379,7 +439,7 @@ export default function SubscriptionPurchase() {
               {t('subscription.noOptionsAvailable', 'Нет доступных вариантов подписки')}
             </p>
             <button
-              onClick={() => refetchOptions()}
+              onClick={retryCheckout}
               className="rounded-xl bg-accent-500 px-6 py-2 text-sm font-medium text-white transition-colors hover:bg-accent-600"
             >
               {t('common.retry')}

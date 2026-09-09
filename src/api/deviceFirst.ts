@@ -33,6 +33,9 @@ export interface DeviceFirstPrice {
 
 export interface DeviceFirstOptions {
   eligible: boolean;
+  // Only an explicit fresh permission can enable the legacy tariff form.
+  // Older API responses and caches omit this field.
+  legacy_tariff_purchase_allowed?: boolean;
   reason?: string;
   tariff?: {
     id: number;

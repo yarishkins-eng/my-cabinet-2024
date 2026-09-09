@@ -437,6 +437,8 @@
     "minutes_other": "{{count}} m",
     "price": "Price",
     "noSubscription": "You don't have an active subscription",
+    "checkoutLoadError": "Could not load checkout. Check your connection and try again.",
+    "checkoutUnavailable": "Purchases are currently unavailable. Try again or contact support.",
     "getSubscription": "Get Subscription",
     "cta": {
       "expiredHint": "Choose a plan and pay",

@@ -1,38 +1,28 @@
 // @vitest-environment jsdom
 
-// 🔴 РЕК-3.1, сторож мины FH. Проверяет НАСТОЯЩИЙ react-query, а не подделку: подмена
-// `useQuery` (как в соседнем `SubscriptionPurchase.recovery.test.tsx`) сделала бы сторожа
-// круговым — решает исход ровно та опция запроса, которую подделка и стирает.
-// ⚠️ `retryDelay: 0` в тестовом клиенте меняет ПАУЗУ между попытками, а не их число:
-// собственный `retry` компонента перекрывает умолчание клиента, поэтому возврат правки
-// к `retry: false` этот сторож увидит.
-
-import { cleanup, render, screen, waitFor } from '@testing-library/react';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { QueryClient, QueryClientProvider, onlineManager } from '@tanstack/react-query';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MemoryRouter } from 'react-router';
 import SubscriptionPurchase from './SubscriptionPurchase';
-import { deviceFirstApi } from '@/api/deviceFirst';
+import { deviceFirstApi, type DeviceFirstOptions } from '@/api/deviceFirst';
 import { subscriptionApi } from '../api/subscription';
 
-vi.mock('react-i18next', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('react-i18next')>();
-  return {
-    ...actual,
-    useTranslation: () => ({ t: (key: string) => key }),
-  };
-});
+vi.mock('react-i18next', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('react-i18next')>()),
+  useTranslation: () => ({ t: (key: string) => key }),
+}));
 vi.mock('@/hooks/useTheme', () => ({ useTheme: () => ({ isDark: true }) }));
 vi.mock('@/store/successNotification', () => ({ useCloseOnSuccessNotification: vi.fn() }));
-vi.mock('@/components/WebBackButton', () => ({
-  WebBackButton: () => <button type="button">back</button>,
-}));
+vi.mock('@/components/WebBackButton', () => ({ WebBackButton: () => <button>back</button> }));
 vi.mock('@/components/subscription/purchase/DeviceFirstConfigurator', () => ({
-  DeviceFirstConfigurator: () => <div data-testid="device-first-configurator" />,
+  DeviceFirstConfigurator: ({ initialCheckoutId }: { initialCheckoutId?: string }) => (
+    <div data-testid="device-first-configurator">
+      {initialCheckoutId}
+      <input aria-label="device-choice" defaultValue="1" />
+    </div>
+  ),
 }));
-// Ветка «касса не положена» рисует старую сетку тарифов целиком; её тяжёлые дети к предмету
-// проверки отношения не имеют, но без них дерево падает. Подменяем только их, не сетку —
-// именно сетку сторож и должен увидеть (или не увидеть).
 vi.mock('../components/subscription/sheets/SwitchTariffSheet', () => ({
   SwitchTariffSheet: () => null,
 }));
@@ -40,119 +30,259 @@ vi.mock('../components/subscription/purchase/TariffPurchaseForm', () => ({
   TariffPurchaseForm: () => null,
 }));
 vi.mock('../components/subscription/purchase/ClassicPurchaseWizard', () => ({
-  ClassicPurchaseWizard: () => null,
+  ClassicPurchaseWizard: () => <div data-testid="classic-form" />,
 }));
-// Та самая «старая сетка тарифов», на которую роняет мина FH. Подменена меткой, чтобы сторож
-// говорил про НЕЁ прямо, а не про случайную надпись внутри неё.
 vi.mock('../components/subscription/purchase/TariffPickerGrid', () => ({
-  TariffPickerGrid: () => <div data-testid="old-tariff-grid" />,
+  TariffPickerGrid: ({ tariffs }: { tariffs: Array<{ name: string }> }) => (
+    <div data-testid="old-tariff-grid">{tariffs.map((tariff) => tariff.name).join(',')}</div>
+  ),
 }));
 
 const PURCHASE_OPTIONS = {
   sales_mode: 'tariffs',
-  tariffs: [{ id: 3, name: 'Базовый' }],
+  tariffs: [{ id: 3, name: 'Базовый', legacy_purchase_allowed: true }],
 } as unknown as Awaited<ReturnType<typeof subscriptionApi.getPurchaseOptions>>;
-
-function renderPurchase() {
-  // ⛔ Никаких `retry: false` и никакого `retryDelay` здесь: и то и другое стёрло бы предмет
-  // проверки — компонент задаёт обе опции сам, и сторож обязан мерить именно их.
-  // (Прежняя редакция ставила `logger` — это API react-query v4, в установленной v5 он
-  //  игнорируется; ревью поймало. Убран, чтобы не выглядел работающим.)
+const clients: QueryClient[] = [];
+function renderPurchase(options?: { cache?: DeviceFirstOptions; url?: string }) {
+  // Keep the component's real retry policy and React Query state transitions.
   const client = new QueryClient({
-    defaultOptions: { mutations: { retry: false } },
+    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
-  return render(
+  clients.push(client);
+  if (options?.cache) {
+    client.setQueryData(['device-first-options'], options.cache, {
+      updatedAt: Date.now() - 60_000,
+    });
+    client.setQueryData(['purchase-options', undefined], PURCHASE_OPTIONS);
+    client.setQueryData(['subscription', undefined], { subscription: null });
+  }
+  render(
     <QueryClientProvider client={client}>
-      <MemoryRouter initialEntries={['/subscription/purchase?from=checkout&period=30&devices=2']}>
+      <MemoryRouter
+        initialEntries={[
+          options?.url ?? '/subscription/purchase?from=checkout&period=30&devices=2',
+        ]}
+      >
         <SubscriptionPurchase />
       </MemoryRouter>
     </QueryClientProvider>,
   );
+  return client;
+}
+function noPurchaseForm() {
+  expect(screen.queryByTestId('old-tariff-grid')).toBeNull();
+  expect(screen.queryByTestId('classic-form')).toBeNull();
+  expect(screen.queryByTestId('device-first-configurator')).toBeNull();
 }
 
-describe('РЕК-3.1 · мина FH: осечка сети не роняет человека на старую сетку тарифов', () => {
-  afterEach(() => {
-    cleanup();
-    vi.restoreAllMocks();
-  });
+beforeEach(() => {
+  vi.spyOn(subscriptionApi, 'getSubscription').mockResolvedValue({ subscription: null } as never);
+  vi.spyOn(subscriptionApi, 'getPurchaseOptions').mockResolvedValue(PURCHASE_OPTIONS);
+  vi.spyOn(subscriptionApi, 'getSubscriptions').mockResolvedValue({
+    multi_tariff_enabled: false,
+  } as never);
+});
+afterEach(() => {
+  cleanup();
+  clients.splice(0).forEach((client) => client.clear());
+  onlineManager.setOnline(true);
+  vi.restoreAllMocks();
+});
 
-  it('переспрашивает опции кассы после сетевой осечки и всё равно рисует кассу', async () => {
-    const getOptions = vi
-      .spyOn(deviceFirstApi, 'getOptions')
-      .mockRejectedValueOnce(new Error('network'))
-      .mockResolvedValue({ eligible: true });
-    vi.spyOn(subscriptionApi, 'getSubscription').mockResolvedValue({
-      subscription: null,
-    } as unknown as Awaited<ReturnType<typeof subscriptionApi.getSubscription>>);
-    vi.spyOn(subscriptionApi, 'getPurchaseOptions').mockResolvedValue(PURCHASE_OPTIONS);
-    vi.spyOn(subscriptionApi, 'getSubscriptions').mockResolvedValue({
-      multi_tariff_enabled: false,
-    } as unknown as Awaited<ReturnType<typeof subscriptionApi.getSubscriptions>>);
-
+describe('Checkout loading and explicit legacy permission', () => {
+  it('shows the new checkout after a successful response', async () => {
+    vi.spyOn(deviceFirstApi, 'getOptions').mockResolvedValue({ eligible: true });
     renderPurchase();
-
-    await waitFor(() => expect(screen.getByTestId('device-first-configurator')).toBeTruthy());
-    // 🔴 Число попыток проверяем ТОЧНО, а не «больше одной»: ревью показало, что при
-    // «больше одной» удаление опции целиком оставило бы сторож зелёным — запрос свалился бы
-    // на глобальное умолчание `retry: 1` (`src/main.tsx`), то есть на две попытки.
-    expect(getOptions).toHaveBeenCalledTimes(2);
-    // И человек не оказался на старой сетке тарифов — ровно то, чем била мина FH.
+    expect(await screen.findByTestId('device-first-configurator')).toBeTruthy();
     expect(screen.queryByTestId('old-tariff-grid')).toBeNull();
   });
 
-  // 🔴 Обратная половина, и она про ЦЕНУ правки. Таймаут повторять нельзя: он уже стоил
-  // тридцать секунд, а вторая и третья попытки стоят столько же — человек смотрел бы голый
-  // спиннер до полутора минут. Без этого сторожа возврат к слепому `retry: 2` прошёл бы
-  // незамеченным: набор тестов время не мерит.
-  it('таймаут НЕ переспрашивает — иначе спиннер живёт минуты, а не секунды', async () => {
-    const timeout = Object.assign(new Error('timeout of 30000ms exceeded'), {
-      code: 'ECONNABORTED',
-    });
-    const getOptions = vi.spyOn(deviceFirstApi, 'getOptions').mockRejectedValue(timeout);
-    vi.spyOn(subscriptionApi, 'getSubscription').mockResolvedValue({
-      subscription: null,
-    } as unknown as Awaited<ReturnType<typeof subscriptionApi.getSubscription>>);
-    vi.spyOn(subscriptionApi, 'getPurchaseOptions').mockResolvedValue(PURCHASE_OPTIONS);
-    vi.spyOn(subscriptionApi, 'getSubscriptions').mockResolvedValue({
-      multi_tariff_enabled: false,
-    } as unknown as Awaited<ReturnType<typeof subscriptionApi.getSubscriptions>>);
-
+  it('recovers after two brief errors using exactly three attempts', async () => {
+    const getOptions = vi
+      .spyOn(deviceFirstApi, 'getOptions')
+      .mockRejectedValueOnce(new Error('network'))
+      .mockRejectedValueOnce(new Error('network'))
+      .mockResolvedValue({ eligible: true });
     renderPurchase();
-
-    // Заслон загрузки снят с ОДНОГО отказа — то есть повторов не было и человек не ждал
-    // впустую. Цена этого честно названа: кассы он не увидит, это и есть остаток мины FH,
-    // которую правка сужает, но не снимает.
-    await waitFor(() => expect(screen.getByTestId('old-tariff-grid')).toBeTruthy());
-    expect(getOptions).toHaveBeenCalledTimes(1);
-    expect(screen.queryByTestId('device-first-configurator')).toBeNull();
+    expect(await screen.findByTestId('device-first-configurator')).toBeTruthy();
+    expect(getOptions).toHaveBeenCalledTimes(3);
+    expect(screen.queryByTestId('old-tariff-grid')).toBeNull();
   });
 
-  // 🔴 ВТОРАЯ ПОЛОВИНА ЗАЩИТЫ ОТ СТАРОГО БАЛАНСА (находка трёх линз ревью). Снос кэша на
-  // экране результата помогает только потому, что этот экран без данных держит загрузку и
-  // НЕ рисует кассу. Уберут `deviceFirstLoading` из условия — и приземление снова сможет
-  // открыться на пустых или чужих деньгах.
-  it('без ответа сервера касса не рисуется вовсе — держится загрузка', async () => {
-    vi.spyOn(deviceFirstApi, 'getOptions').mockImplementation(
-      () => new Promise(() => {}) as ReturnType<typeof deviceFirstApi.getOptions>,
-    );
-    vi.spyOn(subscriptionApi, 'getSubscription').mockResolvedValue({
-      subscription: null,
-    } as unknown as Awaited<ReturnType<typeof subscriptionApi.getSubscription>>);
-    vi.spyOn(subscriptionApi, 'getPurchaseOptions').mockResolvedValue(PURCHASE_OPTIONS);
-    vi.spyOn(subscriptionApi, 'getSubscriptions').mockResolvedValue({
-      multi_tariff_enabled: false,
-    } as unknown as Awaited<ReturnType<typeof subscriptionApi.getSubscriptions>>);
-
+  it('exhausted HTTP failures show retry and support, never the old form', async () => {
+    const getOptions = vi
+      .spyOn(deviceFirstApi, 'getOptions')
+      .mockRejectedValue({ response: { status: 500 } });
     renderPurchase();
+    expect(await screen.findByText('subscription.checkoutLoadError')).toBeTruthy();
+    expect(getOptions).toHaveBeenCalledTimes(3);
+    noPurchaseForm();
+    expect(screen.getByRole('link', { name: 'nav.support' }).getAttribute('href')).toBe('/support');
+  });
 
-    // 🔴 ПЕРЕПИСАНО ПОСЛЕ МУТАЦИОННОГО ПРОГОНА. Прежняя редакция звала `queryByTestId`
-    // сразу после первого `waitFor` — и была ЗЕЛЁНОЙ даже с убранным `deviceFirstLoading`
-    // из заслона: проверка успевала отработать раньше, чем оседали остальные два запроса.
-    // То есть сторож обещал защиту, которой не давал, — это хуже отсутствующего теста.
-    // Теперь ждём НАСТОЯЩЕГО появления старой сетки: `findBy*` держит окно ~1 с и отвергает
-    // обещание, только если сетка так и не пришла. Со снятым заслоном она приходит, и тест
-    // краснеет — проверено мутацией.
-    await expect(screen.findByTestId('old-tariff-grid')).rejects.toThrow();
-    expect(screen.queryByTestId('device-first-configurator')).toBeNull();
+  it.each(['ECONNABORTED', 'ETIMEDOUT'])(
+    'does not automatically retry %s; manual retry restores checkout',
+    async (code) => {
+      const getOptions = vi
+        .spyOn(deviceFirstApi, 'getOptions')
+        .mockRejectedValueOnce(Object.assign(new Error('timeout'), { code }))
+        .mockResolvedValue({ eligible: true });
+      renderPurchase();
+      expect(await screen.findByText('subscription.checkoutLoadError')).toBeTruthy();
+      expect(getOptions).toHaveBeenCalledTimes(1);
+      noPurchaseForm();
+      fireEvent.click(screen.getByRole('button', { name: 'common.retry' }));
+      expect(await screen.findByTestId('device-first-configurator')).toBeTruthy();
+      expect(getOptions).toHaveBeenCalledTimes(2);
+    },
+  );
+
+  it.each([
+    { eligible: false },
+    { eligible: false, legacy_tariff_purchase_allowed: true },
+    { eligible: true },
+  ])(
+    'a stale cache cannot authorize a form while the initial refresh is pending: %j',
+    async (cache) => {
+      let resolve!: (options: DeviceFirstOptions) => void;
+      vi.spyOn(deviceFirstApi, 'getOptions').mockImplementation(
+        () =>
+          new Promise((done) => {
+            resolve = done;
+          }),
+      );
+      renderPurchase({ cache });
+      await waitFor(() => expect(deviceFirstApi.getOptions).toHaveBeenCalledTimes(1));
+      noPurchaseForm();
+      await act(async () => resolve({ eligible: true }));
+      expect(await screen.findByTestId('device-first-configurator')).toBeTruthy();
+    },
+  );
+
+  it.each([true, false])('a failed refresh does not reuse cached eligible=%s', async (eligible) => {
+    vi.spyOn(deviceFirstApi, 'getOptions').mockRejectedValue({ code: 'ECONNABORTED' });
+    renderPurchase({ cache: { eligible, legacy_tariff_purchase_allowed: true } });
+    expect(await screen.findByText('subscription.checkoutLoadError')).toBeTruthy();
+    noPurchaseForm();
+  });
+
+  it.each([
+    { eligible: false, reason: 'eligible_tariff_count_not_one' },
+    { eligible: false, legacy_tariff_purchase_allowed: false },
+    {} as DeviceFirstOptions,
+  ])('ineligibility or incomplete data alone never permits legacy: %j', async (response) => {
+    vi.spyOn(deviceFirstApi, 'getOptions').mockResolvedValue(response);
+    renderPurchase();
+    expect(await screen.findByRole('alert')).toBeTruthy();
+    noPurchaseForm();
+  });
+
+  it('keeps legacy tariffs available when the fresh API explicitly permits them', async () => {
+    vi.spyOn(deviceFirstApi, 'getOptions').mockResolvedValue({
+      eligible: false,
+      legacy_tariff_purchase_allowed: true,
+    });
+    renderPurchase();
+    expect(await screen.findByTestId('old-tariff-grid')).toBeTruthy();
+  });
+
+  it('only exposes explicitly allowed legacy tariffs, including with an old cached tariff entry', async () => {
+    vi.spyOn(deviceFirstApi, 'getOptions').mockResolvedValue({
+      eligible: false,
+      legacy_tariff_purchase_allowed: true,
+    });
+    vi.mocked(subscriptionApi.getPurchaseOptions).mockResolvedValue({
+      sales_mode: 'tariffs',
+      tariffs: [
+        { id: 1, name: 'Allowed', legacy_purchase_allowed: true },
+        { id: 2, name: 'AP blocked', legacy_purchase_allowed: false },
+        { id: 3, name: 'Unknown cached permission' },
+      ],
+    } as never);
+    renderPurchase();
+    expect((await screen.findByTestId('old-tariff-grid')).textContent).toBe('Allowed');
+  });
+
+  it('waits for fresh per-tariff permission even after fresh Device-First options arrive', async () => {
+    vi.spyOn(deviceFirstApi, 'getOptions').mockResolvedValue({
+      eligible: false,
+      legacy_tariff_purchase_allowed: true,
+    });
+    let resolve!: (options: typeof PURCHASE_OPTIONS) => void;
+    vi.mocked(subscriptionApi.getPurchaseOptions).mockImplementation(
+      () =>
+        new Promise((done) => {
+          resolve = done;
+        }),
+    );
+    renderPurchase({ cache: { eligible: false, legacy_tariff_purchase_allowed: true } });
+    await waitFor(() => expect(deviceFirstApi.getOptions).toHaveBeenCalledTimes(1));
+    noPurchaseForm();
+    await act(async () =>
+      resolve({
+        sales_mode: 'tariffs',
+        tariffs: [{ id: 3, name: 'Now AP', legacy_purchase_allowed: false }],
+      } as never),
+    );
+    expect(await screen.findByText('subscription.noOptionsAvailable')).toBeTruthy();
+    noPurchaseForm();
+  });
+
+  it('a background error hides the existing configurator and restores its selection after retry', async () => {
+    const getOptions = vi.spyOn(deviceFirstApi, 'getOptions').mockResolvedValue({ eligible: true });
+    const client = renderPurchase();
+    const configurator = await screen.findByTestId('device-first-configurator');
+    const input = screen.getByRole('textbox', { name: 'device-choice' }) as HTMLInputElement;
+    fireEvent.change(input, { target: { value: '3' } });
+    getOptions.mockRejectedValueOnce({ code: 'ECONNABORTED' });
+    await act(async () => {
+      await client.refetchQueries({ queryKey: ['device-first-options'] });
+    });
+    expect(await screen.findByText('subscription.checkoutLoadError')).toBeTruthy();
+    expect(screen.getByTestId('device-first-configurator')).toBe(configurator);
+    expect(configurator.parentElement?.hidden).toBe(true);
+    expect(configurator.parentElement?.hasAttribute('inert')).toBe(true);
+    fireEvent.click(screen.getByRole('button', { name: 'common.retry' }));
+    await waitFor(() => expect(configurator.parentElement?.hidden).toBe(false));
+    expect(screen.getByRole('textbox', { name: 'device-choice' })).toBe(input);
+    expect(input.value).toBe('3');
+  });
+
+  it('keeps classic purchases available after confirmed ineligibility', async () => {
+    vi.spyOn(deviceFirstApi, 'getOptions').mockResolvedValue({
+      eligible: false,
+      legacy_tariff_purchase_allowed: false,
+    });
+    vi.mocked(subscriptionApi.getPurchaseOptions).mockResolvedValue({
+      sales_mode: 'classic',
+      periods: [{ id: 1 }],
+    } as never);
+    renderPurchase();
+    expect(await screen.findByTestId('classic-form')).toBeTruthy();
+  });
+
+  it('a failed legacy options request cannot block the working new checkout', async () => {
+    vi.spyOn(deviceFirstApi, 'getOptions').mockResolvedValue({ eligible: true });
+    vi.mocked(subscriptionApi.getPurchaseOptions).mockRejectedValue(
+      new Error('legacy unavailable'),
+    );
+    renderPurchase();
+    expect(await screen.findByTestId('device-first-configurator')).toBeTruthy();
+  });
+
+  it('preserves invoice recovery when both options requests fail', async () => {
+    vi.spyOn(deviceFirstApi, 'getOptions').mockRejectedValue({ code: 'ECONNABORTED' });
+    vi.mocked(subscriptionApi.getPurchaseOptions).mockRejectedValue(new Error('offline'));
+    renderPurchase({ url: '/subscription/purchase?checkout=owned-invoice' });
+    expect(screen.getByTestId('device-first-configurator').textContent).toBe('owned-invoice');
+    expect(screen.queryByTestId('old-tariff-grid')).toBeNull();
+  });
+
+  it('offline paused queries show a recoverable error even with cached legacy permission', async () => {
+    onlineManager.setOnline(false);
+    vi.spyOn(deviceFirstApi, 'getOptions').mockResolvedValue({ eligible: true });
+    renderPurchase({ cache: { eligible: false, legacy_tariff_purchase_allowed: true } });
+    expect(await screen.findByText('subscription.checkoutLoadError')).toBeTruthy();
+    noPurchaseForm();
   });
 });

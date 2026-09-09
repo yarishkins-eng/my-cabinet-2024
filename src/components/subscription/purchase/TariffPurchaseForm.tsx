@@ -32,6 +32,7 @@ export interface TariffPurchaseFormProps {
   subscriptionId: number | undefined;
   balanceKopeks: number | undefined;
   onBack: () => void;
+  onCheckoutRequired: () => void;
 }
 
 export function TariffPurchaseForm({
@@ -39,6 +40,7 @@ export function TariffPurchaseForm({
   subscriptionId,
   balanceKopeks,
   onBack,
+  onCheckoutRequired,
 }: TariffPurchaseFormProps) {
   const { t } = useTranslation();
   const navigate = useNavigate();
@@ -99,6 +101,16 @@ export function TariffPurchaseForm({
       navigate('/', { replace: true });
     },
     onError: (err) => {
+      const rejection = err as {
+        response?: { status?: number; data?: { detail?: { code?: string } } };
+      };
+      if (
+        rejection.response?.status === 409 &&
+        rejection.response.data?.detail?.code === 'device_first_required'
+      ) {
+        onCheckoutRequired();
+        return;
+      }
       // Нехватка баланса → окно поверх экрана (сумма от сервера, фолбэк — клиентская
       // total-balance). Прочие ошибки И редкий случай нехватки с нулевой суммой → инлайн-
       // текст, чтобы не было «тихого» отказа.
