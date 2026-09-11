@@ -448,6 +448,37 @@ describe('DeviceAddonFlow', () => {
     ).toBeTruthy();
   });
 
+  it('drops a bound retry for a deleted merge draft and returns to a fresh quote', async () => {
+    localStorage.setItem(
+      'device_addon_v1:intent:10:44',
+      JSON.stringify({
+        user_id: 10,
+        intent_id: 'deleted-merge-draft',
+        subscription_id: 44,
+        devices_to_add: 2,
+        idempotency_key: 'deleted-draft-key',
+        created_at: Date.now(),
+      }),
+    );
+    getIntent.mockRejectedValue(
+      axiosApiError(404, 'intent_not_found', 'Device add-on intent not found'),
+    );
+    getQuote.mockResolvedValue(quote);
+
+    renderOwnedFlowRouter('deleted-merge-draft');
+
+    await waitFor(() =>
+      expect(screen.getByTestId('location').textContent).toBe(
+        '/subscription/device-topup/new?subscription_id=44',
+      ),
+    );
+    expect(localStorage.getItem('device_addon_v1:intent:10:44')).toBeNull();
+    expect(
+      await screen.findByRole('button', { name: 'subscription.deviceAddon.buy:123.45 ₽' }),
+    ).toBeTruthy();
+    expect(createIntent).not.toHaveBeenCalled();
+  });
+
   it('lets a historical draft choose another quantity using the intent subscription id', async () => {
     getIntent.mockResolvedValue({
       id: 'intent-1',

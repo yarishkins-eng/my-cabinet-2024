@@ -135,6 +135,32 @@ export function clearIntentRetry(userId: number, subscriptionId: number) {
   }
 }
 
+/**
+ * Remove a bound retry whose durable intent has definitively disappeared.
+ * The owned intent route does not carry its subscription id, so recovery must
+ * resolve that scope from the exact user-bound local record before returning
+ * to the quote screen.
+ */
+export function clearMissingIntentRetry(
+  userId: number,
+  intentId: string,
+): DeviceAddonRetryPayload | null {
+  const prefix = `${PREFIX}:intent:${userId}:`;
+  try {
+    for (let index = 0; index < localStorage.length; index += 1) {
+      const storageKey = localStorage.key(index);
+      if (!storageKey?.startsWith(prefix)) continue;
+      const value = read(storageKey, userId);
+      if (value?.intent_id !== intentId) continue;
+      localStorage.removeItem(storageKey);
+      return value;
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+
 export function getOrCreateTopupRetry(
   userId: number,
   intentId: string,

@@ -18,6 +18,7 @@ import { usePlatform } from '@/platform';
 import {
   bindIntentRetry,
   clearIntentRetry,
+  clearMissingIntentRetry,
   clearTopupRetry,
   DeviceAddonPendingRetryError,
   DeviceAddonStorageUnavailableError,
@@ -99,7 +100,16 @@ export function DeviceAddonFlow({
       return deviceAddonApi.getIntent(intentId);
     },
     enabled: Boolean(activeIntentId),
-    retry: 2,
+    retry: (failureCount, error) => {
+      const apiError = getDeviceAddonError(error);
+      if (
+        (axios.isAxiosError(error) && error.response?.status === 404) ||
+        apiError?.code === 'intent_not_found'
+      ) {
+        return false;
+      }
+      return failureCount < 2;
+    },
     refetchInterval: (query) => {
       const row = query.state.data;
       return row?.purchase_state === 'purchased' && row.fulfillment_status !== 'ready'
@@ -135,6 +145,20 @@ export function DeviceAddonFlow({
       });
     }
   }, [intentIdProp, navigate, subscriptionId, user]);
+
+  useEffect(() => {
+    if (!intentIdProp || !user || !intentQuery.isError) return;
+    const apiError = getDeviceAddonError(intentQuery.error);
+    const missing =
+      (axios.isAxiosError(intentQuery.error) && intentQuery.error.response?.status === 404) ||
+      apiError?.code === 'intent_not_found';
+    if (!missing) return;
+    const retry = clearMissingIntentRetry(user.id, intentIdProp);
+    if (!retry) return;
+    navigate(`/subscription/device-topup/new?subscription_id=${retry.subscription_id}`, {
+      replace: true,
+    });
+  }, [intentIdProp, intentQuery.error, intentQuery.isError, navigate, user]);
 
   // An owned intent with quote:null is an intentional server denial (for
   // example, its subscription was deleted). Never revive it from an old entry
