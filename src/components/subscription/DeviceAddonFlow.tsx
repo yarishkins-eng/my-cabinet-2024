@@ -572,6 +572,12 @@ export function DeviceAddonFlow({
         </div>
       )}
 
+      {attempt?.status === 'terminal' && (
+        <p className="rounded-xl bg-warning-500/10 p-3 text-center text-sm text-warning-400">
+          {t('subscription.deviceAddon.providerRejected')}
+        </p>
+      )}
+
       {purchaseEnabled &&
         needsTopup &&
         !waitingForPayment &&

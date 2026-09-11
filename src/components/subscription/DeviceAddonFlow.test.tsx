@@ -929,6 +929,43 @@ describe('DeviceAddonFlow', () => {
     expect(screen.getByRole('button', { name: 'subscription.deviceAddon.topup:3 ₽' })).toBeTruthy();
   });
 
+  it('explains a provider-rejected invoice before offering another payment attempt', async () => {
+    const shortageQuote = { ...quote, missing_kopeks: 300, balance_kopeks: 12045 };
+    getIntent.mockResolvedValue({
+      id: 'intent-1',
+      subscription_id: 44,
+      devices_to_add: 2,
+      price_kopeks: 12345,
+      purchase_state: 'draft',
+      receipt: null,
+      fulfillment_status: null,
+      fulfillment_error_code: null,
+      topup_attempts: [],
+      quote: shortageQuote,
+    });
+    getTopup.mockResolvedValue({
+      attempt: {
+        id: 'attempt-1',
+        intent_id: 'intent-1',
+        requested_amount_kopeks: 500,
+        payment_method: 'platega',
+        payment_option: '2',
+        provider_method_code: null,
+        status: 'terminal',
+        credited_amount_kopeks: null,
+        can_open_payment: false,
+        can_create_new_attempt: true,
+        action_required: false,
+      },
+      intent: { id: 'intent-1', purchase_state: 'draft', fulfillment_status: null },
+    });
+
+    renderFlow({ intentId: 'intent-1', attemptId: 'attempt-1' });
+
+    await screen.findByText('subscription.deviceAddon.providerRejected');
+    expect(screen.getByRole('button', { name: 'subscription.deviceAddon.topup:3 ₽' })).toBeTruthy();
+  });
+
   it('creates one durable top-up attempt on a double click and sends the backend enum', async () => {
     const shortageQuote = { ...quote, missing_kopeks: 500, balance_kopeks: 11845 };
     getQuote.mockResolvedValue(shortageQuote);

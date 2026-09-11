@@ -685,6 +685,7 @@
       "paymentUnavailable": "Top-ups are unavailable right now.",
       "awaitingPayment": "Your invoice is ready. Go to payment, then return here.",
       "creationUnknown": "We are checking the invoice. Do not pay again; check its status later or contact support.",
+      "providerRejected": "The provider rejected the invoice. Try another method or try again later.",
       "checkStatus": "Check status",
       "balanceCredited": "Your balance was topped up. Check the current price and confirm the purchase.",
       "balanceCreditedStillMissing": "Your balance was topped up, but the current price is still short. Top up only the remaining amount.",
