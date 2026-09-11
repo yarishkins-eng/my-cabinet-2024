@@ -1694,6 +1694,11 @@
       "openLink": "Open link",
       "checkStatus": "Check status",
       "checking": "Checking...",
+      "deviceAddon": "Device add-on",
+      "closeAttempt": "Close attempt",
+      "closingAttempt": "Closing...",
+      "closeAttemptConfirm": "Close this attempt without crediting it? A late payment will still be checked.",
+      "closeAttemptError": "Failed to close the attempt",
       "prev": "Prev",
       "next": "Next",
       "checkError": "Status check failed"

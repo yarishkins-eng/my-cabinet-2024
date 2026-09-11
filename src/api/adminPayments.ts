@@ -84,4 +84,14 @@ export const adminPaymentsApi = {
     );
     return response.data;
   },
+
+  closeDeviceAddonAttempt: async (
+    method: string,
+    paymentId: number,
+  ): Promise<ManualCheckResponse> => {
+    const response = await apiClient.post<ManualCheckResponse>(
+      `/cabinet/admin/payments/${method}/${paymentId}/close-device-addon-attempt`,
+    );
+    return response.data;
+  },
 };
