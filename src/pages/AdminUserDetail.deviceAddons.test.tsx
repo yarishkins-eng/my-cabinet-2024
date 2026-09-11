@@ -58,9 +58,13 @@ describe('AdminUserDetail device add-ons', () => {
     expect(screen.getByText('admin.users.detail.deviceAddons.title')).toBeTruthy();
     expect(screen.getByText('panel_patch_failed|automatic_attempts_exhausted')).toBeTruthy();
     expect(screen.getAllByText(/wallet_credited_purchase_requires_confirmation/)).toHaveLength(2);
-    const buttons = screen.getAllByRole('button', { name: 'admin.users.detail.deviceAddons.retry' });
+    const buttons = screen.getAllByRole('button', {
+      name: 'admin.users.detail.deviceAddons.retry',
+    });
     expect((buttons[0] as HTMLButtonElement).disabled).toBe(false);
     expect((buttons[1] as HTMLButtonElement).disabled).toBe(true);
+    expect(buttons[0].className).toContain('btn-primary');
+    expect(buttons[0].className).not.toContain('bg-primary-600');
     fireEvent.click(buttons[0]);
     expect(onRetry).toHaveBeenCalledWith(needsAttention.public_id);
   });

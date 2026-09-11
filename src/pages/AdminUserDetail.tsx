@@ -65,7 +65,9 @@ export function DeviceAddonAdminBlock({
         <div className="space-y-3">
           {items.map((item) => {
             const retryAllowed =
-              canRetry && item.purchase_state === 'purchased' && item.fulfillment_state === 'needs_attention';
+              canRetry &&
+              item.purchase_state === 'purchased' &&
+              item.fulfillment_state === 'needs_attention';
             return (
               <div key={item.public_id} className="rounded-lg border border-dark-700 p-3 text-sm">
                 <div className="flex flex-wrap items-center justify-between gap-2">
@@ -79,7 +81,9 @@ export function DeviceAddonAdminBlock({
                     {t(`admin.users.detail.deviceAddons.states.${item.fulfillment_state}`)}
                   </span>
                 </div>
-                {item.reason && <p className="mt-2 break-words text-xs text-amber-300">{item.reason}</p>}
+                {item.reason && (
+                  <p className="mt-2 break-words text-xs text-amber-300">{item.reason}</p>
+                )}
                 {item.attempts.map((attempt) => (
                   <p key={attempt.public_id} className="mt-2 text-xs text-dark-400">
                     {t('admin.users.detail.deviceAddons.payment', {
@@ -94,7 +98,7 @@ export function DeviceAddonAdminBlock({
                     type="button"
                     onClick={() => void onRetry(item.public_id)}
                     disabled={!retryAllowed || retryingId === item.public_id}
-                    className="mt-3 rounded-lg bg-primary-600 px-3 py-2 text-xs font-medium text-white disabled:cursor-not-allowed disabled:opacity-50"
+                    className="btn-primary mt-3 px-3 py-2 text-xs disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     {retryingId === item.public_id
                       ? t('admin.users.detail.deviceAddons.retrying')
@@ -1060,62 +1064,62 @@ export default function AdminUserDetail() {
               onRetry={handleRetryDeviceAddon}
             />
             <SubscriptionTab
-            userSubscriptions={userSubscriptions}
-            selectedSub={selectedSub}
-            activeSubscriptionId={activeSubscriptionId}
-            onActiveSubscriptionChange={setActiveSubscriptionId}
-            subscriptionDetailView={subscriptionDetailView}
-            onSubscriptionDetailViewChange={setSubscriptionDetailView}
-            tariffs={tariffs}
-            currentTariff={currentTariff}
-            subAction={subAction}
-            subDays={subDays}
-            onSubActionChange={setSubAction}
-            onSubDaysChange={setSubDays}
-            selectedTariffId={selectedTariffId}
-            onSelectedTariffIdChange={setSelectedTariffId}
-            selectedTrafficGb={selectedTrafficGb}
-            onSelectedTrafficGbChange={setSelectedTrafficGb}
-            panelInfo={panelInfoQuery.data ?? null}
-            panelInfoLoading={panelInfoQuery.isFetching}
-            copyToClipboard={copyToClipboard}
-            formatBytes={formatBytes}
-            nodeUsageDays={nodeUsageDays}
-            onNodeUsageDaysChange={setNodeUsageDays}
-            nodeUsageForPeriod={nodeUsageForPeriod}
-            devices={devices}
-            devicesLoading={devicesLoading}
-            devicesTotal={devicesTotal}
-            deviceLimit={deviceLimit}
-            editingDeviceHwid={editingDeviceHwid}
-            editingDeviceName={editingDeviceName}
-            onEditingDeviceHwidChange={setEditingDeviceHwid}
-            onEditingDeviceNameChange={setEditingDeviceName}
-            renameSaving={renameSaving}
-            requestHistory={requestHistory}
-            requestHistoryLoading={requestHistoryLoading}
-            requestHistoryTotal={requestHistoryTotal}
-            requestHistoryOffset={requestHistoryOffset}
-            requestHistorySubId={requestHistorySubId}
-            requestHistoryExpanded={requestHistoryExpanded}
-            onRequestHistoryExpandedChange={setRequestHistoryExpanded}
-            onRequestHistorySubIdChange={setRequestHistorySubId}
-            actionLoading={actionLoading}
-            confirmingAction={confirmingAction}
-            onInlineConfirm={handleInlineConfirm}
-            onUpdateSubscription={handleUpdateSubscription}
-            onSetDeviceLimit={handleSetDeviceLimit}
-            onAddTraffic={handleAddTraffic}
-            onRemoveTraffic={handleRemoveTraffic}
-            onResetDevices={handleResetDevices}
-            onDeleteDevice={handleDeleteDevice}
-            onRenameDevice={handleRenameDevice}
-            onLoadDevices={loadDevices}
-            onLoadSubscriptionData={loadSubscriptionData}
-            onLoadRequestHistory={loadRequestHistory}
-            hasPermission={hasPermission}
-            formatDate={formatDate}
-            locale={locale}
+              userSubscriptions={userSubscriptions}
+              selectedSub={selectedSub}
+              activeSubscriptionId={activeSubscriptionId}
+              onActiveSubscriptionChange={setActiveSubscriptionId}
+              subscriptionDetailView={subscriptionDetailView}
+              onSubscriptionDetailViewChange={setSubscriptionDetailView}
+              tariffs={tariffs}
+              currentTariff={currentTariff}
+              subAction={subAction}
+              subDays={subDays}
+              onSubActionChange={setSubAction}
+              onSubDaysChange={setSubDays}
+              selectedTariffId={selectedTariffId}
+              onSelectedTariffIdChange={setSelectedTariffId}
+              selectedTrafficGb={selectedTrafficGb}
+              onSelectedTrafficGbChange={setSelectedTrafficGb}
+              panelInfo={panelInfoQuery.data ?? null}
+              panelInfoLoading={panelInfoQuery.isFetching}
+              copyToClipboard={copyToClipboard}
+              formatBytes={formatBytes}
+              nodeUsageDays={nodeUsageDays}
+              onNodeUsageDaysChange={setNodeUsageDays}
+              nodeUsageForPeriod={nodeUsageForPeriod}
+              devices={devices}
+              devicesLoading={devicesLoading}
+              devicesTotal={devicesTotal}
+              deviceLimit={deviceLimit}
+              editingDeviceHwid={editingDeviceHwid}
+              editingDeviceName={editingDeviceName}
+              onEditingDeviceHwidChange={setEditingDeviceHwid}
+              onEditingDeviceNameChange={setEditingDeviceName}
+              renameSaving={renameSaving}
+              requestHistory={requestHistory}
+              requestHistoryLoading={requestHistoryLoading}
+              requestHistoryTotal={requestHistoryTotal}
+              requestHistoryOffset={requestHistoryOffset}
+              requestHistorySubId={requestHistorySubId}
+              requestHistoryExpanded={requestHistoryExpanded}
+              onRequestHistoryExpandedChange={setRequestHistoryExpanded}
+              onRequestHistorySubIdChange={setRequestHistorySubId}
+              actionLoading={actionLoading}
+              confirmingAction={confirmingAction}
+              onInlineConfirm={handleInlineConfirm}
+              onUpdateSubscription={handleUpdateSubscription}
+              onSetDeviceLimit={handleSetDeviceLimit}
+              onAddTraffic={handleAddTraffic}
+              onRemoveTraffic={handleRemoveTraffic}
+              onResetDevices={handleResetDevices}
+              onDeleteDevice={handleDeleteDevice}
+              onRenameDevice={handleRenameDevice}
+              onLoadDevices={loadDevices}
+              onLoadSubscriptionData={loadSubscriptionData}
+              onLoadRequestHistory={loadRequestHistory}
+              hasPermission={hasPermission}
+              formatDate={formatDate}
+              locale={locale}
             />
           </>
         )}
