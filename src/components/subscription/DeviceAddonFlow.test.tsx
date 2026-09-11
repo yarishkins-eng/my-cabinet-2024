@@ -646,6 +646,79 @@ describe('DeviceAddonFlow', () => {
     expect(getIntent.mock.calls.every(([id]) => id !== undefined)).toBe(true);
   });
 
+  it('drops an owned-route top-up retry after funding changed before retrying the new amount', async () => {
+    const firstQuote = { ...quote, balance_kopeks: 11845, missing_kopeks: 500 };
+    const changedQuote = {
+      ...quote,
+      balance_kopeks: 11645,
+      missing_kopeks: 700,
+      quote_token: 'changed-owned-quote',
+    };
+    const ownedIntent = {
+      id: 'intent-1',
+      subscription_id: 44,
+      devices_to_add: 2,
+      price_kopeks: 12345,
+      purchase_state: 'draft' as const,
+      receipt: null,
+      fulfillment_status: null,
+      fulfillment_error_code: null,
+      topup_attempts: [],
+    };
+    getIntent
+      .mockResolvedValueOnce({ ...ownedIntent, quote: firstQuote })
+      .mockResolvedValue({ ...ownedIntent, quote: changedQuote });
+    const createdTopup = {
+      attempt: {
+        id: 'attempt-new',
+        intent_id: 'intent-1',
+        requested_amount_kopeks: 700,
+        payment_method: 'platega',
+        payment_option: '2',
+        provider_method_code: 2,
+        status: 'pending' as const,
+        credited_amount_kopeks: null,
+        can_open_payment: true,
+        can_create_new_attempt: false,
+        action_required: false,
+      },
+      payment_url: 'https://provider.example/new',
+      return_start_param: 'dtu-22222222-2222-4222-8222-222222222222',
+    };
+    createTopup
+      .mockRejectedValueOnce(axiosApiError(409, 'funding_changed', 'balance changed', changedQuote))
+      .mockResolvedValueOnce(createdTopup);
+    getTopup.mockResolvedValue({
+      attempt: createdTopup.attempt,
+      intent: { id: 'intent-1', purchase_state: 'draft', fulfillment_status: null },
+      payment_url: createdTopup.payment_url,
+    });
+
+    renderOwnedFlowRouter();
+    const firstButton = await screen.findByRole('button', {
+      name: 'subscription.deviceAddon.topup:5 ₽',
+    });
+    await waitFor(() => expect(firstButton).toHaveProperty('disabled', false));
+    fireEvent.click(firstButton);
+    await waitFor(() => expect(createTopup).toHaveBeenCalledTimes(1));
+    const firstRequest = createTopup.mock.calls[0][1];
+    await waitFor(() =>
+      expect(localStorage.getItem('device_addon_v1:topup:10:intent-1')).toBeNull(),
+    );
+
+    const changedButton = await screen.findByRole('button', {
+      name: 'subscription.deviceAddon.topup:7 ₽',
+    });
+    await waitFor(() => expect(changedButton).toHaveProperty('disabled', false));
+    fireEvent.click(changedButton);
+
+    await waitFor(() => expect(createTopup).toHaveBeenCalledTimes(2));
+    const secondRequest = createTopup.mock.calls[1][1];
+    expect(firstRequest.expected_amount_kopeks).toBe(500);
+    expect(secondRequest.expected_amount_kopeks).toBe(700);
+    expect(secondRequest.idempotency_key).not.toBe(firstRequest.idempotency_key);
+  });
+
   it('uses the refreshed shortage after a paid invoice instead of looping into purchase', async () => {
     const refreshedQuote = { ...quote, missing_kopeks: 300, balance_kopeks: 12045 };
     getIntent.mockResolvedValue({

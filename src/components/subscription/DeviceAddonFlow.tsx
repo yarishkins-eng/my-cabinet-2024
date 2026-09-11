@@ -121,6 +121,10 @@ export function DeviceAddonFlow({
 
   useEffect(() => {
     if (!intentQuery.data) return;
+    // An owned route is just as authoritative as an intent created in this
+    // mounted view.  Remember it so a definitive top-up rejection clears the
+    // retry bound to this exact server operation before the next click.
+    activeIntentIdRef.current = intentQuery.data.id;
     intentRef.current = intentQuery.data;
     setIntent(intentQuery.data);
     setDevices(intentQuery.data.devices_to_add);
