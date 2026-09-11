@@ -667,7 +667,7 @@ export function DeviceAddonFlow({
             : t('subscription.deviceAddon.balanceCredited')}
         </p>
       )}
-      {purchaseEnabled && !needsTopup && !manualHold ? (
+      {purchaseEnabled && !needsTopup ? (
         <button
           type="button"
           disabled={busy || !quoteReady}

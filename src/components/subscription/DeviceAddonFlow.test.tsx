@@ -852,6 +852,44 @@ describe('DeviceAddonFlow', () => {
     ).toBeNull();
   });
 
+  it('keeps balance purchase available while an old invoice needs operator review', async () => {
+    getIntent.mockResolvedValue({
+      id: 'intent-1',
+      subscription_id: 44,
+      devices_to_add: 2,
+      price_kopeks: 12345,
+      purchase_state: 'draft',
+      receipt: null,
+      fulfillment_status: null,
+      fulfillment_error_code: null,
+      topup_attempts: [],
+      quote,
+    });
+    getTopup.mockResolvedValue({
+      attempt: {
+        id: 'attempt-1',
+        intent_id: 'intent-1',
+        requested_amount_kopeks: 500,
+        payment_method: 'platega',
+        payment_option: '2',
+        provider_method_code: null,
+        status: 'operator_review',
+        credited_amount_kopeks: null,
+        can_create_new_attempt: false,
+        action_required: true,
+      },
+      intent: { id: 'intent-1', purchase_state: 'draft', fulfillment_status: null },
+    });
+
+    renderFlow({ intentId: 'intent-1', attemptId: 'attempt-1' });
+
+    await screen.findByText('subscription.deviceAddon.supportRequired');
+    const buy = screen.getByRole('button', {
+      name: 'subscription.deviceAddon.buy:123.45 ₽',
+    });
+    expect(buy).toHaveProperty('disabled', false);
+  });
+
   it('keeps terminal-origin review visible while allowing a replacement invoice', async () => {
     const shortageQuote = { ...quote, missing_kopeks: 300, balance_kopeks: 12045 };
     getIntent.mockResolvedValue({
