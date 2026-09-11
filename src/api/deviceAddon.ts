@@ -2,6 +2,7 @@ import axios from 'axios';
 import apiClient from './client';
 
 export interface DeviceAddonQuote {
+  purchase_enabled?: boolean;
   subscription_id: number;
   devices_to_add: number;
   original_device_limit: number;
@@ -77,8 +78,10 @@ export interface DeviceAddonIntent {
   receipt: DeviceAddonReceipt | null;
   fulfillment_status: DeviceAddonFulfillmentStatus | null;
   fulfillment_error_code: string | null;
+  purchase_enabled?: boolean;
   topup_attempts: DeviceAddonTopupAttempt[];
   quote?: DeviceAddonQuote | null;
+  quote_error?: { code?: string; message?: string } | null;
 }
 
 export interface DeviceAddonApiError {
