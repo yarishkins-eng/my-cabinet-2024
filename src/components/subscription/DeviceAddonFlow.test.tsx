@@ -224,7 +224,9 @@ describe('DeviceAddonFlow', () => {
     expect(screen.queryByText('balance.goToPayment')).toBeNull();
     expect(purchase).not.toHaveBeenCalled();
 
-    fireEvent.click(screen.getByRole('button', { name: 'subscription.deviceAddon.buy:123.45 ₽' }));
+    const buy = screen.getByRole('button', { name: 'subscription.deviceAddon.buy:123.45 ₽' });
+    await waitFor(() => expect(buy).toHaveProperty('disabled', false));
+    fireEvent.click(buy);
     await waitFor(() => expect(purchase).toHaveBeenCalledWith('intent-1', 'signed-fresh-quote'));
   });
 
