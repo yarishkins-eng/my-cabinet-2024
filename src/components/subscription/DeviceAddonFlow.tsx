@@ -405,7 +405,8 @@ export function DeviceAddonFlow({
     if (!targetSubscriptionId) return;
     if (
       attempt &&
-      isOutstanding(attempt.status) &&
+      attempt.status !== 'paid' &&
+      attempt.status !== 'terminal' &&
       !(await confirmDialog(
         t('subscription.deviceAddon.startNewConfirm', {
           amount: formatKopeks(attempt.requested_amount_kopeks),

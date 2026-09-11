@@ -510,52 +510,57 @@ describe('DeviceAddonFlow', () => {
     );
   });
 
-  it('asks before leaving an operation that still has an unpaid invoice', async () => {
-    const pendingAttempt = {
-      id: 'attempt-1',
-      intent_id: 'intent-1',
-      requested_amount_kopeks: 500,
-      payment_method: 'platega',
-      payment_option: '2',
-      provider_method_code: 2,
-      status: 'pending',
-      credited_amount_kopeks: null,
-      can_open_payment: true,
-      can_create_new_attempt: false,
-      action_required: false,
-    };
-    getIntent.mockResolvedValue({
-      id: 'intent-1',
-      subscription_id: 44,
-      devices_to_add: 2,
-      price_kopeks: 12345,
-      purchase_state: 'draft',
-      receipt: null,
-      fulfillment_status: null,
-      fulfillment_error_code: null,
-      topup_attempts: [pendingAttempt],
-      quote,
-    });
-    getTopup.mockResolvedValue({
-      attempt: pendingAttempt,
-      intent: { id: 'intent-1', purchase_state: 'draft', fulfillment_status: null },
-      payment_url: 'https://provider.example/pay',
-    });
-    confirmDialog.mockResolvedValue(false);
+  it.each(['pending', 'operator_review'] as const)(
+    'asks before leaving an operation that has an unpaid %s invoice',
+    async (attemptStatus) => {
+      const pendingAttempt = {
+        id: 'attempt-1',
+        intent_id: 'intent-1',
+        requested_amount_kopeks: 500,
+        payment_method: 'platega',
+        payment_option: '2',
+        provider_method_code: 2,
+        status: attemptStatus,
+        credited_amount_kopeks: null,
+        can_open_payment: true,
+        can_create_new_attempt: false,
+        action_required: false,
+      };
+      getIntent.mockResolvedValue({
+        id: 'intent-1',
+        subscription_id: 44,
+        devices_to_add: 2,
+        price_kopeks: 12345,
+        purchase_state: 'draft',
+        receipt: null,
+        fulfillment_status: null,
+        fulfillment_error_code: null,
+        topup_attempts: [pendingAttempt],
+        quote,
+      });
+      getTopup.mockResolvedValue({
+        attempt: pendingAttempt,
+        intent: { id: 'intent-1', purchase_state: 'draft', fulfillment_status: null },
+        payment_url: 'https://provider.example/pay',
+      });
+      confirmDialog.mockResolvedValue(false);
 
-    renderOwnedFlowRouter();
-    fireEvent.click(
-      await screen.findByRole('button', { name: 'subscription.deviceAddon.chooseAnother' }),
-    );
+      renderOwnedFlowRouter();
+      fireEvent.click(
+        await screen.findByRole('button', { name: 'subscription.deviceAddon.chooseAnother' }),
+      );
 
-    await waitFor(() =>
-      expect(confirmDialog).toHaveBeenCalledWith(
-        'subscription.deviceAddon.startNewConfirm:5 ₽',
-        'subscription.deviceAddon.startNewTitle',
-      ),
-    );
-    expect(screen.getByTestId('location').textContent).toBe('/subscription/device-topup/intent-1');
-  });
+      await waitFor(() =>
+        expect(confirmDialog).toHaveBeenCalledWith(
+          'subscription.deviceAddon.startNewConfirm:5 ₽',
+          'subscription.deviceAddon.startNewTitle',
+        ),
+      );
+      expect(screen.getByTestId('location').textContent).toBe(
+        '/subscription/device-topup/intent-1',
+      );
+    },
+  );
 
   it('uses a server create error, clears its retry key, and retries for the same or new quantity', async () => {
     getQuote.mockResolvedValue(quote);
