@@ -697,6 +697,8 @@
       "quoteRefreshing": "We are refreshing the quote. Purchase is temporarily unavailable.",
       "purchaseUnavailable": "Device purchases are temporarily unavailable.",
       "chooseAnother": "Choose another quantity",
+      "startNewTitle": "New operation",
+      "startNewConfirm": "You have an unpaid invoice for {{amount}}. Start a new operation? If you still pay the old invoice, the money will be credited to your balance.",
       "buyMore": "Buy more devices",
       "supportRequired": "This operation needs support. Do not pay again.",
       "replacementSupportRequired": "The old invoice needs support review. Do not pay that invoice. You can create a new invoice below.",

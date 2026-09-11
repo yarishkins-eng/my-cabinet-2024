@@ -14,7 +14,7 @@ import {
 } from '@/api/deviceAddon';
 import { useAuthStore } from '@/store/auth';
 import { isInTelegramWebApp } from '@/hooks/useTelegramSDK';
-import { usePlatform } from '@/platform';
+import { useNativeDialog, usePlatform } from '@/platform';
 import {
   bindIntentRetry,
   clearIntentRetry,
@@ -73,6 +73,7 @@ export function DeviceAddonFlow({
   const queryClient = useQueryClient();
   const user = useAuthStore((state) => state.user);
   const { openLink, openTelegramLink } = usePlatform();
+  const { confirm: confirmDialog } = useNativeDialog();
   const [devices, setDevices] = useState(Math.max(1, initialDevices));
   const [intent, setIntent] = useState<DeviceAddonIntent | null>(null);
   const [attempt, setAttempt] = useState<DeviceAddonTopupAttempt | null>(null);
@@ -399,9 +400,21 @@ export function DeviceAddonFlow({
     inFlightRef.current = true;
     topupMutation.mutate(quote, { onSettled: () => (inFlightRef.current = false) });
   };
-  const handleStartNew = () => {
+  const handleStartNew = async () => {
     const targetSubscriptionId = intentRef.current?.subscription_id ?? intent?.subscription_id;
     if (!targetSubscriptionId) return;
+    if (
+      attempt &&
+      isOutstanding(attempt.status) &&
+      !(await confirmDialog(
+        t('subscription.deviceAddon.startNewConfirm', {
+          amount: formatKopeks(attempt.requested_amount_kopeks),
+        }),
+        t('subscription.deviceAddon.startNewTitle'),
+      ))
+    ) {
+      return;
+    }
     if (user) clearIntentRetry(user.id, targetSubscriptionId);
     navigate(`/subscription/device-topup/new?subscription_id=${targetSubscriptionId}`);
   };
@@ -465,7 +478,11 @@ export function DeviceAddonFlow({
           </Link>
         )}
         {purchaseEnabled && intentIdProp && intent && (
-          <button type="button" onClick={handleStartNew} className="btn-secondary w-full py-3">
+          <button
+            type="button"
+            onClick={() => void handleStartNew()}
+            className="btn-secondary w-full py-3"
+          >
             {t('subscription.deviceAddon.buyMore')}
           </button>
         )}
@@ -483,7 +500,11 @@ export function DeviceAddonFlow({
             getApiErrorMessage(error, t('subscription.deviceAddon.freshQuoteRequired'))}
         </p>
         {purchaseEnabled && intentIdProp && intent && (
-          <button type="button" onClick={handleStartNew} className="btn-secondary w-full py-3">
+          <button
+            type="button"
+            onClick={() => void handleStartNew()}
+            className="btn-secondary w-full py-3"
+          >
             {t('subscription.deviceAddon.chooseAnother')}
           </button>
         )}
@@ -687,7 +708,11 @@ export function DeviceAddonFlow({
       ) : null}
 
       {purchaseEnabled && intentIdProp && intent && (
-        <button type="button" onClick={handleStartNew} className="btn-secondary w-full py-3">
+        <button
+          type="button"
+          onClick={() => void handleStartNew()}
+          className="btn-secondary w-full py-3"
+        >
           {t('subscription.deviceAddon.chooseAnother')}
         </button>
       )}
