@@ -521,7 +521,12 @@ export const adminUsersApi = {
   retryDeviceAddonFulfillment: async (
     userId: number,
     intentPublicId: string,
-  ): Promise<{ success: boolean; message: string; public_id: string; fulfillment_state: string }> => {
+  ): Promise<{
+    success: boolean;
+    message: string;
+    public_id: string;
+    fulfillment_state: string;
+  }> => {
     const response = await apiClient.post(
       `/cabinet/admin/users/${userId}/device-addons/${intentPublicId}/retry-fulfillment`,
     );
