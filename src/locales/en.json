@@ -3537,6 +3537,7 @@
           "summary": "+{{devices}} devices · ₽{{amount}}",
           "payment": "Invoice: {{status}} · ₽{{amount}}",
           "states": {
+            "draft": "Draft, unpaid",
             "pending": "Fulfillment pending",
             "ready": "Devices added",
             "needs_attention": "Needs review"

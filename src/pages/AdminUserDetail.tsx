@@ -78,7 +78,9 @@ export function DeviceAddonAdminBlock({
                     })}
                   </span>
                   <span className="text-dark-300">
-                    {t(`admin.users.detail.deviceAddons.states.${item.fulfillment_state}`)}
+                    {t(
+                      `admin.users.detail.deviceAddons.states.${item.purchase_state === 'draft' ? 'draft' : item.fulfillment_state}`,
+                    )}
                   </span>
                 </div>
                 {item.reason && (

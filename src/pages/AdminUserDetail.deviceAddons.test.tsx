@@ -47,6 +47,13 @@ describe('AdminUserDetail device add-ons', () => {
             fulfillment_state: 'ready',
             reason: null,
           },
+          {
+            ...needsAttention,
+            public_id: '74f736cb-8cb9-4c44-a6b7-b44c93a1e633',
+            purchase_state: 'draft',
+            fulfillment_state: 'pending',
+            reason: null,
+          },
         ]}
         loading={false}
         canRetry
@@ -57,7 +64,8 @@ describe('AdminUserDetail device add-ons', () => {
 
     expect(screen.getByText('admin.users.detail.deviceAddons.title')).toBeTruthy();
     expect(screen.getByText('panel_patch_failed|automatic_attempts_exhausted')).toBeTruthy();
-    expect(screen.getAllByText(/wallet_credited_purchase_requires_confirmation/)).toHaveLength(2);
+    expect(screen.getAllByText(/wallet_credited_purchase_requires_confirmation/)).toHaveLength(3);
+    expect(screen.getByText('admin.users.detail.deviceAddons.states.draft')).toBeTruthy();
     const buttons = screen.getAllByRole('button', {
       name: 'admin.users.detail.deviceAddons.retry',
     });

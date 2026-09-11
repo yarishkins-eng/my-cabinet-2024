@@ -3943,6 +3943,7 @@
           "summary": "+{{devices}} устр. · {{amount}} ₽",
           "payment": "Счёт: {{status}} · {{amount}} ₽",
           "states": {
+            "draft": "Черновик, не оплачен",
             "pending": "Выдача ожидается",
             "ready": "Устройства выданы",
             "needs_attention": "Нужна проверка"
