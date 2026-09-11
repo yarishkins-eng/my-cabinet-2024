@@ -5,12 +5,14 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { MemoryRouter } from 'react-router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { searchPayments, getSearchStats, closeDeviceAddonAttempt, confirmDialog } = vi.hoisted(() => ({
-  searchPayments: vi.fn(),
-  getSearchStats: vi.fn(),
-  closeDeviceAddonAttempt: vi.fn(),
-  confirmDialog: vi.fn(),
-}));
+const { searchPayments, getSearchStats, closeDeviceAddonAttempt, confirmDialog } = vi.hoisted(
+  () => ({
+    searchPayments: vi.fn(),
+    getSearchStats: vi.fn(),
+    closeDeviceAddonAttempt: vi.fn(),
+    confirmDialog: vi.fn(),
+  }),
+);
 
 vi.mock('../api/adminPayments', () => ({
   adminPaymentsApi: {
@@ -79,8 +81,20 @@ describe('AdminPayments device add-on recovery', () => {
     getSearchStats.mockReset();
     closeDeviceAddonAttempt.mockReset();
     confirmDialog.mockReset();
-    searchPayments.mockResolvedValue({ items: [addonPayment], total: 1, page: 1, per_page: 20, pages: 1 });
-    getSearchStats.mockResolvedValue({ total: 1, pending: 1, paid: 0, cancelled: 0, by_method: {} });
+    searchPayments.mockResolvedValue({
+      items: [addonPayment],
+      total: 1,
+      page: 1,
+      per_page: 20,
+      pages: 1,
+    });
+    getSearchStats.mockResolvedValue({
+      total: 1,
+      pending: 1,
+      paid: 0,
+      cancelled: 0,
+      by_method: {},
+    });
     confirmDialog.mockResolvedValue(true);
     closeDeviceAddonAttempt.mockResolvedValue({
       success: true,
@@ -101,7 +115,9 @@ describe('AdminPayments device add-on recovery', () => {
     expect(screen.getByText(addonPayment.device_addon_reason_text)).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'admin.payments.closeAttempt' }));
 
-    await waitFor(() => expect(confirmDialog).toHaveBeenCalledWith('admin.payments.closeAttemptConfirm'));
+    await waitFor(() =>
+      expect(confirmDialog).toHaveBeenCalledWith('admin.payments.closeAttemptConfirm'),
+    );
     await waitFor(() => expect(closeDeviceAddonAttempt).toHaveBeenCalledWith('platega', 41));
   });
 
@@ -111,7 +127,9 @@ describe('AdminPayments device add-on recovery', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: 'admin.payments.closeAttempt' }));
 
-    await waitFor(() => expect(confirmDialog).toHaveBeenCalledWith('admin.payments.closeAttemptConfirm'));
+    await waitFor(() =>
+      expect(confirmDialog).toHaveBeenCalledWith('admin.payments.closeAttemptConfirm'),
+    );
     expect(closeDeviceAddonAttempt).not.toHaveBeenCalled();
   });
 
@@ -127,5 +145,27 @@ describe('AdminPayments device add-on recovery', () => {
 
     expect(await screen.findByText('admin.payments.deviceAddon')).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'admin.payments.closeAttempt' })).toBeNull();
+  });
+
+  it('shows the structured backend reason when closing is rejected', async () => {
+    closeDeviceAddonAttempt.mockRejectedValue({
+      isAxiosError: true,
+      response: {
+        status: 409,
+        data: {
+          detail: {
+            code: 'attempt_cannot_be_closed',
+            message: 'Счёт уже получил ID провайдера; закройте его после проверки.',
+          },
+        },
+      },
+    });
+    renderPage();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'admin.payments.closeAttempt' }));
+
+    expect(
+      await screen.findByText('Счёт уже получил ID провайдера; закройте его после проверки.'),
+    ).toBeTruthy();
   });
 });

@@ -18,6 +18,7 @@ import {
   type AdminDeviceAddonIntent,
 } from '../api/adminUsers';
 import { promocodesApi, type PromoGroup } from '../api/promocodes';
+import { getDeviceAddonError } from '../api/deviceAddon';
 import { RefreshIcon, TelegramSmallIcon as TelegramIcon } from '@/components/icons';
 import { AdminBackButton } from '../components/admin';
 import { GiftsTab } from '../components/admin/userDetail/GiftsTab';
@@ -414,7 +415,8 @@ export default function AdminUserDetail() {
       await deviceAddonsQuery.refetch();
     } catch (error) {
       notify.error(
-        getApiErrorMessage(error, t('admin.users.detail.deviceAddons.retryError')),
+        getDeviceAddonError(error)?.message ??
+          getApiErrorMessage(error, t('admin.users.detail.deviceAddons.retryError')),
         t('common.error'),
       );
     } finally {

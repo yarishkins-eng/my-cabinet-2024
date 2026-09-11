@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { adminPaymentsApi, type SearchStats } from '../api/adminPayments';
+import { getDeviceAddonError } from '../api/deviceAddon';
 import { DateField } from '../components/DateField';
 import { useCurrency } from '../hooks/useCurrency';
 import type { PendingPayment, PaginatedResponse } from '../types';
@@ -617,7 +618,8 @@ export default function AdminPayments() {
                     closeAttemptMutation.variables?.paymentId === payment.id &&
                     closeAttemptMutation.variables?.method === payment.method && (
                       <div className="mt-3 rounded-lg border border-error-500/30 bg-error-500/10 p-2 text-sm text-error-400">
-                        {t('admin.payments.closeAttemptError')}
+                        {getDeviceAddonError(closeAttemptMutation.error)?.message ??
+                          t('admin.payments.closeAttemptError')}
                       </div>
                     )}
                 </div>
