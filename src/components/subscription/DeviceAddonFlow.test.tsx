@@ -3,7 +3,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { MemoryRouter, Route, Routes, useLocation, useParams } from 'react-router';
+import { MemoryRouter, Route, Routes, useLocation } from 'react-router';
 
 const { getQuote, getIntent, createIntent, purchase, createTopup, getTopup } = vi.hoisted(() => ({
   getQuote: vi.fn(),
@@ -38,6 +38,7 @@ vi.mock('react-i18next', () => ({
 
 import { DeviceAddonFlow } from './DeviceAddonFlow';
 import { getDeviceAddonError } from '@/api/deviceAddon';
+import DeviceAddon from '@/pages/DeviceAddon';
 
 const quote = {
   subscription_id: 44,
@@ -90,11 +91,6 @@ function LocationProbe() {
   return <output data-testid="location">{location.pathname + location.search}</output>;
 }
 
-function OwnedFlowRoute() {
-  const { intentId } = useParams<{ intentId: string }>();
-  return <DeviceAddonFlow subscriptionId={0} initialDevices={2} intentId={intentId} />;
-}
-
 function renderNewFlowRouter() {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
@@ -110,7 +106,7 @@ function renderNewFlowRouter() {
               path="/subscription/device-topup/new"
               element={<DeviceAddonFlow subscriptionId={44} initialDevices={2} />}
             />
-            <Route path="/subscription/device-topup/:intentId" element={<OwnedFlowRoute />} />
+            <Route path="/subscription/device-topup/:intentId" element={<DeviceAddon />} />
           </Routes>
         </QueryClientProvider>
       </MemoryRouter>,
@@ -129,11 +125,8 @@ function renderOwnedFlowRouter(intentId = 'intent-1') {
         <QueryClientProvider client={queryClient}>
           <LocationProbe />
           <Routes>
-            <Route path="/subscription/device-topup/:intentId" element={<OwnedFlowRoute />} />
-            <Route
-              path="/subscription/device-topup/new"
-              element={<DeviceAddonFlow subscriptionId={44} initialDevices={2} />}
-            />
+            <Route path="/subscription/device-topup/:intentId" element={<DeviceAddon />} />
+            <Route path="/subscription/device-topup/new" element={<DeviceAddon />} />
           </Routes>
         </QueryClientProvider>
       </MemoryRouter>,
@@ -408,6 +401,12 @@ describe('DeviceAddonFlow', () => {
   });
 
   it('clears a purchased retry key and starts another purchase with the owned subscription id', async () => {
+    getQuote.mockResolvedValue({
+      ...quote,
+      devices_to_add: 1,
+      new_device_limit: 3,
+      chargeable_devices: 1,
+    });
     localStorage.setItem(
       'device_addon_v1:intent:10:44',
       JSON.stringify({
@@ -442,6 +441,11 @@ describe('DeviceAddonFlow', () => {
         '/subscription/device-topup/new?subscription_id=44',
       ),
     );
+    await waitFor(() => expect(getQuote).toHaveBeenCalledWith(44, 1));
+    expect(screen.queryByRole('button', { name: 'subscription.deviceAddon.buyMore' })).toBeNull();
+    expect(
+      await screen.findByRole('button', { name: 'subscription.deviceAddon.buy:123.45 ₽' }),
+    ).toBeTruthy();
   });
 
   it('lets a historical draft choose another quantity using the intent subscription id', async () => {
@@ -530,7 +534,9 @@ describe('DeviceAddonFlow', () => {
     renderFlow({ intentId: undefined, attemptId: undefined });
     await screen.findByText('subscription.deviceAddon.purchaseUnavailable');
     expect(getPaymentMethods).not.toHaveBeenCalled();
-    expect(screen.queryByRole('button', { name: /subscription\.deviceAddon\.(buy|topup)/ })).toBeNull();
+    expect(
+      screen.queryByRole('button', { name: /subscription\.deviceAddon\.(buy|topup)/ }),
+    ).toBeNull();
     expect(screen.queryByText('balance.goToPayment')).toBeNull();
   });
 
@@ -567,7 +573,9 @@ describe('DeviceAddonFlow', () => {
 
     renderFlow({ intentId: 'intent-1', attemptId: 'attempt-1' });
     await screen.findByText('subscription.deviceAddon.awaitingPayment');
-    expect(screen.getByRole('button', { name: 'subscription.deviceAddon.checkStatus' })).toBeTruthy();
+    expect(
+      screen.getByRole('button', { name: 'subscription.deviceAddon.checkStatus' }),
+    ).toBeTruthy();
     expect(screen.queryByText('balance.goToPayment')).toBeNull();
     expect(getPaymentMethods).not.toHaveBeenCalled();
   });
@@ -593,9 +601,7 @@ describe('DeviceAddonFlow', () => {
     getQuote.mockResolvedValue(quote);
     createIntent.mockResolvedValue({ ...draft, quote });
     getIntent.mockResolvedValue(draft);
-    purchase.mockRejectedValue(
-      axiosApiError(409, 'quote_changed', 'price changed', changedQuote),
-    );
+    purchase.mockRejectedValue(axiosApiError(409, 'quote_changed', 'price changed', changedQuote));
     renderFlow({ intentId: undefined, attemptId: undefined });
     fireEvent.click(
       await screen.findByRole('button', { name: 'subscription.deviceAddon.buy:123.45 ₽' }),

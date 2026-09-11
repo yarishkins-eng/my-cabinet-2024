@@ -24,6 +24,7 @@ export default function DeviceAddon() {
   return (
     <div className="mx-auto max-w-lg py-4">
       <DeviceAddonFlow
+        key={intentId ? `intent:${intentId}` : `new:${subscriptionId}`}
         subscriptionId={intentId ? 0 : subscriptionId}
         initialDevices={Number.isInteger(devices) && devices > 0 ? devices : 1}
         intentId={intentId}
