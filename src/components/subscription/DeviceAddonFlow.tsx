@@ -497,9 +497,12 @@ export function DeviceAddonFlow({
     : shownQuote.missing_kopeks;
   const waitingForPayment = attempt && isOutstanding(attempt.status);
   const paid = attempt?.status === 'paid';
-  const manualHold =
-    attempt?.status === 'operator_review' || intent?.fulfillment_status === 'needs_attention';
   const canCreateAnotherAttempt = !attempt || attempt.can_create_new_attempt === true;
+  const supportRequired =
+    attempt?.status === 'operator_review' || intent?.fulfillment_status === 'needs_attention';
+  const manualHold =
+    intent?.fulfillment_status === 'needs_attention' ||
+    (attempt?.status === 'operator_review' && !canCreateAnotherAttempt);
 
   return (
     <div className="space-y-5">
@@ -556,7 +559,7 @@ export function DeviceAddonFlow({
         </p>
       )}
 
-      {manualHold && (
+      {supportRequired && (
         <div className="space-y-3 rounded-xl bg-warning-500/10 p-3 text-center text-sm text-warning-400">
           <p>{t('subscription.deviceAddon.supportRequired')}</p>
           <Link to="/support" className="btn-secondary block w-full py-3">
