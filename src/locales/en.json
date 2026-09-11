@@ -3528,6 +3528,19 @@
         "offerSent": "Offer sent",
         "offerSendError": "Failed to send offer",
         "offerDeactivated": "Offer deactivated",
+        "deviceAddons": {
+          "title": "Device add-ons",
+          "summary": "+{{devices}} devices · ₽{{amount}}",
+          "payment": "Invoice: {{status}} · ₽{{amount}}",
+          "states": {
+            "pending": "Fulfillment pending",
+            "ready": "Devices added",
+            "needs_attention": "Needs review"
+          },
+          "retry": "Retry fulfillment",
+          "retrying": "Queuing…",
+          "retryError": "Could not retry fulfillment"
+        },
         "subscription": {
           "current": "Current subscription",
           "tariff": "Tariff",

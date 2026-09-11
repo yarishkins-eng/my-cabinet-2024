@@ -3934,6 +3934,19 @@
           "title": "Действия",
           "areYouSure": "Уверены?"
         },
+        "deviceAddons": {
+          "title": "Докупка устройств",
+          "summary": "+{{devices}} устр. · {{amount}} ₽",
+          "payment": "Счёт: {{status}} · {{amount}} ₽",
+          "states": {
+            "pending": "Выдача ожидается",
+            "ready": "Устройства выданы",
+            "needs_attention": "Нужна проверка"
+          },
+          "retry": "Повторить выдачу",
+          "retrying": "Ставим в очередь…",
+          "retryError": "Не удалось повторить выдачу"
+        },
         "subscription": {
           "current": "Текущая подписка",
           "tariff": "Тариф",

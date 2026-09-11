@@ -15,6 +15,7 @@ import {
   type UpdateSubscriptionRequest,
   type AdminUserGiftsResponse,
   type SubscriptionRequestRecord,
+  type AdminDeviceAddonIntent,
 } from '../api/adminUsers';
 import { promocodesApi, type PromoGroup } from '../api/promocodes';
 import { RefreshIcon, TelegramSmallIcon as TelegramIcon } from '@/components/icons';
@@ -35,6 +36,79 @@ import { usePermissionStore } from '../store/permissions';
 // components/admin/userDetail/{SubscriptionTab,GiftsTab,InfoTab,SyncTab}.tsx)
 
 // ============ Main Page ============
+
+interface DeviceAddonAdminBlockProps {
+  items: AdminDeviceAddonIntent[];
+  loading: boolean;
+  canRetry: boolean;
+  retryingId: string | null;
+  onRetry: (publicId: string) => Promise<void>;
+}
+
+export function DeviceAddonAdminBlock({
+  items,
+  loading,
+  canRetry,
+  retryingId,
+  onRetry,
+}: DeviceAddonAdminBlockProps) {
+  const { t } = useTranslation();
+  if (!loading && items.length === 0) return null;
+  return (
+    <section className="mb-4 rounded-xl border border-dark-700/50 bg-dark-800/50 p-4">
+      <h3 className="mb-3 text-sm font-semibold text-dark-100">
+        {t('admin.users.detail.deviceAddons.title')}
+      </h3>
+      {loading ? (
+        <p className="text-sm text-dark-400">{t('common.loading')}</p>
+      ) : (
+        <div className="space-y-3">
+          {items.map((item) => {
+            const retryAllowed =
+              canRetry && item.purchase_state === 'purchased' && item.fulfillment_state === 'needs_attention';
+            return (
+              <div key={item.public_id} className="rounded-lg border border-dark-700 p-3 text-sm">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="font-medium text-dark-100">
+                    {t('admin.users.detail.deviceAddons.summary', {
+                      devices: item.devices_to_add,
+                      amount: (item.price_kopeks / 100).toFixed(2),
+                    })}
+                  </span>
+                  <span className="text-dark-300">
+                    {t(`admin.users.detail.deviceAddons.states.${item.fulfillment_state}`)}
+                  </span>
+                </div>
+                {item.reason && <p className="mt-2 break-words text-xs text-amber-300">{item.reason}</p>}
+                {item.attempts.map((attempt) => (
+                  <p key={attempt.public_id} className="mt-2 text-xs text-dark-400">
+                    {t('admin.users.detail.deviceAddons.payment', {
+                      status: attempt.status,
+                      amount: (attempt.amount_kopeks / 100).toFixed(2),
+                    })}
+                    {attempt.reason ? ` · ${attempt.reason}` : ''}
+                  </p>
+                ))}
+                {item.purchase_state === 'purchased' && (
+                  <button
+                    type="button"
+                    onClick={() => void onRetry(item.public_id)}
+                    disabled={!retryAllowed || retryingId === item.public_id}
+                    className="mt-3 rounded-lg bg-primary-600 px-3 py-2 text-xs font-medium text-white disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {retryingId === item.public_id
+                      ? t('admin.users.detail.deviceAddons.retrying')
+                      : t('admin.users.detail.deviceAddons.retry')}
+                  </button>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </section>
+  );
+}
 
 export default function AdminUserDetail() {
   const { t } = useTranslation();
@@ -119,6 +193,7 @@ export default function AdminUserDetail() {
   const [editingDeviceHwid, setEditingDeviceHwid] = useState<string | null>(null);
   const [editingDeviceName, setEditingDeviceName] = useState('');
   const [renameSaving, setRenameSaving] = useState(false);
+  const [addonRetryingId, setAddonRetryingId] = useState<string | null>(null);
 
   // Gifts
   const [giftsData, setGiftsData] = useState<AdminUserGiftsResponse | null>(null);
@@ -209,6 +284,11 @@ export default function AdminUserDetail() {
     queryKey: ['admin-user-devices', userId, activeSubscriptionId] as const,
     queryFn: () =>
       adminUsersApi.getUserDevices(userId as number, activeSubscriptionId ?? undefined),
+    enabled: !!userId && !isNaN(userId) && activeTab === 'subscription',
+  });
+  const deviceAddonsQuery = useQuery({
+    queryKey: ['admin-user-device-addons', userId] as const,
+    queryFn: () => adminUsersApi.getUserDeviceAddons(userId as number),
     enabled: !!userId && !isNaN(userId) && activeTab === 'subscription',
   });
   const giftsQuery = useQuery({
@@ -318,6 +398,23 @@ export default function AdminUserDetail() {
   const loadSubscriptionData = useCallback(async () => {
     await Promise.all([loadPanelInfo(), loadNodeUsage(), loadDevices()]);
   }, [loadPanelInfo, loadNodeUsage, loadDevices]);
+
+  const handleRetryDeviceAddon = async (intentPublicId: string) => {
+    if (!userId) return;
+    setAddonRetryingId(intentPublicId);
+    try {
+      const result = await adminUsersApi.retryDeviceAddonFulfillment(userId, intentPublicId);
+      notify.success(result.message);
+      await deviceAddonsQuery.refetch();
+    } catch (error) {
+      notify.error(
+        getApiErrorMessage(error, t('admin.users.detail.deviceAddons.retryError')),
+        t('common.error'),
+      );
+    } finally {
+      setAddonRetryingId(null);
+    }
+  };
 
   // (handleTicketReply / handleTicketStatusChange + selected-ticket/scroll
   // useEffects moved into TicketsTab.tsx)
@@ -954,7 +1051,15 @@ export default function AdminUserDetail() {
 
         {/* Subscription Tab */}
         {activeTab === 'subscription' && (
-          <SubscriptionTab
+          <>
+            <DeviceAddonAdminBlock
+              items={deviceAddonsQuery.data?.items ?? []}
+              loading={deviceAddonsQuery.isFetching}
+              canRetry={hasPermission('users:subscription')}
+              retryingId={addonRetryingId}
+              onRetry={handleRetryDeviceAddon}
+            />
+            <SubscriptionTab
             userSubscriptions={userSubscriptions}
             selectedSub={selectedSub}
             activeSubscriptionId={activeSubscriptionId}
@@ -1011,7 +1116,8 @@ export default function AdminUserDetail() {
             hasPermission={hasPermission}
             formatDate={formatDate}
             locale={locale}
-          />
+            />
+          </>
         )}
 
         {/* Balance Tab */}
