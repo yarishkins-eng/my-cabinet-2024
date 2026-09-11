@@ -503,6 +503,10 @@ export function DeviceAddonFlow({
   const manualHold =
     intent?.fulfillment_status === 'needs_attention' ||
     (attempt?.status === 'operator_review' && !canCreateAnotherAttempt);
+  const supportMessageKey =
+    attempt?.status === 'operator_review' && canCreateAnotherAttempt
+      ? 'subscription.deviceAddon.replacementSupportRequired'
+      : 'subscription.deviceAddon.supportRequired';
 
   return (
     <div className="space-y-5">
@@ -561,64 +565,72 @@ export function DeviceAddonFlow({
 
       {supportRequired && (
         <div className="space-y-3 rounded-xl bg-warning-500/10 p-3 text-center text-sm text-warning-400">
-          <p>{t('subscription.deviceAddon.supportRequired')}</p>
+          <p>{t(supportMessageKey)}</p>
           <Link to="/support" className="btn-secondary block w-full py-3">
             {t('nav.support')}
           </Link>
         </div>
       )}
 
-      {purchaseEnabled && needsTopup && !waitingForPayment && !manualHold && canCreateAnotherAttempt && (
-        <div className="space-y-3 rounded-xl border border-accent-500/20 bg-accent-500/5 p-4">
-          <p className="text-sm text-dark-200">
-            {t('subscription.deviceAddon.missing', {
-              amount: formatKopeks(shownQuote.missing_kopeks),
-            })}
-          </p>
-          {platega?.options && platega.options.length > 1 && (
-            <div className="grid grid-cols-2 gap-2">
-              {platega.options.map((option) => (
-                <button
-                  key={option.id}
-                  type="button"
-                  onClick={() => setSelectedOption(option.id)}
-                  className={
-                    selectedOption === option.id
-                      ? 'rounded-xl bg-accent-500/20 p-3 text-sm text-accent-300 ring-1 ring-accent-400'
-                      : 'rounded-xl bg-dark-800 p-3 text-sm text-dark-300'
-                  }
-                >
-                  {option.name}
-                </button>
-              ))}
-            </div>
-          )}
-          {!platega && !methodsQuery.isLoading && (
-            <p className="text-sm text-error-400">
-              {t('subscription.deviceAddon.paymentUnavailable')}
+      {purchaseEnabled &&
+        needsTopup &&
+        !waitingForPayment &&
+        !manualHold &&
+        canCreateAnotherAttempt && (
+          <div className="space-y-3 rounded-xl border border-accent-500/20 bg-accent-500/5 p-4">
+            <p className="text-sm text-dark-200">
+              {t('subscription.deviceAddon.missing', {
+                amount: formatKopeks(shownQuote.missing_kopeks),
+              })}
             </p>
-          )}
-          <button
-            type="button"
-            disabled={!quoteReady || !platega || !selectedOption || busy}
-            onClick={handleTopup}
-            className="btn-primary w-full py-3"
-          >
-            {busy
-              ? t('common.loading')
-              : t('subscription.deviceAddon.topup', { amount: formatKopeks(invoiceAmount) })}
-          </button>
-        </div>
-      )}
+            {platega?.options && platega.options.length > 1 && (
+              <div className="grid grid-cols-2 gap-2">
+                {platega.options.map((option) => (
+                  <button
+                    key={option.id}
+                    type="button"
+                    onClick={() => setSelectedOption(option.id)}
+                    className={
+                      selectedOption === option.id
+                        ? 'rounded-xl bg-accent-500/20 p-3 text-sm text-accent-300 ring-1 ring-accent-400'
+                        : 'rounded-xl bg-dark-800 p-3 text-sm text-dark-300'
+                    }
+                  >
+                    {option.name}
+                  </button>
+                ))}
+              </div>
+            )}
+            {!platega && !methodsQuery.isLoading && (
+              <p className="text-sm text-error-400">
+                {t('subscription.deviceAddon.paymentUnavailable')}
+              </p>
+            )}
+            <button
+              type="button"
+              disabled={!quoteReady || !platega || !selectedOption || busy}
+              onClick={handleTopup}
+              className="btn-primary w-full py-3"
+            >
+              {busy
+                ? t('common.loading')
+                : t('subscription.deviceAddon.topup', { amount: formatKopeks(invoiceAmount) })}
+            </button>
+          </div>
+        )}
 
-      {purchaseEnabled && needsTopup && !waitingForPayment && !manualHold && !canCreateAnotherAttempt && (
-        <div className="space-y-3 rounded-xl bg-warning-500/10 p-3 text-center text-sm text-warning-400">
-          <p>{t('subscription.deviceAddon.supportRequired')}</p>
-          <Link to="/support" className="btn-secondary block w-full py-3">
-            {t('nav.support')}
-          </Link>
-        </div>
-      )}
+      {purchaseEnabled &&
+        needsTopup &&
+        !waitingForPayment &&
+        !manualHold &&
+        !canCreateAnotherAttempt && (
+          <div className="space-y-3 rounded-xl bg-warning-500/10 p-3 text-center text-sm text-warning-400">
+            <p>{t(supportMessageKey)}</p>
+            <Link to="/support" className="btn-secondary block w-full py-3">
+              {t('nav.support')}
+            </Link>
+          </div>
+        )}
 
       {waitingForPayment && (
         <div className="space-y-3 rounded-xl border border-dark-700 p-4 text-center">

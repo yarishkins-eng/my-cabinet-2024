@@ -885,11 +885,10 @@ describe('DeviceAddonFlow', () => {
 
     renderFlow({ intentId: 'intent-1', attemptId: 'attempt-1' });
 
-    await screen.findByText('subscription.deviceAddon.supportRequired');
+    await screen.findByText('subscription.deviceAddon.replacementSupportRequired');
+    expect(screen.queryByText('subscription.deviceAddon.supportRequired')).toBeNull();
     expect(screen.getByRole('link', { name: 'nav.support' }).getAttribute('href')).toBe('/support');
-    expect(
-      screen.getByRole('button', { name: 'subscription.deviceAddon.topup:3 ₽' }),
-    ).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'subscription.deviceAddon.topup:3 ₽' })).toBeTruthy();
   });
 
   it('creates one durable top-up attempt on a double click and sends the backend enum', async () => {

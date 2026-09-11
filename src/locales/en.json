@@ -698,6 +698,7 @@
       "chooseAnother": "Choose another quantity",
       "buyMore": "Buy more devices",
       "supportRequired": "This operation needs support. Do not pay again.",
+      "replacementSupportRequired": "The old invoice needs support review. Do not pay that invoice. You can create a new invoice below.",
       "pendingRetry": "There is an unfinished operation. Open it again or contact support.",
       "storageUnavailable": "We could not safely save this operation for retry. Open the purchase again.",
       "openError": "We could not open the device purchase.",
