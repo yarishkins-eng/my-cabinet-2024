@@ -23,25 +23,42 @@ vi.mock('@/store/auth', () => ({
   useAuthStore: (selector: (state: { user: { id: number } }) => unknown) =>
     selector({ user: { id: 10 } }),
 }));
-const { openLink, openTelegramLink, confirmDialog } = vi.hoisted(() => ({
+const { openLink, openTelegramLink, confirmDialog, notifyMock } = vi.hoisted(() => ({
   openLink: vi.fn(),
   openTelegramLink: vi.fn(),
   confirmDialog: vi.fn(),
+  notifyMock: { info: vi.fn() },
 }));
 vi.mock('@/platform', () => ({
   usePlatform: () => ({ openLink, openTelegramLink }),
   useNativeDialog: () => ({ confirm: confirmDialog }),
+  useNotify: () => notifyMock,
 }));
 vi.mock('@/hooks/useTelegramSDK', () => ({ isInTelegramWebApp: () => false }));
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
-    t: (key: string, values?: { amount?: string }) =>
-      values?.amount === undefined ? key : `${key}:${values.amount}`,
+    t: (key: string, values?: { amount?: string }) => {
+      if (key === 'subscription.deviceAddon.checkingStatus') return 'Проверяем…';
+      if (key === 'subscription.deviceAddon.statusStillPending') {
+        return 'Счёт ещё ожидает оплаты. После оплаты статус обновится сам в течение пары минут.';
+      }
+      if (key === 'subscription.deviceAddon.statusStillChecking') {
+        return 'Счёт ещё проверяется. Повторно не оплачивайте.';
+      }
+      return values?.amount === undefined ? key : `${key}:${values.amount}`;
+    },
   }),
 }));
 
 import { DeviceAddonFlow } from './DeviceAddonFlow';
-import { getDeviceAddonError } from '@/api/deviceAddon';
+import {
+  getDeviceAddonError,
+  type DeviceAddonIntent,
+  type DeviceAddonQuote,
+  type DeviceAddonTopupAttempt,
+  type DeviceAddonTopupReadResponse,
+  type DeviceAddonTopupStatus,
+} from '@/api/deviceAddon';
 import DeviceAddon from '@/pages/DeviceAddon';
 
 const quote = {
@@ -176,6 +193,44 @@ function axiosApiError(status: number, code: string, message: string, nextQuote 
   return {
     isAxiosError: true,
     response: { status, data: { detail: { code, message, quote: nextQuote } } },
+  };
+}
+
+function makeOwnedIntent(testQuote: DeviceAddonQuote = quote): DeviceAddonIntent {
+  return {
+    id: 'intent-1',
+    subscription_id: 44,
+    devices_to_add: 2,
+    price_kopeks: 12345,
+    purchase_state: 'draft',
+    receipt: null,
+    fulfillment_status: null,
+    fulfillment_error_code: null,
+    topup_attempts: [],
+    quote: testQuote,
+  };
+}
+
+function makeTopupRead(
+  status: DeviceAddonTopupStatus,
+  overrides: Partial<DeviceAddonTopupAttempt> = {},
+): DeviceAddonTopupReadResponse {
+  return {
+    attempt: {
+      id: 'attempt-1',
+      intent_id: 'intent-1',
+      requested_amount_kopeks: 500,
+      payment_method: 'platega',
+      payment_option: '2',
+      status,
+      credited_amount_kopeks: status === 'paid' ? 500 : null,
+      can_open_payment: status === 'pending',
+      can_create_new_attempt: false,
+      action_required: status === 'operator_review',
+      ...overrides,
+    },
+    intent: { id: 'intent-1', purchase_state: 'draft', fulfillment_status: null },
+    payment_url: status === 'pending' ? 'https://provider.example/pay' : null,
   };
 }
 
@@ -1219,6 +1274,7 @@ describe('DeviceAddonFlow', () => {
         payment_option: '2',
         provider_method_code: null,
         status: 'terminal',
+        terminal_category: 'rejected',
         credited_amount_kopeks: null,
         can_open_payment: false,
         can_create_new_attempt: true,
@@ -1231,6 +1287,124 @@ describe('DeviceAddonFlow', () => {
 
     await screen.findByText('subscription.deviceAddon.providerRejected');
     expect(screen.getByRole('button', { name: 'subscription.deviceAddon.topup:3 ₽' })).toBeTruthy();
+  });
+
+  it.each([
+    ['an old backend response', {}],
+    ['a not-paid category', { terminal_category: 'not_paid' as const }],
+  ])('explains a closed unpaid invoice from %s', async (_case, terminalFields) => {
+    const shortageQuote = { ...quote, missing_kopeks: 300, balance_kopeks: 12045 };
+    getIntent.mockResolvedValue(makeOwnedIntent(shortageQuote));
+    getTopup.mockResolvedValue(
+      makeTopupRead('terminal', { can_create_new_attempt: true, ...terminalFields }),
+    );
+
+    renderFlow({ intentId: 'intent-1', attemptId: 'attempt-1' });
+
+    await screen.findByText('subscription.deviceAddon.previousInvoiceClosed');
+    expect(screen.queryByText('subscription.deviceAddon.providerRejected')).toBeNull();
+  });
+
+  it.each([
+    ['pending', 'subscription.deviceAddon.awaitingPayment'],
+    ['paid', 'subscription.deviceAddon.balanceCreditedStillMissing'],
+    ['operator_review', 'subscription.deviceAddon.supportRequired'],
+  ] as const)('does not show a closed-invoice explanation for %s', async (status, marker) => {
+    const shortageQuote = { ...quote, missing_kopeks: 300, balance_kopeks: 12045 };
+    getIntent.mockResolvedValue(makeOwnedIntent(shortageQuote));
+    getTopup.mockResolvedValue(makeTopupRead(status));
+
+    renderFlow({ intentId: 'intent-1', attemptId: 'attempt-1' });
+
+    await screen.findByText(marker);
+    expect(screen.queryByText('subscription.deviceAddon.previousInvoiceClosed')).toBeNull();
+    expect(screen.queryByText('subscription.deviceAddon.providerRejected')).toBeNull();
+  });
+
+  it('acknowledges a manual pending-status check once and blocks a second click', async () => {
+    const pending = makeTopupRead('pending');
+    let resolveManualCheck: (value: typeof pending) => void = () => undefined;
+    getIntent.mockResolvedValue(makeOwnedIntent());
+    getTopup.mockResolvedValueOnce(pending).mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveManualCheck = resolve;
+      }),
+    );
+
+    renderFlow({ intentId: 'intent-1', attemptId: 'attempt-1' });
+    const check = await screen.findByRole('button', {
+      name: 'subscription.deviceAddon.checkStatus',
+    });
+    expect(notifyMock.info).not.toHaveBeenCalled();
+
+    fireEvent.click(check);
+    const checking = await screen.findByRole('button', { name: 'Проверяем…' });
+    expect(checking).toHaveProperty('disabled', true);
+    fireEvent.click(checking);
+    expect(getTopup).toHaveBeenCalledTimes(2);
+
+    resolveManualCheck(pending);
+    await waitFor(() =>
+      expect(notifyMock.info).toHaveBeenCalledExactlyOnceWith(
+        'Счёт ещё ожидает оплаты. После оплаты статус обновится сам в течение пары минут.',
+      ),
+    );
+  });
+
+  it('warns against paying again while a manually checked invoice is reconciling', async () => {
+    getIntent.mockResolvedValue(makeOwnedIntent());
+    getTopup
+      .mockResolvedValueOnce(makeTopupRead('pending'))
+      .mockResolvedValueOnce(makeTopupRead('reconciling'));
+
+    renderFlow({ intentId: 'intent-1', attemptId: 'attempt-1' });
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'subscription.deviceAddon.checkStatus' }),
+    );
+
+    await waitFor(() =>
+      expect(notifyMock.info).toHaveBeenCalledExactlyOnceWith(
+        'Счёт ещё проверяется. Повторно не оплачивайте.',
+      ),
+    );
+  });
+
+  it('uses the refreshed paid state as the answer without a notification', async () => {
+    getIntent.mockResolvedValue(makeOwnedIntent());
+    getTopup
+      .mockResolvedValueOnce(makeTopupRead('pending'))
+      .mockResolvedValueOnce(makeTopupRead('paid'));
+
+    renderFlow({ intentId: 'intent-1', attemptId: 'attempt-1' });
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'subscription.deviceAddon.checkStatus' }),
+    );
+
+    await screen.findByText('subscription.deviceAddon.balanceCredited');
+    expect(notifyMock.info).not.toHaveBeenCalled();
+    expect(
+      screen.getByRole('button', { name: 'subscription.deviceAddon.buy:123.45 ₽' }),
+    ).toBeTruthy();
+    expect(
+      screen.queryByRole('button', { name: 'subscription.deviceAddon.checkStatus' }),
+    ).toBeNull();
+  });
+
+  it('shows a manual status-check error inline without a duplicate notification', async () => {
+    getIntent.mockResolvedValue(makeOwnedIntent());
+    getTopup
+      .mockResolvedValueOnce(makeTopupRead('pending'))
+      .mockRejectedValue(
+        axiosApiError(503, 'device_addon_status_unavailable', 'Статус сейчас недоступен'),
+      );
+
+    renderFlow({ intentId: 'intent-1', attemptId: 'attempt-1' });
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'subscription.deviceAddon.checkStatus' }),
+    );
+
+    await screen.findByText('Статус сейчас недоступен', {}, { timeout: 5_000 });
+    expect(notifyMock.info).not.toHaveBeenCalled();
   });
 
   it('creates one durable top-up attempt on a double click and sends the backend enum', async () => {
