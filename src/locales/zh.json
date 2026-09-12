@@ -443,6 +443,7 @@
       "manageServersTitle": "小队管理",
       "connectedDevices": "已连接设备",
       "currentDeviceLimit": "当前设备限制",
+      "alreadyAtMinDeviceLimit": "已达到当前套餐的最低设备限制",
       "decrementDevices": "减少设备数量",
       "disconnectDevicesFirst": "请先断开多余的设备",
       "incrementDevices": "增加设备数量",

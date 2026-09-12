@@ -445,6 +445,7 @@
       "manageServersTitle": "مدیریت اسکوادها",
       "connectedDevices": "دستگاه‌های متصل",
       "currentDeviceLimit": "محدودیت فعلی دستگاه",
+      "alreadyAtMinDeviceLimit": "حداقل محدودیت دستگاه برای تعرفه شما اعمال شده است",
       "decrementDevices": "کاهش تعداد دستگاه‌ها",
       "disconnectDevicesFirst": "ابتدا دستگاه‌های اضافی را قطع کنید",
       "incrementDevices": "افزایش تعداد دستگاه‌ها",

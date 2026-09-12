@@ -109,7 +109,9 @@ export function DeviceReductionSheet({
 
       {deviceReductionInfo?.available === false ? (
         <div className="py-4 text-center text-sm text-dark-400">
-          {deviceReductionInfo.reason || t('subscription.additionalOptions.reduceUnavailable')}
+          {deviceReductionInfo.current_device_limit <= deviceReductionInfo.min_device_limit
+            ? t('subscription.additionalOptions.alreadyAtMinDeviceLimit')
+            : deviceReductionInfo.reason || t('subscription.additionalOptions.reduceUnavailable')}
         </div>
       ) : deviceReductionInfo ? (
         <div className="space-y-4">

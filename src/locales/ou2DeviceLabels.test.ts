@@ -28,6 +28,7 @@ const expected = {
     until: 'Действует ещё 1 день',
     added: '+1 устройство',
     total: 'Всего устройств: 1',
+    minimum: 'Уже достигнут минимальный лимит устройств для вашего тарифа',
   },
   en: {
     devices: ['1 device', '2 devices', '5 devices'],
@@ -37,6 +38,7 @@ const expected = {
     until: 'Valid for 1 more day',
     added: '+1 device',
     total: 'Total devices: 1',
+    minimum: 'Already at minimum device limit for your tariff',
   },
   zh: {
     devices: ['1 台设备', '2 台设备', '5 台设备'],
@@ -46,6 +48,7 @@ const expected = {
     until: '还可使用 1 天',
     added: '+1 台设备',
     total: '总设备数：1',
+    minimum: '已达到当前套餐的最低设备限制',
   },
   fa: {
     devices: ['1 دستگاه', '2 دستگاه', '5 دستگاه'],
@@ -55,6 +58,7 @@ const expected = {
     until: '1 روز دیگر معتبر است',
     added: '+1 دستگاه',
     total: 'مجموع دستگاه‌ها: 1',
+    minimum: 'حداقل محدودیت دستگاه برای تعرفه شما اعمال شده است',
   },
 } as const;
 
@@ -73,6 +77,7 @@ describe('ОУ-2: подписи количества устройств', () =>
     expect(t('subscription.deviceAddon.untilEnd', { count: 1 })).toBe(copy.until);
     expect(t('successNotification.devicesAdded', { count: 1 })).toBe(copy.added);
     expect(t('successNotification.totalDevices', { count: 1 })).toBe(copy.total);
+    expect(t('subscription.additionalOptions.alreadyAtMinDeviceLimit')).toBe(copy.minimum);
   });
 
   it('передаёт count и не печатает число тоста второй раз', () => {
