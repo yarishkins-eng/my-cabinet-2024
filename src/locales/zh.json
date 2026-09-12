@@ -2828,7 +2828,7 @@
         "paying": "付费订阅",
         "payingHint": "真实付款；不含 Team",
         "newToday": "今日新增",
-        "newTodayHint": "首次打开机器人，自莫斯科时间 03:00 起",
+        "newTodayHint": "首次打开机器人，自莫斯科时间 00:00 起",
         "blocked": "已封禁"
       },
       "status": {

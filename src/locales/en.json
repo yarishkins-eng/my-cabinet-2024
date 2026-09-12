@@ -3384,7 +3384,7 @@
         "paying": "Paying",
         "payingHint": "paid real money; Team excluded",
         "newToday": "New today",
-        "newTodayHint": "first opened the bot, since 03:00 MSK",
+        "newTodayHint": "first opened the bot, since 00:00 MSK",
         "blocked": "Blocked"
       },
       "status": {
