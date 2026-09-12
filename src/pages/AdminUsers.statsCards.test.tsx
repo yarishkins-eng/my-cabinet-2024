@@ -85,6 +85,10 @@ function card(label: string): HTMLElement {
   return element;
 }
 
+function cardValue(label: string): string | null | undefined {
+  return card(label).firstElementChild?.textContent;
+}
+
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
@@ -94,18 +98,27 @@ describe('AdminUsers truthful statistic cards', () => {
   it('binds each explanatory label to the intended API value', async () => {
     await renderPage(stats);
 
-    expect(card('admin.users.stats.onTrial').textContent).toContain('303');
+    expect(cardValue('admin.users.stats.onTrial')).toBe('303');
     expect(card('admin.users.stats.onTrial').textContent).toContain(
       'admin.users.stats.onTrialHint',
     );
-    expect(card('admin.users.stats.paying').textContent).toContain('505');
+    expect(cardValue('admin.users.stats.paying')).toBe('505');
     expect(card('admin.users.stats.paying').textContent).toContain('admin.users.stats.payingHint');
-    expect(card('admin.users.stats.newToday').textContent).toContain('606');
+    expect(cardValue('admin.users.stats.newToday')).toBe('606');
     expect(card('admin.users.stats.newToday').textContent).toContain(
       'admin.users.stats.newTodayHint',
     );
     expect(screen.queryByText('202')).toBeNull();
     expect(screen.queryByText('404')).toBeNull();
+
+    const grid = card('admin.users.stats.total').parentElement;
+    expect(Array.from(grid?.children ?? []).map((item) => item.children[1]?.textContent)).toEqual([
+      'admin.users.stats.total',
+      'admin.users.stats.onTrial',
+      'admin.users.stats.paying',
+      'admin.users.stats.newToday',
+      'admin.users.stats.blocked',
+    ]);
   });
 
   it('shows zero for both new cards while the older API response is being replaced', async () => {
@@ -115,8 +128,8 @@ describe('AdminUsers truthful statistic cards', () => {
 
     await renderPage(oldPayload);
 
-    expect(card('admin.users.stats.onTrial').textContent).toContain('0');
-    expect(card('admin.users.stats.paying').textContent).toContain('0');
+    expect(cardValue('admin.users.stats.onTrial')).toBe('0');
+    expect(cardValue('admin.users.stats.paying')).toBe('0');
   });
 
   it('provides the five new labels and removes the dead labels in every language', () => {
