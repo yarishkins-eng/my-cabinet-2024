@@ -118,14 +118,18 @@ function renderNewFlowRouter() {
   };
 }
 
-function renderOwnedFlowRouter(intentId = 'intent-1') {
+function renderOwnedFlowRouter(intentId = 'intent-1', attemptId?: string) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
   return {
     queryClient,
     ...render(
-      <MemoryRouter initialEntries={[`/subscription/device-topup/${intentId}`]}>
+      <MemoryRouter
+        initialEntries={[
+          `/subscription/device-topup/${intentId}${attemptId ? `?attempt=${attemptId}` : ''}`,
+        ]}
+      >
         <QueryClientProvider client={queryClient}>
           <LocationProbe />
           <Routes>
@@ -561,6 +565,60 @@ describe('DeviceAddonFlow', () => {
       );
     },
   );
+
+  it('keeps choose-another disabled until the exact routed attempt is loaded', async () => {
+    let resolveTopup: (value: unknown) => void = () => undefined;
+    const pendingTopup = new Promise((resolve) => {
+      resolveTopup = resolve;
+    });
+    const pendingAttempt = {
+      id: 'attempt-1',
+      intent_id: 'intent-1',
+      requested_amount_kopeks: 500,
+      payment_method: 'platega',
+      payment_option: '2',
+      provider_method_code: 2,
+      status: 'pending',
+      credited_amount_kopeks: null,
+      can_open_payment: true,
+      can_create_new_attempt: false,
+      action_required: false,
+    };
+    getIntent.mockResolvedValue({
+      id: 'intent-1',
+      subscription_id: 44,
+      devices_to_add: 2,
+      price_kopeks: 12345,
+      purchase_state: 'draft',
+      receipt: null,
+      fulfillment_status: null,
+      fulfillment_error_code: null,
+      topup_attempts: [],
+      quote,
+    });
+    getTopup.mockReturnValue(pendingTopup);
+    confirmDialog.mockResolvedValue(false);
+
+    renderOwnedFlowRouter('intent-1', 'attempt-1');
+    const chooseAnother = await screen.findByRole('button', {
+      name: 'subscription.deviceAddon.chooseAnother',
+    });
+    expect((chooseAnother as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(chooseAnother);
+    expect(confirmDialog).not.toHaveBeenCalled();
+    expect(screen.getByTestId('location').textContent).toBe(
+      '/subscription/device-topup/intent-1?attempt=attempt-1',
+    );
+
+    resolveTopup({
+      attempt: pendingAttempt,
+      intent: { id: 'intent-1', purchase_state: 'draft', fulfillment_status: null },
+      payment_url: 'https://provider.example/pay',
+    });
+    await waitFor(() => expect((chooseAnother as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(chooseAnother);
+    await waitFor(() => expect(confirmDialog).toHaveBeenCalledTimes(1));
+  });
 
   it('uses a server create error, clears its retry key, and retries for the same or new quantity', async () => {
     getQuote.mockResolvedValue(quote);

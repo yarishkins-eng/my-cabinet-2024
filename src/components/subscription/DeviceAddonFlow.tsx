@@ -380,8 +380,13 @@ export function DeviceAddonFlow({
   }, [attemptQuery.data, intent?.id, queryClient, refetchIntent]);
 
   const error =
-    purchaseMutation.error || topupMutation.error || quoteQuery.error || intentQuery.error;
+    purchaseMutation.error ||
+    topupMutation.error ||
+    quoteQuery.error ||
+    intentQuery.error ||
+    attemptQuery.error;
   const busy = purchaseMutation.isPending || topupMutation.isPending;
+  const attemptRouteUnresolved = Boolean(attemptIdProp && !attempt);
   const quoteReady = Boolean(
     quote?.quote_token &&
     !quoteQuery.isFetching &&
@@ -401,6 +406,7 @@ export function DeviceAddonFlow({
     topupMutation.mutate(quote, { onSettled: () => (inFlightRef.current = false) });
   };
   const handleStartNew = async () => {
+    if (attemptRouteUnresolved) return;
     const targetSubscriptionId = intentRef.current?.subscription_id ?? intent?.subscription_id;
     if (!targetSubscriptionId) return;
     if (
@@ -711,6 +717,7 @@ export function DeviceAddonFlow({
       {purchaseEnabled && intentIdProp && intent && (
         <button
           type="button"
+          disabled={attemptRouteUnresolved}
           onClick={() => void handleStartNew()}
           className="btn-secondary w-full py-3"
         >
