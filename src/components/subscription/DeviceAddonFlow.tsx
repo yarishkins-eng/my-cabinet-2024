@@ -14,7 +14,7 @@ import {
 } from '@/api/deviceAddon';
 import { useAuthStore } from '@/store/auth';
 import { isInTelegramWebApp } from '@/hooks/useTelegramSDK';
-import { useNativeDialog, usePlatform } from '@/platform';
+import { useNativeDialog, useNotify, usePlatform } from '@/platform';
 import {
   bindIntentRetry,
   clearIntentRetry,
@@ -74,11 +74,13 @@ export function DeviceAddonFlow({
   const user = useAuthStore((state) => state.user);
   const { openLink, openTelegramLink } = usePlatform();
   const { confirm: confirmDialog } = useNativeDialog();
+  const notify = useNotify();
   const [devices, setDevices] = useState(Math.max(1, initialDevices));
   const [intent, setIntent] = useState<DeviceAddonIntent | null>(null);
   const [attempt, setAttempt] = useState<DeviceAddonTopupAttempt | null>(null);
   const [paymentUrl, setPaymentUrl] = useState<string | null>(null);
   const [selectedOption, setSelectedOption] = useState<string | null>(null);
+  const [checkingStatus, setCheckingStatus] = useState(false);
   const inFlightRef = useRef(false);
   const intentRef = useRef<DeviceAddonIntent | null>(null);
   const paidAttemptHandledRef = useRef<string | null>(null);
@@ -406,6 +408,24 @@ export function DeviceAddonFlow({
     inFlightRef.current = true;
     topupMutation.mutate(quote, { onSettled: () => (inFlightRef.current = false) });
   };
+  const handleCheckStatus = async () => {
+    if (checkingStatus) return;
+    setCheckingStatus(true);
+    try {
+      const result = await attemptQuery.refetch();
+      const status = result.data?.attempt.status;
+      if (result.isError || !status || !isOutstanding(status)) return;
+      notify.info(
+        t(
+          status === 'pending'
+            ? 'subscription.deviceAddon.statusStillPending'
+            : 'subscription.deviceAddon.statusStillChecking',
+        ),
+      );
+    } finally {
+      setCheckingStatus(false);
+    }
+  };
   const handleStartNew = async () => {
     if (attemptRouteUnresolved) return;
     const targetSubscriptionId = intentRef.current?.subscription_id ?? intent?.subscription_id;
@@ -603,7 +623,11 @@ export function DeviceAddonFlow({
 
       {attempt?.status === 'terminal' && (
         <p className="rounded-xl bg-warning-500/10 p-3 text-center text-sm text-warning-400">
-          {t('subscription.deviceAddon.providerRejected')}
+          {t(
+            attempt.terminal_category === 'rejected'
+              ? 'subscription.deviceAddon.providerRejected'
+              : 'subscription.deviceAddon.previousInvoiceClosed',
+          )}
         </p>
       )}
 
@@ -687,10 +711,15 @@ export function DeviceAddonFlow({
           )}
           <button
             type="button"
-            onClick={() => void attemptQuery.refetch()}
+            disabled={checkingStatus}
+            onClick={() => void handleCheckStatus()}
             className="btn-secondary w-full py-3"
           >
-            {t('subscription.deviceAddon.checkStatus')}
+            {t(
+              checkingStatus
+                ? 'subscription.deviceAddon.checkingStatus'
+                : 'subscription.deviceAddon.checkStatus',
+            )}
           </button>
         </div>
       )}

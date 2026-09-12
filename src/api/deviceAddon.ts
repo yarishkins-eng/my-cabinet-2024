@@ -49,6 +49,7 @@ export interface DeviceAddonTopupAttempt {
   /** Internal provider code is deliberately not exposed by the cabinet API. */
   provider_method_code?: number | null;
   status: DeviceAddonTopupStatus;
+  terminal_category?: 'rejected' | 'not_paid' | null;
   credited_amount_kopeks: number | null;
   can_open_payment?: boolean;
   can_create_new_attempt?: boolean;
