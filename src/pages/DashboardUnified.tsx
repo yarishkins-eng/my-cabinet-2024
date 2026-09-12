@@ -429,8 +429,12 @@ export default function DashboardUnified() {
               : recoveryVariant === 'processing'
                 ? t('deviceFirst.processingText')
                 : t('deviceFirst.awaitingPaymentSummary', {
-                    devices: `${deviceFirstRecovery.selected_device_limit} ${t('common.units.devices', 'устр.')}`,
-                    period: `${deviceFirstRecovery.period_days} ${t('common.units.days')}`,
+                    devices: t('deviceFirst.deviceShort', {
+                      count: deviceFirstRecovery.selected_device_limit,
+                    }),
+                    period: t('deviceFirst.periodDays', {
+                      count: deviceFirstRecovery.period_days,
+                    }),
                     amount: `${formatAmount(deviceFirstRecovery.tariff_total_kopeks / 100)} ${currencySymbol}`,
                     action:
                       recoveryVariant === 'draft'

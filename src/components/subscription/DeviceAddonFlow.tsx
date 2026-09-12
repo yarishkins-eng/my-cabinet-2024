@@ -572,7 +572,7 @@ export function DeviceAddonFlow({
         </button>
         <div className="text-center">
           <div className="text-4xl font-bold text-dark-100">{devices}</div>
-          <div className="text-sm text-dark-500">{t('subscription.deviceAddon.devices')}</div>
+          <div className="text-sm text-dark-500">{t('gift.devicesShort')}</div>
         </div>
         <button
           type="button"

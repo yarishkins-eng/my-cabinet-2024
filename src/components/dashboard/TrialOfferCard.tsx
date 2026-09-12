@@ -160,7 +160,7 @@ export default function TrialOfferCard({
           },
           {
             value: trialInfo.device_limit === 0 ? '∞' : String(trialInfo.device_limit),
-            label: t('subscription.trial.devices'),
+            label: t('gift.devicesShort'),
           },
         ].map((stat, i) => (
           <div key={i} className="text-center">

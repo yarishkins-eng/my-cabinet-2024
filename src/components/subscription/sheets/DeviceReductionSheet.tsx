@@ -140,9 +140,7 @@ export function DeviceReductionSheet({
             </button>
             <div className="text-center">
               <div className="text-4xl font-bold text-dark-100">{targetDeviceLimit}</div>
-              <div className="text-sm text-dark-500">
-                {t('subscription.additionalOptions.devicesUnit')}
-              </div>
+              <div className="text-sm text-dark-500">{t('gift.devicesShort')}</div>
             </div>
             <button
               onClick={() =>
