@@ -153,10 +153,12 @@
     "goToSubscription": "查看订阅",
     "goToBalance": "查看余额",
     "devicesAdded": "+{{count}} 设备",
+    "devicesAdded_other": "+{{count}} 台设备",
     "devicesPurchased": {
       "title": "设备已添加"
     },
     "totalDevices": "总设备数：{{count}}",
+    "totalDevices_other": "总设备数：{{count}}",
     "totalTraffic": "总流量：{{value}}",
     "trafficAdded": "+{{value}} 流量",
     "trafficPurchased": {
@@ -441,6 +443,7 @@
       "manageServersTitle": "小队管理",
       "connectedDevices": "已连接设备",
       "currentDeviceLimit": "当前设备限制",
+      "alreadyAtMinDeviceLimit": "已达到当前套餐的最低设备限制",
       "decrementDevices": "减少设备数量",
       "disconnectDevicesFirst": "请先断开多余的设备",
       "incrementDevices": "增加设备数量",
@@ -452,6 +455,9 @@
       "reduceDevicesTitle": "减少设备数量",
       "reduceUnavailable": "当前无法减少设备数量",
       "reducing": "正在减少…"
+    },
+    "deviceAddon": {
+      "untilEnd_other": "还可使用 {{count}} 天"
     },
     "serverManagement": {
       "statusLegend": "✅ — 已连接 • ➕ — 将添加（付费）• ➖ — 将断开",
@@ -2959,6 +2965,7 @@
           "validUntil": "有效期至",
           "traffic": "当前流量限额周期",
           "devices": "设备数",
+          "devices_other": "{{count}} 台设备",
           "actions": "操作",
           "extend": "延长",
           "shorten": "扣除天数",
@@ -3030,6 +3037,7 @@
           "tariff": "套餐",
           "period": "期限",
           "devices": "设备数",
+          "devices_other": "{{count}} 台设备",
           "amount": "金额",
           "paymentMethod": "支付方式",
           "recipient": "收件人",
@@ -4633,6 +4641,7 @@
     "giftMessagePlaceholder": "写一段祝福语...",
     "chooseTariff": "选择套餐",
     "devices": "设备",
+    "devices_other": "{{count}} 台设备",
     "paymentMethod": "支付方式",
     "processing": "处理中...",
     "payButton": "支付 {{price}}",
@@ -4872,6 +4881,10 @@
     "description": "先选择 VPN 时长，再选择设备数量。",
     "devicesQuestion": "需要几台设备？",
     "deviceShort": "{{count}} 台设备",
+    "deviceShort_one": "{{count}} 台设备",
+    "deviceShort_few": "{{count}} 台设备",
+    "deviceShort_many": "{{count}} 台设备",
+    "deviceShort_other": "{{count}} 台设备",
     "deviceCount_one": "{{count}} 台设备",
     "deviceCount_few": "{{count}} 台设备",
     "deviceCount_many": "{{count}} 台设备",
@@ -4879,6 +4892,10 @@
     "perDeviceMonth": "{{amount}} ₽/月/台设备",
     "periodQuestion": "使用多长时间？",
     "periodDays": "{{count}} 天",
+    "periodDays_one": "{{count}} 天",
+    "periodDays_few": "{{count}} 天",
+    "periodDays_many": "{{count}} 天",
+    "periodDays_other": "{{count}} 天",
     "periodMonths": "{{count}} 个月",
     "periodYear": "1 年",
     "periodYearExact": "1 年（365 天）",

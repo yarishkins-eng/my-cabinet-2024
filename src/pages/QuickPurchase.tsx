@@ -309,7 +309,7 @@ function TariffCard({
         </span>
         <span className="flex items-center gap-1">
           <DevicesIcon className="h-3.5 w-3.5" />
-          {tariff.device_limit} {t('landing.devices', 'devices')}
+          {t('landing.devices', { count: tariff.device_limit })}
         </span>
       </div>
 

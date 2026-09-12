@@ -94,8 +94,8 @@ function GiftCard({
           <div>
             <div className="text-sm font-medium text-dark-100">{gift.tariff_name || '—'}</div>
             <div className="text-xs text-dark-500">
-              {gift.period_days} {t('admin.users.detail.gifts.days')} · {gift.device_limit}{' '}
-              {t('admin.users.detail.gifts.devices')}
+              {gift.period_days} {t('admin.users.detail.gifts.days')} ·{' '}
+              {t('admin.users.detail.gifts.devices', { count: gift.device_limit })}
             </div>
           </div>
         </div>

@@ -109,7 +109,10 @@ export function DeviceReductionSheet({
 
       {deviceReductionInfo?.available === false ? (
         <div className="py-4 text-center text-sm text-dark-400">
-          {deviceReductionInfo.reason || t('subscription.additionalOptions.reduceUnavailable')}
+          {deviceReductionInfo.current_device_limit === deviceReductionInfo.min_device_limit &&
+          deviceReductionInfo.current_device_limit > 0
+            ? t('subscription.additionalOptions.alreadyAtMinDeviceLimit')
+            : t('subscription.additionalOptions.reduceUnavailable')}
         </div>
       ) : deviceReductionInfo ? (
         <div className="space-y-4">
@@ -140,9 +143,7 @@ export function DeviceReductionSheet({
             </button>
             <div className="text-center">
               <div className="text-4xl font-bold text-dark-100">{targetDeviceLimit}</div>
-              <div className="text-sm text-dark-500">
-                {t('subscription.additionalOptions.devicesUnit')}
-              </div>
+              <div className="text-sm text-dark-500">{t('common.units.devices')}</div>
             </div>
             <button
               onClick={() =>

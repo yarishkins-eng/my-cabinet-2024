@@ -235,7 +235,9 @@ export function SubscriptionTab(props: SubscriptionTabProps) {
                   </span>
                   <span>{formatDate(sub.end_date)}</span>
                   <span>
-                    {sub.device_limit} {t('admin.users.detail.subscription.devices', 'устройств')}
+                    {t('admin.users.detail.subscription.devices', {
+                      count: sub.device_limit,
+                    })}
                   </span>
                 </div>
               </button>
