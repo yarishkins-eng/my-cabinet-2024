@@ -2825,9 +2825,12 @@
       "noPurchases": "بدون خرید",
       "stats": {
         "total": "کل",
-        "active": "فعال",
-        "withSubscription": "دارای اشتراک",
+        "onTrial": "در دوره آزمایشی",
+        "onTrialHint": "آزمایشی واقعی؛ Team حساب نمی‌شود",
+        "paying": "اشتراک پولی",
+        "payingHint": "پرداخت واقعی؛ Team حساب نمی‌شود",
         "newToday": "جدید امروز",
+        "newTodayHint": "اولین ورود به ربات، از ۰۳:۰۰ مسکو",
         "blocked": "مسدود شده"
       },
       "status": {

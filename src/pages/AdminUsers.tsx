@@ -34,7 +34,7 @@ function StatCard({ title, value, subtitle, color }: StatCardProps) {
     <div className={`rounded-xl border p-4 ${colors[color]}`}>
       <div className="mb-1 text-2xl font-bold">{value}</div>
       <div className="text-sm opacity-80">{title}</div>
-      {subtitle && <div className="mt-1 text-xs opacity-60">{subtitle}</div>}
+      {subtitle && <div className="mt-1 line-clamp-2 text-xs opacity-60">{subtitle}</div>}
     </div>
   );
 }
@@ -210,18 +210,21 @@ export default function AdminUsers() {
         <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
           <StatCard title={t('admin.users.stats.total')} value={stats.total_users} color="blue" />
           <StatCard
-            title={t('admin.users.stats.active')}
-            value={stats.active_users}
+            title={t('admin.users.stats.onTrial')}
+            value={stats.users_on_trial ?? 0}
+            subtitle={t('admin.users.stats.onTrialHint')}
             color="green"
           />
           <StatCard
-            title={t('admin.users.stats.withSubscription')}
-            value={stats.users_with_active_subscription}
+            title={t('admin.users.stats.paying')}
+            value={stats.users_paying ?? 0}
+            subtitle={t('admin.users.stats.payingHint')}
             color="purple"
           />
           <StatCard
             title={t('admin.users.stats.newToday')}
             value={stats.new_today}
+            subtitle={t('admin.users.stats.newTodayHint')}
             color="yellow"
           />
           <StatCard
