@@ -3,7 +3,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { MemoryRouter, Route, Routes, useLocation } from 'react-router';
+import { MemoryRouter, Route, Routes, useLocation, useNavigate } from 'react-router';
 
 const { getQuote, getIntent, createIntent, purchase, createTopup, getTopup } = vi.hoisted(() => ({
   getQuote: vi.fn(),
@@ -95,6 +95,18 @@ function LocationProbe() {
   return <output data-testid="location">{location.pathname + location.search}</output>;
 }
 
+function AttemptRouteSwitcher() {
+  const navigate = useNavigate();
+  return (
+    <button
+      type="button"
+      onClick={() => navigate('/subscription/device-topup/intent-1?attempt=attempt-2')}
+    >
+      switch-attempt
+    </button>
+  );
+}
+
 function renderNewFlowRouter() {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
@@ -140,6 +152,24 @@ function renderOwnedFlowRouter(intentId = 'intent-1', attemptId?: string) {
       </MemoryRouter>,
     ),
   };
+}
+
+function renderSwitchableOwnedFlowRouter() {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+  });
+  return render(
+    <MemoryRouter initialEntries={['/subscription/device-topup/intent-1?attempt=attempt-1']}>
+      <QueryClientProvider client={queryClient}>
+        <LocationProbe />
+        <AttemptRouteSwitcher />
+        <Routes>
+          <Route path="/subscription/device-topup/:intentId" element={<DeviceAddon />} />
+          <Route path="/subscription/device-topup/new" element={<DeviceAddon />} />
+        </Routes>
+      </QueryClientProvider>
+    </MemoryRouter>,
+  );
 }
 
 function axiosApiError(status: number, code: string, message: string, nextQuote = undefined) {
@@ -611,6 +641,73 @@ describe('DeviceAddonFlow', () => {
     );
 
     resolveTopup({
+      attempt: pendingAttempt,
+      intent: { id: 'intent-1', purchase_state: 'draft', fulfillment_status: null },
+      payment_url: 'https://provider.example/pay',
+    });
+    await waitFor(() => expect((chooseAnother as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(chooseAnother);
+    await waitFor(() => expect(confirmDialog).toHaveBeenCalledTimes(1));
+  });
+
+  it('does not reuse a terminal attempt while a new routed attempt is loading', async () => {
+    let resolveSecondTopup: (value: unknown) => void = () => undefined;
+    const terminalAttempt = {
+      id: 'attempt-1',
+      intent_id: 'intent-1',
+      requested_amount_kopeks: 500,
+      payment_method: 'platega',
+      payment_option: '2',
+      provider_method_code: 2,
+      status: 'terminal',
+      credited_amount_kopeks: null,
+      can_open_payment: false,
+      can_create_new_attempt: true,
+      action_required: false,
+    };
+    const pendingAttempt = { ...terminalAttempt, id: 'attempt-2', status: 'pending' };
+    getIntent.mockResolvedValue({
+      id: 'intent-1',
+      subscription_id: 44,
+      devices_to_add: 2,
+      price_kopeks: 12345,
+      purchase_state: 'draft',
+      receipt: null,
+      fulfillment_status: null,
+      fulfillment_error_code: null,
+      topup_attempts: [terminalAttempt, pendingAttempt],
+      quote,
+    });
+    getTopup.mockImplementation((attemptId: string) => {
+      if (attemptId === 'attempt-1') {
+        return Promise.resolve({
+          attempt: terminalAttempt,
+          intent: { id: 'intent-1', purchase_state: 'draft', fulfillment_status: null },
+          payment_url: null,
+        });
+      }
+      return new Promise((resolve) => {
+        resolveSecondTopup = resolve;
+      });
+    });
+    confirmDialog.mockResolvedValue(false);
+
+    renderSwitchableOwnedFlowRouter();
+    const chooseAnother = await screen.findByRole('button', {
+      name: 'subscription.deviceAddon.chooseAnother',
+    });
+    await waitFor(() => expect((chooseAnother as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(screen.getByRole('button', { name: 'switch-attempt' }));
+    await waitFor(() =>
+      expect(screen.getByTestId('location').textContent).toBe(
+        '/subscription/device-topup/intent-1?attempt=attempt-2',
+      ),
+    );
+    expect((chooseAnother as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(chooseAnother);
+    expect(confirmDialog).not.toHaveBeenCalled();
+
+    resolveSecondTopup({
       attempt: pendingAttempt,
       intent: { id: 'intent-1', purchase_state: 'draft', fulfillment_status: null },
       payment_url: 'https://provider.example/pay',

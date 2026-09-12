@@ -386,7 +386,7 @@ export function DeviceAddonFlow({
     intentQuery.error ||
     attemptQuery.error;
   const busy = purchaseMutation.isPending || topupMutation.isPending;
-  const attemptRouteUnresolved = Boolean(attemptIdProp && !attempt);
+  const attemptRouteUnresolved = Boolean(attemptIdProp && attempt?.id !== attemptIdProp);
   const quoteReady = Boolean(
     quote?.quote_token &&
     !quoteQuery.isFetching &&
