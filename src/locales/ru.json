@@ -3786,9 +3786,12 @@
       "noPurchases": "Нет покупок",
       "stats": {
         "total": "Всего",
-        "active": "Активных",
-        "withSubscription": "С подпиской",
+        "onTrial": "На пробном",
+        "onTrialHint": "настоящий пробный; Team не считается",
+        "paying": "С платной подпиской",
+        "payingHint": "платили деньгами; Team не считается",
         "newToday": "Новых сегодня",
+        "newTodayHint": "впервые открыли бота, с 03:00 мск",
         "blocked": "Заблокировано"
       },
       "status": {

@@ -2823,9 +2823,12 @@
       "noPurchases": "无购买记录",
       "stats": {
         "total": "总计",
-        "active": "活跃",
-        "withSubscription": "有订阅",
+        "onTrial": "试用中",
+        "onTrialHint": "真实试用；不含 Team",
+        "paying": "付费订阅",
+        "payingHint": "真实付款；不含 Team",
         "newToday": "今日新增",
+        "newTodayHint": "首次打开机器人，自莫斯科时间 03:00 起",
         "blocked": "已封禁"
       },
       "status": {

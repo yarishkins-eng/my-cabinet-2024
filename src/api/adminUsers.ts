@@ -231,6 +231,8 @@ export interface UsersStatsResponse {
   users_with_active_subscription: number;
   users_with_trial: number;
   users_with_expired_subscription: number;
+  users_on_trial: number;
+  users_paying: number;
   total_balance_kopeks: number;
   total_balance_rubles: number;
   avg_balance_kopeks: number;
