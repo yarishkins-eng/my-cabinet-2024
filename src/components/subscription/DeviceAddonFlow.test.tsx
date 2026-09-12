@@ -441,6 +441,61 @@ describe('DeviceAddonFlow', () => {
     await screen.findByText('subscription.deviceAddon.ready');
   });
 
+  it('keeps the receipt visible after purchase from an exact payment return route', async () => {
+    const draft = {
+      id: 'intent-1',
+      subscription_id: 44,
+      devices_to_add: 2,
+      price_kopeks: 12345,
+      purchase_state: 'draft' as const,
+      receipt: null,
+      fulfillment_status: null,
+      fulfillment_error_code: null,
+      topup_attempts: [],
+      quote,
+    };
+    const purchased = {
+      ...draft,
+      purchase_state: 'purchased' as const,
+      receipt: { devices_added: 2, new_device_limit: 4, amount_paid_kopeks: 12345 },
+      fulfillment_status: 'ready' as const,
+      topup_attempts: undefined,
+      quote: null,
+    };
+    getIntent.mockResolvedValue(draft);
+    getTopup.mockResolvedValue({
+      attempt: {
+        id: 'attempt-1',
+        intent_id: 'intent-1',
+        requested_amount_kopeks: 500,
+        payment_method: 'platega',
+        payment_option: '2',
+        provider_method_code: null,
+        status: 'paid',
+        credited_amount_kopeks: 500,
+        can_create_new_attempt: false,
+        action_required: false,
+      },
+      intent: { id: 'intent-1', purchase_state: 'draft', fulfillment_status: null },
+    });
+    purchase.mockResolvedValue(purchased);
+
+    const { queryClient } = renderOwnedFlowRouter('intent-1', 'attempt-1');
+    const buy = await screen.findByRole('button', {
+      name: 'subscription.deviceAddon.buy:123.45 ₽',
+    });
+    await waitFor(() => expect(buy).toHaveProperty('disabled', false));
+    fireEvent.click(buy);
+
+    await waitFor(() =>
+      expect(screen.getByTestId('location').textContent).toBe(
+        '/subscription/device-topup/intent-1',
+      ),
+    );
+    expect(await screen.findByText('subscription.deviceAddon.purchasedTitle')).toBeTruthy();
+    expect(queryClient.getQueryData(['device-addon-intent', 'intent-1'])).toEqual(purchased);
+  });
+
   it('clears a purchased retry key and starts another purchase with the owned subscription id', async () => {
     getQuote.mockResolvedValue({
       ...quote,

@@ -136,7 +136,7 @@ export function DeviceAddonFlow({
       clearIntentRetry(user.id, intentQuery.data.subscription_id);
     }
     if (!attemptIdProp) {
-      const attempts = intentQuery.data.topup_attempts;
+      const attempts = intentQuery.data.topup_attempts ?? [];
       setAttempt(attempts.length ? attempts[attempts.length - 1] : null);
     }
   }, [attemptIdProp, intentQuery.data, user]);
@@ -204,6 +204,7 @@ export function DeviceAddonFlow({
   const finish = (next: DeviceAddonIntent) => {
     intentRef.current = next;
     setIntent(next);
+    queryClient.setQueryData(['device-addon-intent', next.id], next);
     if (next.purchase_state === 'purchased' && user) {
       clearIntentRetry(user.id, next.subscription_id);
     }
