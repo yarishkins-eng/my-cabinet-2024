@@ -179,6 +179,15 @@ describe('trial states', () => {
 // ── Paid states P1–P9 ────────────────────────────────────────────────────────
 
 describe('paid states', () => {
+  it.each([
+    [0, 'P1', 'connect'],
+    [1, 'P4', 'limit_counter'],
+  ] as const)('keeps the Home state for %i of 1 devices', (connected, code, kind) => {
+    const s = run(makeSub({ device_limit: 1 }), { connectedDevices: connected });
+    expect(s.code).toBe(code);
+    expect(s.deviceZone.kind).toBe(kind);
+  });
+
   it('P1 — paid, 0 devices, lots of time → connect burns, no sell', () => {
     const s = run(makeSub(), { connectedDevices: 0 });
     expect(s.code).toBe('P1');

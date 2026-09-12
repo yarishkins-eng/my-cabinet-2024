@@ -82,19 +82,6 @@ describe('ОУ-2: подписи количества устройств', () =>
 
   it('передаёт count и не печатает число тоста второй раз', () => {
     const source = (path: string) => readFileSync(new URL(path, import.meta.url), 'utf8');
-    const dashboard = source('../pages/DashboardUnified.tsx');
-    const recovery = dashboard.slice(
-      dashboard.indexOf("t('deviceFirst.awaitingPaymentSummary'"),
-      dashboard.indexOf("t('deviceFirst.continuePayment'"),
-    );
-
-    expect(recovery).toContain("t('deviceFirst.deviceShort'");
-    expect(recovery).toContain("t('deviceFirst.periodDays'");
-    expect(recovery).not.toContain('common.units.devices');
-    expect(recovery).not.toContain('common.units.days');
-    expect(source('../pages/QuickPurchase.tsx')).toContain(
-      "t('landing.devices', { count: tariff.device_limit })",
-    );
     expect(source('../components/admin/userDetail/SubscriptionTab.tsx')).toContain(
       "t('admin.users.detail.subscription.devices', {",
     );

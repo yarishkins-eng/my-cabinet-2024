@@ -1,10 +1,12 @@
 // @vitest-environment jsdom
 
 import { cleanup, render, screen } from '@testing-library/react';
+import type { ComponentProps } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 const queryResults = vi.hoisted(() => new Map<string, Record<string, unknown>>());
 const Blank = vi.hoisted(() => () => null);
+const navigate = vi.hoisted(() => vi.fn());
 
 vi.mock('@tanstack/react-query', () => ({
   useQuery: ({ queryKey }: { queryKey: unknown[] }) => queryResults.get(String(queryKey[0])) ?? {},
@@ -14,14 +16,18 @@ vi.mock('@tanstack/react-query', () => ({
 vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
 vi.mock('react-router', () => ({
   Navigate: () => null,
-  useNavigate: () => vi.fn(),
+  useNavigate: () => navigate,
   useParams: () => ({ id: '17' }),
 }));
 vi.mock('../components/WebBackButton', () => ({ WebBackButton: Blank }));
 vi.mock('../platform/hooks/useNativeDialog', () => ({ useDestructiveConfirm: () => vi.fn() }));
 vi.mock('../components/dashboard/TrafficProgressBar', () => ({ default: Blank }));
 vi.mock('../components/ui/hover-border-gradient', () => ({
-  HoverBorderGradient: ({ children }: { children: unknown }) => <>{children}</>,
+  HoverBorderGradient: ({ children, disabled, onClick }: ComponentProps<'button'>) => (
+    <button type="button" disabled={disabled} onClick={onClick}>
+      {children}
+    </button>
+  ),
 }));
 vi.mock('../hooks/useTrafficZone', () => ({ useTrafficZone: () => ({ mainHex: '#000' }) }));
 vi.mock('../hooks/useTrafficRefresh', () => ({
@@ -91,6 +97,7 @@ const retiredUrl = 'https://example.invalid/retired';
 describe('Subscription reset-link fence', () => {
   afterEach(() => {
     queryResults.clear();
+    navigate.mockClear();
     cleanup();
   });
 
@@ -146,11 +153,17 @@ describe('Subscription reset-link fence', () => {
       isFetching: false,
       isError: false,
     });
+    queryResults.set('devices', { data: { total: 1, devices: [] } });
 
     render(<Subscription />);
 
     expect(screen.queryByTitle(retiredUrl)).toBeNull();
     expect(screen.queryByLabelText('subscription.copyLink')).toBeNull();
+    const connect = screen.getByRole('button', { name: /dashboard\.connectDevice/ });
+    expect(connect).toHaveProperty('disabled', false);
+    connect.click();
+    expect(navigate).toHaveBeenCalledWith('/connection');
+    expect(screen.getByText('dashboard.deviceLimitReached')).toBeTruthy();
   });
 
   it('does not authorise a cached ordinary URL when fresh status metadata errors', () => {
