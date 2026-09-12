@@ -34,7 +34,7 @@ function StatCard({ title, value, subtitle, color }: StatCardProps) {
     <div className={`rounded-xl border p-4 ${colors[color]}`}>
       <div className="mb-1 text-2xl font-bold">{value}</div>
       <div className="text-sm opacity-80">{title}</div>
-      {subtitle && <div className="mt-1 line-clamp-2 text-xs opacity-60">{subtitle}</div>}
+      {subtitle && <div className="mt-1 line-clamp-2 text-xs text-dark-200">{subtitle}</div>}
     </div>
   );
 }
