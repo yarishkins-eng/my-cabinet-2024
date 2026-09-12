@@ -94,8 +94,11 @@ describe('ОУ-2: подписи количества устройств', () =>
       '../components/subscription/DeviceAddonFlow.tsx',
       '../components/subscription/sheets/DeviceReductionSheet.tsx',
     ]) {
-      expect(source(path)).toContain("t('gift.devicesShort')");
+      expect(source(path)).toContain("t('common.units.devices')");
     }
+
+    expect(i18n.getFixedT('ru')('common.units.devices')).toBe('устр.');
+    expect(i18n.getFixedT('en')('common.units.devices')).toBe('devices');
 
     const success = source('../components/SuccessNotificationModal.tsx');
     expect(success).toContain(

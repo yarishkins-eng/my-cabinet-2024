@@ -153,12 +153,69 @@ describe('Subscription reset-link fence', () => {
       isFetching: false,
       isError: false,
     });
-    queryResults.set('devices', { data: { total: 1, devices: [] } });
 
     render(<Subscription />);
 
     expect(screen.queryByTitle(retiredUrl)).toBeNull();
     expect(screen.queryByLabelText('subscription.copyLink')).toBeNull();
+  });
+
+  it('оставляет переход к подключению активным при достигнутом лимите', () => {
+    queryResults.set('subscriptions-list', { data: { multi_tariff_enabled: false } });
+    queryResults.set('subscription', {
+      data: {
+        has_subscription: true,
+        test_link_strict: true,
+        test_reset_at: epoch,
+        subscription: {
+          id: 17,
+          status: 'active',
+          is_trial: false,
+          start_date: epoch,
+          end_date: '2030-01-01T00:00:00+00:00',
+          days_left: 1,
+          hours_left: 1,
+          minutes_left: 1,
+          time_left_display: '1d',
+          traffic_limit_gb: 0,
+          traffic_used_gb: 0,
+          traffic_used_percent: 0,
+          device_limit: 1,
+          connected_squads: [],
+          servers: [],
+          autopay_enabled: false,
+          autopay_days_before: 3,
+          subscription_url: retiredUrl,
+          hide_subscription_link: false,
+          is_active: true,
+          is_expired: false,
+          is_limited: false,
+        },
+      },
+      isLoading: false,
+      isFetchedAfterMount: true,
+      isFetching: false,
+    });
+    queryResults.set('connection-link', {
+      data: {
+        subscription_url: retiredUrl,
+        display_link: retiredUrl,
+        happ_redirect_link: null,
+        happ_scheme_link: null,
+        connect_mode: 'miniapp_custom',
+        hide_link: false,
+        instructions: { steps: [] },
+        test_link_strict: true,
+        test_reset_at: epoch,
+      },
+      isLoading: false,
+      isFetching: false,
+      isError: false,
+    });
+    queryResults.set('devices', { data: { total: 1, devices: [] } });
+
+    render(<Subscription />);
+
     const connect = screen.getByRole('button', { name: /dashboard\.connectDevice/ });
     expect(connect).toHaveProperty('disabled', false);
     connect.click();

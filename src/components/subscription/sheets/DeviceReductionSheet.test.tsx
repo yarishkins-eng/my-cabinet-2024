@@ -61,4 +61,22 @@ describe('ОУ-2: уменьшение лимита устройств', () => {
     ).toBeTruthy();
     expect(screen.queryByText('Already at minimum device limit')).toBeNull();
   });
+
+  it('показывает общий локализованный отказ, когда подписка не найдена', async () => {
+    getDeviceReductionInfo.mockResolvedValue({
+      available: false,
+      reason: 'Subscription not found',
+      current_device_limit: 0,
+      min_device_limit: 0,
+      can_reduce: 0,
+      connected_devices_count: 0,
+    });
+
+    renderSheet();
+
+    expect(
+      await screen.findByText('subscription.additionalOptions.reduceUnavailable'),
+    ).toBeTruthy();
+    expect(screen.queryByText('Subscription not found')).toBeNull();
+  });
 });

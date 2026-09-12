@@ -209,16 +209,16 @@ export default function SuccessNotificationModal() {
 
           {/* Devices info (for devices purchase) */}
           {isDevicesPurchased && data.devicesAdded && (
-            <div className="flex items-center justify-between rounded-xl bg-dark-800/50 px-4 py-3">
-              <span className="text-lg font-bold text-blue-400">
+            <div className="flex items-center justify-center rounded-xl bg-dark-800/50 px-4 py-3">
+              <span className="text-dark-400">
                 {t('successNotification.devicesAdded', { count: data.devicesAdded })}
               </span>
             </div>
           )}
 
           {isDevicesPurchased && data.newDeviceLimit && (
-            <div className="flex items-center justify-between rounded-xl bg-dark-800/50 px-4 py-3">
-              <span className="font-semibold text-dark-100">
+            <div className="flex items-center justify-center rounded-xl bg-dark-800/50 px-4 py-3">
+              <span className="text-dark-400">
                 {t('successNotification.totalDevices', { count: data.newDeviceLimit })}
               </span>
             </div>
