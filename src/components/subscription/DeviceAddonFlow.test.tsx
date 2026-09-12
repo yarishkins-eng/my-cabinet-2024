@@ -3,7 +3,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { MemoryRouter, Route, Routes, useLocation, useParams } from 'react-router';
+import { MemoryRouter, Route, Routes, useLocation, useNavigate } from 'react-router';
 
 const { getQuote, getIntent, createIntent, purchase, createTopup, getTopup } = vi.hoisted(() => ({
   getQuote: vi.fn(),
@@ -23,11 +23,15 @@ vi.mock('@/store/auth', () => ({
   useAuthStore: (selector: (state: { user: { id: number } }) => unknown) =>
     selector({ user: { id: 10 } }),
 }));
-const { openLink, openTelegramLink } = vi.hoisted(() => ({
+const { openLink, openTelegramLink, confirmDialog } = vi.hoisted(() => ({
   openLink: vi.fn(),
   openTelegramLink: vi.fn(),
+  confirmDialog: vi.fn(),
 }));
-vi.mock('@/platform', () => ({ usePlatform: () => ({ openLink, openTelegramLink }) }));
+vi.mock('@/platform', () => ({
+  usePlatform: () => ({ openLink, openTelegramLink }),
+  useNativeDialog: () => ({ confirm: confirmDialog }),
+}));
 vi.mock('@/hooks/useTelegramSDK', () => ({ isInTelegramWebApp: () => false }));
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
@@ -38,6 +42,7 @@ vi.mock('react-i18next', () => ({
 
 import { DeviceAddonFlow } from './DeviceAddonFlow';
 import { getDeviceAddonError } from '@/api/deviceAddon';
+import DeviceAddon from '@/pages/DeviceAddon';
 
 const quote = {
   subscription_id: 44,
@@ -87,12 +92,19 @@ function renderFlow(props: Partial<React.ComponentProps<typeof DeviceAddonFlow>>
 
 function LocationProbe() {
   const location = useLocation();
-  return <output data-testid="location">{location.pathname}</output>;
+  return <output data-testid="location">{location.pathname + location.search}</output>;
 }
 
-function OwnedFlowRoute() {
-  const { intentId } = useParams<{ intentId: string }>();
-  return <DeviceAddonFlow subscriptionId={0} initialDevices={2} intentId={intentId} />;
+function AttemptRouteSwitcher() {
+  const navigate = useNavigate();
+  return (
+    <button
+      type="button"
+      onClick={() => navigate('/subscription/device-topup/intent-1?attempt=attempt-2')}
+    >
+      switch-attempt
+    </button>
+  );
 }
 
 function renderNewFlowRouter() {
@@ -110,7 +122,7 @@ function renderNewFlowRouter() {
               path="/subscription/device-topup/new"
               element={<DeviceAddonFlow subscriptionId={44} initialDevices={2} />}
             />
-            <Route path="/subscription/device-topup/:intentId" element={<OwnedFlowRoute />} />
+            <Route path="/subscription/device-topup/:intentId" element={<DeviceAddon />} />
           </Routes>
         </QueryClientProvider>
       </MemoryRouter>,
@@ -118,10 +130,60 @@ function renderNewFlowRouter() {
   };
 }
 
+function renderOwnedFlowRouter(intentId = 'intent-1', attemptId?: string) {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+  });
+  return {
+    queryClient,
+    ...render(
+      <MemoryRouter
+        initialEntries={[
+          `/subscription/device-topup/${intentId}${attemptId ? `?attempt=${attemptId}` : ''}`,
+        ]}
+      >
+        <QueryClientProvider client={queryClient}>
+          <LocationProbe />
+          <Routes>
+            <Route path="/subscription/device-topup/:intentId" element={<DeviceAddon />} />
+            <Route path="/subscription/device-topup/new" element={<DeviceAddon />} />
+          </Routes>
+        </QueryClientProvider>
+      </MemoryRouter>,
+    ),
+  };
+}
+
+function renderSwitchableOwnedFlowRouter() {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+  });
+  return render(
+    <MemoryRouter initialEntries={['/subscription/device-topup/intent-1?attempt=attempt-1']}>
+      <QueryClientProvider client={queryClient}>
+        <LocationProbe />
+        <AttemptRouteSwitcher />
+        <Routes>
+          <Route path="/subscription/device-topup/:intentId" element={<DeviceAddon />} />
+          <Route path="/subscription/device-topup/new" element={<DeviceAddon />} />
+        </Routes>
+      </QueryClientProvider>
+    </MemoryRouter>,
+  );
+}
+
+function axiosApiError(status: number, code: string, message: string, nextQuote = undefined) {
+  return {
+    isAxiosError: true,
+    response: { status, data: { detail: { code, message, quote: nextQuote } } },
+  };
+}
+
 describe('DeviceAddonFlow', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     localStorage.clear();
+    confirmDialog.mockResolvedValue(true);
     getPaymentMethods.mockResolvedValue([platega]);
   });
   afterEach(() => cleanup());
@@ -201,7 +263,9 @@ describe('DeviceAddonFlow', () => {
     expect(screen.queryByText('balance.goToPayment')).toBeNull();
     expect(purchase).not.toHaveBeenCalled();
 
-    fireEvent.click(screen.getByRole('button', { name: 'subscription.deviceAddon.buy:123.45 ₽' }));
+    const buy = screen.getByRole('button', { name: 'subscription.deviceAddon.buy:123.45 ₽' });
+    await waitFor(() => expect(buy).toHaveProperty('disabled', false));
+    fireEvent.click(buy);
     await waitFor(() => expect(purchase).toHaveBeenCalledWith('intent-1', 'signed-fresh-quote'));
   });
 
@@ -216,6 +280,21 @@ describe('DeviceAddonFlow', () => {
     ).toBeNull();
     expect(createIntent).not.toHaveBeenCalled();
     expect(purchase).not.toHaveBeenCalled();
+  });
+
+  it('leaves the title to the outer sheet when rendered without a close handler', async () => {
+    getQuote.mockResolvedValue(quote);
+    renderFlow({ intentId: undefined, attemptId: undefined });
+    await screen.findByRole('button', { name: 'subscription.deviceAddon.buy:123.45 ₽' });
+    expect(screen.queryByText('subscription.deviceAddon.title')).toBeNull();
+  });
+
+  it('keeps close available while the intent is loading', () => {
+    getIntent.mockReturnValue(new Promise(() => undefined));
+    const onClose = vi.fn();
+    renderFlow({ intentId: 'intent-1', attemptId: undefined, onClose });
+    fireEvent.click(screen.getByRole('button', { name: 'common.close' }));
+    expect(onClose).toHaveBeenCalledOnce();
   });
 
   it('refreshes an expired display quote but waits for a new explicit click before purchase', async () => {
@@ -254,6 +333,17 @@ describe('DeviceAddonFlow', () => {
   });
 
   it('keeps a historical draft readable after its target subscription is deleted, without a new invoice', async () => {
+    localStorage.setItem(
+      'device_addon_v1:intent:10:44',
+      JSON.stringify({
+        user_id: 10,
+        intent_id: 'historical-intent',
+        subscription_id: 44,
+        devices_to_add: 2,
+        idempotency_key: 'historical-key',
+        created_at: Date.now(),
+      }),
+    );
     getIntent.mockResolvedValue({
       id: 'historical-intent',
       subscription_id: 44,
@@ -268,9 +358,13 @@ describe('DeviceAddonFlow', () => {
       quote_error: { code: 'target_unavailable', message: 'deleted subscription' },
     });
 
-    renderFlow({ intentId: 'historical-intent', attemptId: undefined });
+    const onClose = vi.fn();
+    renderFlow({ intentId: 'historical-intent', attemptId: undefined, onClose });
 
-    await screen.findByText('subscription.deviceAddon.freshQuoteRequired');
+    await screen.findByText('deleted subscription');
+    expect(localStorage.getItem('device_addon_v1:intent:10:44')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'common.close' }));
+    expect(onClose).toHaveBeenCalledOnce();
     expect(
       screen.queryByRole('button', { name: /subscription\.deviceAddon\.(buy|topup)/ }),
     ).toBeNull();
@@ -345,6 +439,553 @@ describe('DeviceAddonFlow', () => {
 
     await queryClient.invalidateQueries({ queryKey: ['device-addon-intent', 'intent-1'] });
     await screen.findByText('subscription.deviceAddon.ready');
+  });
+
+  it('keeps the receipt visible after purchase from an exact payment return route', async () => {
+    const draft = {
+      id: 'intent-1',
+      subscription_id: 44,
+      devices_to_add: 2,
+      price_kopeks: 12345,
+      purchase_state: 'draft' as const,
+      receipt: null,
+      fulfillment_status: null,
+      fulfillment_error_code: null,
+      topup_attempts: [],
+      quote,
+    };
+    const purchased = {
+      ...draft,
+      purchase_state: 'purchased' as const,
+      receipt: { devices_added: 2, new_device_limit: 4, amount_paid_kopeks: 12345 },
+      fulfillment_status: 'ready' as const,
+      topup_attempts: undefined,
+      quote: null,
+    };
+    getIntent.mockResolvedValue(draft);
+    getTopup.mockResolvedValue({
+      attempt: {
+        id: 'attempt-1',
+        intent_id: 'intent-1',
+        requested_amount_kopeks: 500,
+        payment_method: 'platega',
+        payment_option: '2',
+        provider_method_code: null,
+        status: 'paid',
+        credited_amount_kopeks: 500,
+        can_create_new_attempt: false,
+        action_required: false,
+      },
+      intent: { id: 'intent-1', purchase_state: 'draft', fulfillment_status: null },
+    });
+    purchase.mockResolvedValue(purchased);
+
+    const { queryClient } = renderOwnedFlowRouter('intent-1', 'attempt-1');
+    const buy = await screen.findByRole('button', {
+      name: 'subscription.deviceAddon.buy:123.45 ₽',
+    });
+    await waitFor(() => expect(buy).toHaveProperty('disabled', false));
+    fireEvent.click(buy);
+
+    await waitFor(() =>
+      expect(screen.getByTestId('location').textContent).toBe(
+        '/subscription/device-topup/intent-1',
+      ),
+    );
+    expect(await screen.findByText('subscription.deviceAddon.purchasedTitle')).toBeTruthy();
+    expect(queryClient.getQueryData(['device-addon-intent', 'intent-1'])).toEqual(purchased);
+  });
+
+  it('clears a purchased retry key and starts another purchase with the owned subscription id', async () => {
+    getQuote.mockResolvedValue({
+      ...quote,
+      devices_to_add: 1,
+      new_device_limit: 3,
+      chargeable_devices: 1,
+    });
+    localStorage.setItem(
+      'device_addon_v1:intent:10:44',
+      JSON.stringify({
+        user_id: 10,
+        intent_id: 'intent-1',
+        subscription_id: 44,
+        devices_to_add: 2,
+        idempotency_key: 'old-key',
+        created_at: Date.now(),
+      }),
+    );
+    getIntent.mockResolvedValue({
+      id: 'intent-1',
+      subscription_id: 44,
+      devices_to_add: 2,
+      price_kopeks: 12345,
+      purchase_state: 'purchased',
+      receipt: { devices_added: 2, new_device_limit: 4, amount_paid_kopeks: 12345 },
+      fulfillment_status: 'ready',
+      fulfillment_error_code: null,
+      topup_attempts: [],
+    });
+
+    renderOwnedFlowRouter();
+    const buyMore = await screen.findByRole('button', {
+      name: 'subscription.deviceAddon.buyMore',
+    });
+    expect(localStorage.getItem('device_addon_v1:intent:10:44')).toBeNull();
+    fireEvent.click(buyMore);
+    await waitFor(() =>
+      expect(screen.getByTestId('location').textContent).toBe(
+        '/subscription/device-topup/new?subscription_id=44',
+      ),
+    );
+    await waitFor(() => expect(getQuote).toHaveBeenCalledWith(44, 1));
+    expect(screen.queryByRole('button', { name: 'subscription.deviceAddon.buyMore' })).toBeNull();
+    expect(
+      await screen.findByRole('button', { name: 'subscription.deviceAddon.buy:123.45 ₽' }),
+    ).toBeTruthy();
+  });
+
+  it('drops a bound retry for a deleted merge draft and returns to a fresh quote', async () => {
+    localStorage.setItem(
+      'device_addon_v1:intent:10:44',
+      JSON.stringify({
+        user_id: 10,
+        intent_id: 'deleted-merge-draft',
+        subscription_id: 44,
+        devices_to_add: 2,
+        idempotency_key: 'deleted-draft-key',
+        created_at: Date.now(),
+      }),
+    );
+    getIntent.mockRejectedValue(
+      axiosApiError(404, 'intent_not_found', 'Device add-on intent not found'),
+    );
+    getQuote.mockResolvedValue(quote);
+
+    renderOwnedFlowRouter('deleted-merge-draft');
+
+    await waitFor(() =>
+      expect(screen.getByTestId('location').textContent).toBe(
+        '/subscription/device-topup/new?subscription_id=44',
+      ),
+    );
+    expect(localStorage.getItem('device_addon_v1:intent:10:44')).toBeNull();
+    expect(
+      await screen.findByRole('button', { name: 'subscription.deviceAddon.buy:123.45 ₽' }),
+    ).toBeTruthy();
+    expect(createIntent).not.toHaveBeenCalled();
+  });
+
+  it('lets a historical draft choose another quantity using the intent subscription id', async () => {
+    getIntent.mockResolvedValue({
+      id: 'intent-1',
+      subscription_id: 44,
+      devices_to_add: 2,
+      price_kopeks: 12345,
+      purchase_state: 'draft',
+      receipt: null,
+      fulfillment_status: null,
+      fulfillment_error_code: null,
+      topup_attempts: [],
+      quote,
+    });
+    renderOwnedFlowRouter();
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'subscription.deviceAddon.chooseAnother' }),
+    );
+    await waitFor(() =>
+      expect(screen.getByTestId('location').textContent).toBe(
+        '/subscription/device-topup/new?subscription_id=44',
+      ),
+    );
+  });
+
+  it.each(['pending', 'operator_review'] as const)(
+    'asks before leaving an operation that has an unpaid %s invoice',
+    async (attemptStatus) => {
+      const pendingAttempt = {
+        id: 'attempt-1',
+        intent_id: 'intent-1',
+        requested_amount_kopeks: 500,
+        payment_method: 'platega',
+        payment_option: '2',
+        provider_method_code: 2,
+        status: attemptStatus,
+        credited_amount_kopeks: null,
+        can_open_payment: true,
+        can_create_new_attempt: false,
+        action_required: false,
+      };
+      getIntent.mockResolvedValue({
+        id: 'intent-1',
+        subscription_id: 44,
+        devices_to_add: 2,
+        price_kopeks: 12345,
+        purchase_state: 'draft',
+        receipt: null,
+        fulfillment_status: null,
+        fulfillment_error_code: null,
+        topup_attempts: [pendingAttempt],
+        quote,
+      });
+      getTopup.mockResolvedValue({
+        attempt: pendingAttempt,
+        intent: { id: 'intent-1', purchase_state: 'draft', fulfillment_status: null },
+        payment_url: 'https://provider.example/pay',
+      });
+      confirmDialog.mockResolvedValue(false);
+
+      renderOwnedFlowRouter();
+      fireEvent.click(
+        await screen.findByRole('button', { name: 'subscription.deviceAddon.chooseAnother' }),
+      );
+
+      await waitFor(() =>
+        expect(confirmDialog).toHaveBeenCalledWith(
+          'subscription.deviceAddon.startNewConfirm:5 ₽',
+          'subscription.deviceAddon.startNewTitle',
+        ),
+      );
+      expect(screen.getByTestId('location').textContent).toBe(
+        '/subscription/device-topup/intent-1',
+      );
+    },
+  );
+
+  it('keeps choose-another disabled until the exact routed attempt is loaded', async () => {
+    let resolveTopup: (value: unknown) => void = () => undefined;
+    const pendingTopup = new Promise((resolve) => {
+      resolveTopup = resolve;
+    });
+    const pendingAttempt = {
+      id: 'attempt-1',
+      intent_id: 'intent-1',
+      requested_amount_kopeks: 500,
+      payment_method: 'platega',
+      payment_option: '2',
+      provider_method_code: 2,
+      status: 'pending',
+      credited_amount_kopeks: null,
+      can_open_payment: true,
+      can_create_new_attempt: false,
+      action_required: false,
+    };
+    getIntent.mockResolvedValue({
+      id: 'intent-1',
+      subscription_id: 44,
+      devices_to_add: 2,
+      price_kopeks: 12345,
+      purchase_state: 'draft',
+      receipt: null,
+      fulfillment_status: null,
+      fulfillment_error_code: null,
+      topup_attempts: [],
+      quote,
+    });
+    getTopup.mockReturnValue(pendingTopup);
+    confirmDialog.mockResolvedValue(false);
+
+    renderOwnedFlowRouter('intent-1', 'attempt-1');
+    const chooseAnother = await screen.findByRole('button', {
+      name: 'subscription.deviceAddon.chooseAnother',
+    });
+    expect((chooseAnother as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(chooseAnother);
+    expect(confirmDialog).not.toHaveBeenCalled();
+    expect(screen.getByTestId('location').textContent).toBe(
+      '/subscription/device-topup/intent-1?attempt=attempt-1',
+    );
+
+    resolveTopup({
+      attempt: pendingAttempt,
+      intent: { id: 'intent-1', purchase_state: 'draft', fulfillment_status: null },
+      payment_url: 'https://provider.example/pay',
+    });
+    await waitFor(() => expect((chooseAnother as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(chooseAnother);
+    await waitFor(() => expect(confirmDialog).toHaveBeenCalledTimes(1));
+  });
+
+  it('does not reuse a terminal attempt while a new routed attempt is loading', async () => {
+    let resolveSecondTopup: (value: unknown) => void = () => undefined;
+    const terminalAttempt = {
+      id: 'attempt-1',
+      intent_id: 'intent-1',
+      requested_amount_kopeks: 500,
+      payment_method: 'platega',
+      payment_option: '2',
+      provider_method_code: 2,
+      status: 'terminal',
+      credited_amount_kopeks: null,
+      can_open_payment: false,
+      can_create_new_attempt: true,
+      action_required: false,
+    };
+    const pendingAttempt = { ...terminalAttempt, id: 'attempt-2', status: 'pending' };
+    getIntent.mockResolvedValue({
+      id: 'intent-1',
+      subscription_id: 44,
+      devices_to_add: 2,
+      price_kopeks: 12345,
+      purchase_state: 'draft',
+      receipt: null,
+      fulfillment_status: null,
+      fulfillment_error_code: null,
+      topup_attempts: [terminalAttempt, pendingAttempt],
+      quote,
+    });
+    getTopup.mockImplementation((attemptId: string) => {
+      if (attemptId === 'attempt-1') {
+        return Promise.resolve({
+          attempt: terminalAttempt,
+          intent: { id: 'intent-1', purchase_state: 'draft', fulfillment_status: null },
+          payment_url: null,
+        });
+      }
+      return new Promise((resolve) => {
+        resolveSecondTopup = resolve;
+      });
+    });
+    confirmDialog.mockResolvedValue(false);
+
+    renderSwitchableOwnedFlowRouter();
+    const chooseAnother = await screen.findByRole('button', {
+      name: 'subscription.deviceAddon.chooseAnother',
+    });
+    await waitFor(() => expect((chooseAnother as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(screen.getByRole('button', { name: 'switch-attempt' }));
+    await waitFor(() =>
+      expect(screen.getByTestId('location').textContent).toBe(
+        '/subscription/device-topup/intent-1?attempt=attempt-2',
+      ),
+    );
+    expect((chooseAnother as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(chooseAnother);
+    expect(confirmDialog).not.toHaveBeenCalled();
+
+    resolveSecondTopup({
+      attempt: pendingAttempt,
+      intent: { id: 'intent-1', purchase_state: 'draft', fulfillment_status: null },
+      payment_url: 'https://provider.example/pay',
+    });
+    await waitFor(() => expect((chooseAnother as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(chooseAnother);
+    await waitFor(() => expect(confirmDialog).toHaveBeenCalledTimes(1));
+  });
+
+  it('uses a server create error, clears its retry key, and retries for the same or new quantity', async () => {
+    getQuote.mockResolvedValue(quote);
+    createIntent.mockRejectedValue(
+      axiosApiError(503, 'device_addon_purchase_disabled', 'server purchase disabled'),
+    );
+    renderFlow({ intentId: undefined, attemptId: undefined });
+    const buy = await screen.findByRole('button', {
+      name: 'subscription.deviceAddon.buy:123.45 ₽',
+    });
+
+    fireEvent.click(buy);
+    await screen.findByText('server purchase disabled');
+    expect(localStorage.length).toBe(0);
+    fireEvent.click(buy);
+    await waitFor(() => expect(createIntent).toHaveBeenCalledTimes(2));
+    expect(localStorage.length).toBe(0);
+
+    fireEvent.click(screen.getByRole('button', { name: '+' }));
+    await waitFor(() => expect(getQuote).toHaveBeenCalledWith(44, 3));
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'subscription.deviceAddon.buy:123.45 ₽' }),
+    );
+    await waitFor(() => expect(createIntent).toHaveBeenCalledTimes(3));
+  });
+
+  it('clears the retry key for a non-503 client error response too', async () => {
+    getQuote.mockResolvedValue(quote);
+    createIntent.mockRejectedValue(axiosApiError(422, 'quote_invalid', 'invalid quote'));
+    renderFlow({ intentId: undefined, attemptId: undefined });
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'subscription.deviceAddon.buy:123.45 ₽' }),
+    );
+    await screen.findByText('invalid quote');
+    expect(localStorage.length).toBe(0);
+  });
+
+  it('keeps one idempotency key only when the create response is lost', async () => {
+    getQuote.mockResolvedValue(quote);
+    createIntent.mockRejectedValue({ isAxiosError: true, request: {} });
+    renderFlow({ intentId: undefined, attemptId: undefined });
+    const buy = await screen.findByRole('button', {
+      name: 'subscription.deviceAddon.buy:123.45 ₽',
+    });
+    fireEvent.click(buy);
+    await waitFor(() => expect(createIntent).toHaveBeenCalledTimes(1));
+    const firstKey = createIntent.mock.calls[0][1];
+    expect(localStorage.length).toBe(1);
+    fireEvent.click(buy);
+    await waitFor(() => expect(createIntent).toHaveBeenCalledTimes(2));
+    expect(createIntent.mock.calls[1][1]).toBe(firstKey);
+  });
+
+  it('shows a disabled quote without loading methods or exposing any money action', async () => {
+    getQuote.mockResolvedValue({
+      ...quote,
+      balance_kopeks: 0,
+      missing_kopeks: 12345,
+      purchase_enabled: false,
+    });
+    renderFlow({ intentId: undefined, attemptId: undefined });
+    await screen.findByText('subscription.deviceAddon.purchaseUnavailable');
+    expect(getPaymentMethods).not.toHaveBeenCalled();
+    expect(
+      screen.queryByRole('button', { name: /subscription\.deviceAddon\.(buy|topup)/ }),
+    ).toBeNull();
+    expect(screen.queryByText('balance.goToPayment')).toBeNull();
+  });
+
+  it('keeps an existing invoice status readable while its payment action is disabled', async () => {
+    getIntent.mockResolvedValue({
+      id: 'intent-1',
+      subscription_id: 44,
+      devices_to_add: 2,
+      price_kopeks: 12345,
+      purchase_state: 'draft',
+      receipt: null,
+      fulfillment_status: null,
+      fulfillment_error_code: null,
+      purchase_enabled: false,
+      topup_attempts: [],
+      quote: { ...quote, missing_kopeks: 500, purchase_enabled: false },
+    });
+    getTopup.mockResolvedValue({
+      attempt: {
+        id: 'attempt-1',
+        intent_id: 'intent-1',
+        requested_amount_kopeks: 500,
+        payment_method: 'platega',
+        payment_option: '2',
+        status: 'pending',
+        credited_amount_kopeks: null,
+        can_open_payment: true,
+        can_create_new_attempt: false,
+        action_required: false,
+      },
+      intent: { id: 'intent-1', purchase_state: 'draft', fulfillment_status: null },
+      payment_url: 'https://provider.example/pay',
+    });
+
+    renderFlow({ intentId: 'intent-1', attemptId: 'attempt-1' });
+    await screen.findByText('subscription.deviceAddon.awaitingPayment');
+    expect(
+      screen.getByRole('button', { name: 'subscription.deviceAddon.checkStatus' }),
+    ).toBeTruthy();
+    expect(screen.queryByText('balance.goToPayment')).toBeNull();
+    expect(getPaymentMethods).not.toHaveBeenCalled();
+  });
+
+  it('re-renders a 409 quote change without requesting an undefined intent', async () => {
+    const changedQuote = {
+      ...quote,
+      price_kopeks: 20000,
+      quote_token: 'changed-quote',
+    };
+    const draft = {
+      id: 'intent-1',
+      subscription_id: 44,
+      devices_to_add: 2,
+      price_kopeks: 12345,
+      purchase_state: 'draft' as const,
+      receipt: null,
+      fulfillment_status: null,
+      fulfillment_error_code: null,
+      topup_attempts: [],
+      quote: changedQuote,
+    };
+    getQuote.mockResolvedValue(quote);
+    createIntent.mockResolvedValue({ ...draft, quote });
+    getIntent.mockResolvedValue(draft);
+    purchase.mockRejectedValue(axiosApiError(409, 'quote_changed', 'price changed', changedQuote));
+    renderFlow({ intentId: undefined, attemptId: undefined });
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'subscription.deviceAddon.buy:123.45 ₽' }),
+    );
+
+    const changedBuy = await screen.findByRole('button', {
+      name: 'subscription.deviceAddon.buy:200 ₽',
+    });
+    await waitFor(() => expect(changedBuy).toHaveProperty('disabled', false));
+    expect(getIntent).toHaveBeenCalled();
+    expect(getIntent.mock.calls.every(([id]) => id !== undefined)).toBe(true);
+  });
+
+  it('drops an owned-route top-up retry after funding changed before retrying the new amount', async () => {
+    const firstQuote = { ...quote, balance_kopeks: 11845, missing_kopeks: 500 };
+    const changedQuote = {
+      ...quote,
+      balance_kopeks: 11645,
+      missing_kopeks: 700,
+      quote_token: 'changed-owned-quote',
+    };
+    const ownedIntent = {
+      id: 'intent-1',
+      subscription_id: 44,
+      devices_to_add: 2,
+      price_kopeks: 12345,
+      purchase_state: 'draft' as const,
+      receipt: null,
+      fulfillment_status: null,
+      fulfillment_error_code: null,
+      topup_attempts: [],
+    };
+    getIntent
+      .mockResolvedValueOnce({ ...ownedIntent, quote: firstQuote })
+      .mockResolvedValue({ ...ownedIntent, quote: changedQuote });
+    const createdTopup = {
+      attempt: {
+        id: 'attempt-new',
+        intent_id: 'intent-1',
+        requested_amount_kopeks: 700,
+        payment_method: 'platega',
+        payment_option: '2',
+        provider_method_code: 2,
+        status: 'pending' as const,
+        credited_amount_kopeks: null,
+        can_open_payment: true,
+        can_create_new_attempt: false,
+        action_required: false,
+      },
+      payment_url: 'https://provider.example/new',
+      return_start_param: 'dtu-22222222-2222-4222-8222-222222222222',
+    };
+    createTopup
+      .mockRejectedValueOnce(axiosApiError(409, 'funding_changed', 'balance changed', changedQuote))
+      .mockResolvedValueOnce(createdTopup);
+    getTopup.mockResolvedValue({
+      attempt: createdTopup.attempt,
+      intent: { id: 'intent-1', purchase_state: 'draft', fulfillment_status: null },
+      payment_url: createdTopup.payment_url,
+    });
+
+    renderOwnedFlowRouter();
+    const firstButton = await screen.findByRole('button', {
+      name: 'subscription.deviceAddon.topup:5 ₽',
+    });
+    await waitFor(() => expect(firstButton).toHaveProperty('disabled', false));
+    fireEvent.click(firstButton);
+    await waitFor(() => expect(createTopup).toHaveBeenCalledTimes(1));
+    const firstRequest = createTopup.mock.calls[0][1];
+    await waitFor(() =>
+      expect(localStorage.getItem('device_addon_v1:topup:10:intent-1')).toBeNull(),
+    );
+
+    const changedButton = await screen.findByRole('button', {
+      name: 'subscription.deviceAddon.topup:7 ₽',
+    });
+    await waitFor(() => expect(changedButton).toHaveProperty('disabled', false));
+    fireEvent.click(changedButton);
+
+    await waitFor(() => expect(createTopup).toHaveBeenCalledTimes(2));
+    const secondRequest = createTopup.mock.calls[1][1];
+    expect(firstRequest.expected_amount_kopeks).toBe(500);
+    expect(secondRequest.expected_amount_kopeks).toBe(700);
+    expect(secondRequest.idempotency_key).not.toBe(firstRequest.idempotency_key);
   });
 
   it('uses the refreshed shortage after a paid invoice instead of looping into purchase', async () => {
@@ -476,6 +1117,120 @@ describe('DeviceAddonFlow', () => {
     expect(
       screen.queryByRole('button', { name: /subscription\.deviceAddon\.(buy|topup)/ }),
     ).toBeNull();
+  });
+
+  it('keeps balance purchase available while an old invoice needs operator review', async () => {
+    getIntent.mockResolvedValue({
+      id: 'intent-1',
+      subscription_id: 44,
+      devices_to_add: 2,
+      price_kopeks: 12345,
+      purchase_state: 'draft',
+      receipt: null,
+      fulfillment_status: null,
+      fulfillment_error_code: null,
+      topup_attempts: [],
+      quote,
+    });
+    getTopup.mockResolvedValue({
+      attempt: {
+        id: 'attempt-1',
+        intent_id: 'intent-1',
+        requested_amount_kopeks: 500,
+        payment_method: 'platega',
+        payment_option: '2',
+        provider_method_code: null,
+        status: 'operator_review',
+        credited_amount_kopeks: null,
+        can_create_new_attempt: false,
+        action_required: true,
+      },
+      intent: { id: 'intent-1', purchase_state: 'draft', fulfillment_status: null },
+    });
+
+    renderFlow({ intentId: 'intent-1', attemptId: 'attempt-1' });
+
+    await screen.findByText('subscription.deviceAddon.supportRequired');
+    const buy = screen.getByRole('button', {
+      name: 'subscription.deviceAddon.buy:123.45 ₽',
+    });
+    expect(buy).toHaveProperty('disabled', false);
+  });
+
+  it('keeps terminal-origin review visible while allowing a replacement invoice', async () => {
+    const shortageQuote = { ...quote, missing_kopeks: 300, balance_kopeks: 12045 };
+    getIntent.mockResolvedValue({
+      id: 'intent-1',
+      subscription_id: 44,
+      devices_to_add: 2,
+      price_kopeks: 12345,
+      purchase_state: 'draft',
+      receipt: null,
+      fulfillment_status: null,
+      fulfillment_error_code: null,
+      topup_attempts: [],
+      quote: shortageQuote,
+    });
+    getTopup.mockResolvedValue({
+      attempt: {
+        id: 'attempt-1',
+        intent_id: 'intent-1',
+        requested_amount_kopeks: 500,
+        payment_method: 'platega',
+        payment_option: '2',
+        provider_method_code: null,
+        status: 'operator_review',
+        credited_amount_kopeks: null,
+        can_open_payment: false,
+        can_create_new_attempt: true,
+        action_required: true,
+      },
+      intent: { id: 'intent-1', purchase_state: 'draft', fulfillment_status: null },
+    });
+
+    renderFlow({ intentId: 'intent-1', attemptId: 'attempt-1' });
+
+    await screen.findByText('subscription.deviceAddon.replacementSupportRequired');
+    expect(screen.queryByText('subscription.deviceAddon.supportRequired')).toBeNull();
+    expect(screen.getByRole('link', { name: 'nav.support' }).getAttribute('href')).toBe('/support');
+    expect(screen.getByRole('button', { name: 'subscription.deviceAddon.topup:3 ₽' })).toBeTruthy();
+  });
+
+  it('explains a provider-rejected invoice before offering another payment attempt', async () => {
+    const shortageQuote = { ...quote, missing_kopeks: 300, balance_kopeks: 12045 };
+    getIntent.mockResolvedValue({
+      id: 'intent-1',
+      subscription_id: 44,
+      devices_to_add: 2,
+      price_kopeks: 12345,
+      purchase_state: 'draft',
+      receipt: null,
+      fulfillment_status: null,
+      fulfillment_error_code: null,
+      topup_attempts: [],
+      quote: shortageQuote,
+    });
+    getTopup.mockResolvedValue({
+      attempt: {
+        id: 'attempt-1',
+        intent_id: 'intent-1',
+        requested_amount_kopeks: 500,
+        payment_method: 'platega',
+        payment_option: '2',
+        provider_method_code: null,
+        status: 'terminal',
+        credited_amount_kopeks: null,
+        can_open_payment: false,
+        can_create_new_attempt: true,
+        action_required: false,
+      },
+      intent: { id: 'intent-1', purchase_state: 'draft', fulfillment_status: null },
+    });
+
+    renderFlow({ intentId: 'intent-1', attemptId: 'attempt-1' });
+
+    await screen.findByText('subscription.deviceAddon.providerRejected');
+    expect(screen.getByRole('button', { name: 'subscription.deviceAddon.topup:3 ₽' })).toBeTruthy();
   });
 
   it('creates one durable top-up attempt on a double click and sends the backend enum', async () => {

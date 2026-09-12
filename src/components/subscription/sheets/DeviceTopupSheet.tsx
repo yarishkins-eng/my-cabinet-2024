@@ -53,18 +53,26 @@ export function DeviceTopupSheet({
     );
   }
   if (!subscriptionId) return null;
+  const handleClose = () => {
+    onDevicesToAddChange(1);
+    onClose();
+  };
   return (
     <div
       className={`rounded-xl border p-5 ${isDark ? 'border-dark-700/50 bg-dark-800/50' : 'border-champagne-300/60 bg-champagne-200/40'}`}
     >
-      <DeviceAddonFlow
-        subscriptionId={subscriptionId}
-        initialDevices={devicesToAdd}
-        onClose={() => {
-          onDevicesToAddChange(1);
-          onClose();
-        }}
-      />
+      <div className="mb-4 flex items-center justify-between">
+        <h3 className="font-medium text-dark-100">{t('subscription.buyDevices')}</h3>
+        <button
+          type="button"
+          onClick={handleClose}
+          className="text-sm text-dark-400 hover:text-dark-200"
+          aria-label={t('common.close', 'Close')}
+        >
+          ✕
+        </button>
+      </div>
+      <DeviceAddonFlow subscriptionId={subscriptionId} initialDevices={devicesToAdd} />
     </div>
   );
 }

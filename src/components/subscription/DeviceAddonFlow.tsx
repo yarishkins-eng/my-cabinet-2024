@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import axios from 'axios';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { Link, useNavigate } from 'react-router';
@@ -13,10 +14,11 @@ import {
 } from '@/api/deviceAddon';
 import { useAuthStore } from '@/store/auth';
 import { isInTelegramWebApp } from '@/hooks/useTelegramSDK';
-import { usePlatform } from '@/platform';
+import { useNativeDialog, usePlatform } from '@/platform';
 import {
   bindIntentRetry,
   clearIntentRetry,
+  clearMissingIntentRetry,
   clearTopupRetry,
   DeviceAddonPendingRetryError,
   DeviceAddonStorageUnavailableError,
@@ -71,6 +73,7 @@ export function DeviceAddonFlow({
   const queryClient = useQueryClient();
   const user = useAuthStore((state) => state.user);
   const { openLink, openTelegramLink } = usePlatform();
+  const { confirm: confirmDialog } = useNativeDialog();
   const [devices, setDevices] = useState(Math.max(1, initialDevices));
   const [intent, setIntent] = useState<DeviceAddonIntent | null>(null);
   const [attempt, setAttempt] = useState<DeviceAddonTopupAttempt | null>(null);
@@ -89,11 +92,25 @@ export function DeviceAddonFlow({
     retry: 1,
   });
   const { refetch: refetchQuote } = quoteQuery;
+  const activeIntentId = intentRef.current?.id ?? intentIdProp;
   const intentQuery = useQuery({
-    queryKey: ['device-addon-intent', intentIdProp],
-    queryFn: () => deviceAddonApi.getIntent(intentIdProp!),
-    enabled: Boolean(intentIdProp),
-    retry: 2,
+    queryKey: ['device-addon-intent', activeIntentId],
+    queryFn: () => {
+      const intentId = intentRef.current?.id ?? intentIdProp;
+      if (!intentId) throw new Error('Device add-on intent id is unavailable');
+      return deviceAddonApi.getIntent(intentId);
+    },
+    enabled: Boolean(activeIntentId),
+    retry: (failureCount, error) => {
+      const apiError = getDeviceAddonError(error);
+      if (
+        (axios.isAxiosError(error) && error.response?.status === 404) ||
+        apiError?.code === 'intent_not_found'
+      ) {
+        return false;
+      }
+      return failureCount < 2;
+    },
     refetchInterval: (query) => {
       const row = query.state.data;
       return row?.purchase_state === 'purchased' && row.fulfillment_status !== 'ready'
@@ -105,14 +122,24 @@ export function DeviceAddonFlow({
 
   useEffect(() => {
     if (!intentQuery.data) return;
+    // An owned route is just as authoritative as an intent created in this
+    // mounted view.  Remember it so a definitive top-up rejection clears the
+    // retry bound to this exact server operation before the next click.
+    activeIntentIdRef.current = intentQuery.data.id;
     intentRef.current = intentQuery.data;
     setIntent(intentQuery.data);
     setDevices(intentQuery.data.devices_to_add);
+    if (
+      user &&
+      (intentQuery.data.purchase_state === 'purchased' || intentQuery.data.quote === null)
+    ) {
+      clearIntentRetry(user.id, intentQuery.data.subscription_id);
+    }
     if (!attemptIdProp) {
-      const attempts = intentQuery.data.topup_attempts;
+      const attempts = intentQuery.data.topup_attempts ?? [];
       setAttempt(attempts.length ? attempts[attempts.length - 1] : null);
     }
-  }, [attemptIdProp, intentQuery.data]);
+  }, [attemptIdProp, intentQuery.data, user]);
 
   useEffect(() => {
     if (intentIdProp || !user || subscriptionId <= 0) return;
@@ -124,6 +151,20 @@ export function DeviceAddonFlow({
     }
   }, [intentIdProp, navigate, subscriptionId, user]);
 
+  useEffect(() => {
+    if (!intentIdProp || !user || !intentQuery.isError) return;
+    const apiError = getDeviceAddonError(intentQuery.error);
+    const missing =
+      (axios.isAxiosError(intentQuery.error) && intentQuery.error.response?.status === 404) ||
+      apiError?.code === 'intent_not_found';
+    if (!missing) return;
+    const retry = clearMissingIntentRetry(user.id, intentIdProp);
+    if (!retry) return;
+    navigate(`/subscription/device-topup/new?subscription_id=${retry.subscription_id}`, {
+      replace: true,
+    });
+  }, [intentIdProp, intentQuery.error, intentQuery.isError, navigate, user]);
+
   // An owned intent with quote:null is an intentional server denial (for
   // example, its subscription was deleted). Never revive it from an old entry
   // route cache.
@@ -131,6 +172,7 @@ export function DeviceAddonFlow({
     ? (intent.quote ?? undefined)
     : quoteQuery.data;
   const quoteExpired = isExpiredQuote(quote);
+  const purchaseEnabled = quote?.purchase_enabled ?? intent?.purchase_enabled ?? true;
 
   useEffect(() => {
     if (!quoteExpired || !quote || requotedTokenRef.current === quote.quote_token) return;
@@ -144,7 +186,7 @@ export function DeviceAddonFlow({
   const methodsQuery = useQuery({
     queryKey: ['payment-methods'],
     queryFn: balanceApi.getPaymentMethods,
-    enabled: needsTopup,
+    enabled: needsTopup && purchaseEnabled,
   });
   const platega = useMemo(() => {
     const method = methodsQuery.data?.find((item) => item.id === 'platega' && item.is_available);
@@ -162,6 +204,7 @@ export function DeviceAddonFlow({
   const finish = (next: DeviceAddonIntent) => {
     intentRef.current = next;
     setIntent(next);
+    queryClient.setQueryData(['device-addon-intent', next.id], next);
     if (next.purchase_state === 'purchased' && user) {
       clearIntentRetry(user.id, next.subscription_id);
     }
@@ -202,7 +245,20 @@ export function DeviceAddonFlow({
       setIntent(recovered);
       return recovered;
     }
-    const created = await deviceAddonApi.createIntent(retry.quote_token!, retry.idempotency_key);
+    let created: DeviceAddonIntent;
+    try {
+      created = await deviceAddonApi.createIntent(retry.quote_token!, retry.idempotency_key);
+    } catch (error) {
+      if (
+        axios.isAxiosError(error) &&
+        error.response &&
+        error.response.status >= 400 &&
+        error.response.status <= 599
+      ) {
+        clearIntentRetry(user.id, subscriptionId);
+      }
+      throw error;
+    }
     activeIntentIdRef.current = created.id;
     intentRef.current = created;
     setIntent(created);
@@ -325,8 +381,13 @@ export function DeviceAddonFlow({
   }, [attemptQuery.data, intent?.id, queryClient, refetchIntent]);
 
   const error =
-    purchaseMutation.error || topupMutation.error || quoteQuery.error || intentQuery.error;
+    purchaseMutation.error ||
+    topupMutation.error ||
+    quoteQuery.error ||
+    intentQuery.error ||
+    attemptQuery.error;
   const busy = purchaseMutation.isPending || topupMutation.isPending;
+  const attemptRouteUnresolved = Boolean(attemptIdProp && attempt?.id !== attemptIdProp);
   const quoteReady = Boolean(
     quote?.quote_token &&
     !quoteQuery.isFetching &&
@@ -345,11 +406,55 @@ export function DeviceAddonFlow({
     inFlightRef.current = true;
     topupMutation.mutate(quote, { onSettled: () => (inFlightRef.current = false) });
   };
+  const handleStartNew = async () => {
+    if (attemptRouteUnresolved) return;
+    const targetSubscriptionId = intentRef.current?.subscription_id ?? intent?.subscription_id;
+    if (!targetSubscriptionId) return;
+    if (
+      attempt &&
+      attempt.status !== 'paid' &&
+      attempt.status !== 'terminal' &&
+      !(await confirmDialog(
+        t('subscription.deviceAddon.startNewConfirm', {
+          amount: formatKopeks(attempt.requested_amount_kopeks),
+        }),
+        t('subscription.deviceAddon.startNewTitle'),
+      ))
+    ) {
+      return;
+    }
+    if (user) clearIntentRetry(user.id, targetSubscriptionId);
+    navigate(`/subscription/device-topup/new?subscription_id=${targetSubscriptionId}`);
+  };
+  const renderHeader = (subtitle?: string) => {
+    if (!onClose) {
+      return subtitle ? <p className="text-sm text-dark-400">{subtitle}</p> : null;
+    }
+    return (
+      <div className="flex items-center justify-between gap-3 text-left">
+        <div>
+          <h2 className="text-lg font-bold text-dark-100">{t('subscription.deviceAddon.title')}</h2>
+          {subtitle && <p className="text-sm text-dark-400">{subtitle}</p>}
+        </div>
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label={t('common.close')}
+          className="text-sm text-dark-400 hover:text-dark-200"
+        >
+          ✕
+        </button>
+      </div>
+    );
+  };
 
   if (quoteQuery.isLoading || intentQuery.isLoading) {
     return (
-      <div className="flex justify-center py-10">
-        <span className="h-7 w-7 animate-spin rounded-full border-2 border-accent-500 border-t-transparent" />
+      <div className="space-y-5">
+        {renderHeader()}
+        <div className="flex justify-center py-10">
+          <span className="h-7 w-7 animate-spin rounded-full border-2 border-accent-500 border-t-transparent" />
+        </div>
       </div>
     );
   }
@@ -358,6 +463,7 @@ export function DeviceAddonFlow({
   if (intent?.purchase_state === 'purchased' && receipt) {
     return (
       <div className="space-y-4 text-center">
+        {renderHeader()}
         <h2 className="text-xl font-bold text-success-400">
           {t('subscription.deviceAddon.purchasedTitle')}
         </h2>
@@ -379,9 +485,13 @@ export function DeviceAddonFlow({
             {t('nav.support')}
           </Link>
         )}
-        {onClose && (
-          <button type="button" onClick={onClose} className="btn-primary w-full py-3">
-            {t('common.close')}
+        {purchaseEnabled && intentIdProp && intent && (
+          <button
+            type="button"
+            onClick={() => void handleStartNew()}
+            className="btn-secondary w-full py-3"
+          >
+            {t('subscription.deviceAddon.buyMore')}
           </button>
         )}
       </div>
@@ -390,9 +500,23 @@ export function DeviceAddonFlow({
 
   if (!quote) {
     return (
-      <p className="py-6 text-center text-sm text-error-400">
-        {getApiErrorMessage(error, t('subscription.deviceAddon.freshQuoteRequired'))}
-      </p>
+      <div className="space-y-5">
+        {renderHeader()}
+        <p className="py-6 text-center text-sm text-error-400">
+          {intent?.quote_error?.message ??
+            getDeviceAddonError(error)?.message ??
+            getApiErrorMessage(error, t('subscription.deviceAddon.freshQuoteRequired'))}
+        </p>
+        {purchaseEnabled && intentIdProp && intent && (
+          <button
+            type="button"
+            onClick={() => void handleStartNew()}
+            className="btn-secondary w-full py-3"
+          >
+            {t('subscription.deviceAddon.chooseAnother')}
+          </button>
+        )}
+      </div>
     );
   }
 
@@ -402,29 +526,20 @@ export function DeviceAddonFlow({
     : shownQuote.missing_kopeks;
   const waitingForPayment = attempt && isOutstanding(attempt.status);
   const paid = attempt?.status === 'paid';
-  const manualHold =
-    attempt?.status === 'operator_review' || intent?.fulfillment_status === 'needs_attention';
   const canCreateAnotherAttempt = !attempt || attempt.can_create_new_attempt === true;
+  const supportRequired =
+    attempt?.status === 'operator_review' || intent?.fulfillment_status === 'needs_attention';
+  const manualHold =
+    intent?.fulfillment_status === 'needs_attention' ||
+    (attempt?.status === 'operator_review' && !canCreateAnotherAttempt);
+  const supportMessageKey =
+    attempt?.status === 'operator_review' && canCreateAnotherAttempt
+      ? 'subscription.deviceAddon.replacementSupportRequired'
+      : 'subscription.deviceAddon.supportRequired';
 
   return (
     <div className="space-y-5">
-      <div className="flex items-center justify-between gap-3">
-        <div>
-          <h2 className="text-lg font-bold text-dark-100">{t('subscription.deviceAddon.title')}</h2>
-          <p className="text-sm text-dark-400">
-            {t('subscription.deviceAddon.untilEnd', { count: shownQuote.days_left })}
-          </p>
-        </div>
-        {onClose && (
-          <button
-            type="button"
-            onClick={onClose}
-            className="text-sm text-dark-400 hover:text-dark-200"
-          >
-            ✕
-          </button>
-        )}
-      </div>
+      {renderHeader(t('subscription.deviceAddon.untilEnd', { count: shownQuote.days_left }))}
 
       <div className="flex items-center justify-center gap-6">
         <button
@@ -471,66 +586,86 @@ export function DeviceAddonFlow({
         </p>
       )}
 
-      {manualHold && (
+      {!purchaseEnabled && (
+        <p className="rounded-xl bg-warning-500/10 p-3 text-center text-sm text-warning-400">
+          {t('subscription.deviceAddon.purchaseUnavailable')}
+        </p>
+      )}
+
+      {supportRequired && (
         <div className="space-y-3 rounded-xl bg-warning-500/10 p-3 text-center text-sm text-warning-400">
-          <p>{t('subscription.deviceAddon.supportRequired')}</p>
+          <p>{t(supportMessageKey)}</p>
           <Link to="/support" className="btn-secondary block w-full py-3">
             {t('nav.support')}
           </Link>
         </div>
       )}
 
-      {needsTopup && !waitingForPayment && !manualHold && canCreateAnotherAttempt && (
-        <div className="space-y-3 rounded-xl border border-accent-500/20 bg-accent-500/5 p-4">
-          <p className="text-sm text-dark-200">
-            {t('subscription.deviceAddon.missing', {
-              amount: formatKopeks(shownQuote.missing_kopeks),
-            })}
-          </p>
-          {platega?.options && platega.options.length > 1 && (
-            <div className="grid grid-cols-2 gap-2">
-              {platega.options.map((option) => (
-                <button
-                  key={option.id}
-                  type="button"
-                  onClick={() => setSelectedOption(option.id)}
-                  className={
-                    selectedOption === option.id
-                      ? 'rounded-xl bg-accent-500/20 p-3 text-sm text-accent-300 ring-1 ring-accent-400'
-                      : 'rounded-xl bg-dark-800 p-3 text-sm text-dark-300'
-                  }
-                >
-                  {option.name}
-                </button>
-              ))}
-            </div>
-          )}
-          {!platega && !methodsQuery.isLoading && (
-            <p className="text-sm text-error-400">
-              {t('subscription.deviceAddon.paymentUnavailable')}
+      {attempt?.status === 'terminal' && (
+        <p className="rounded-xl bg-warning-500/10 p-3 text-center text-sm text-warning-400">
+          {t('subscription.deviceAddon.providerRejected')}
+        </p>
+      )}
+
+      {purchaseEnabled &&
+        needsTopup &&
+        !waitingForPayment &&
+        !manualHold &&
+        canCreateAnotherAttempt && (
+          <div className="space-y-3 rounded-xl border border-accent-500/20 bg-accent-500/5 p-4">
+            <p className="text-sm text-dark-200">
+              {t('subscription.deviceAddon.missing', {
+                amount: formatKopeks(shownQuote.missing_kopeks),
+              })}
             </p>
-          )}
-          <button
-            type="button"
-            disabled={!quoteReady || !platega || !selectedOption || busy}
-            onClick={handleTopup}
-            className="btn-primary w-full py-3"
-          >
-            {busy
-              ? t('common.loading')
-              : t('subscription.deviceAddon.topup', { amount: formatKopeks(invoiceAmount) })}
-          </button>
-        </div>
-      )}
+            {platega?.options && platega.options.length > 1 && (
+              <div className="grid grid-cols-2 gap-2">
+                {platega.options.map((option) => (
+                  <button
+                    key={option.id}
+                    type="button"
+                    onClick={() => setSelectedOption(option.id)}
+                    className={
+                      selectedOption === option.id
+                        ? 'rounded-xl bg-accent-500/20 p-3 text-sm text-accent-300 ring-1 ring-accent-400'
+                        : 'rounded-xl bg-dark-800 p-3 text-sm text-dark-300'
+                    }
+                  >
+                    {option.name}
+                  </button>
+                ))}
+              </div>
+            )}
+            {!platega && !methodsQuery.isLoading && (
+              <p className="text-sm text-error-400">
+                {t('subscription.deviceAddon.paymentUnavailable')}
+              </p>
+            )}
+            <button
+              type="button"
+              disabled={!quoteReady || !platega || !selectedOption || busy}
+              onClick={handleTopup}
+              className="btn-primary w-full py-3"
+            >
+              {busy
+                ? t('common.loading')
+                : t('subscription.deviceAddon.topup', { amount: formatKopeks(invoiceAmount) })}
+            </button>
+          </div>
+        )}
 
-      {needsTopup && !waitingForPayment && !manualHold && !canCreateAnotherAttempt && (
-        <div className="space-y-3 rounded-xl bg-warning-500/10 p-3 text-center text-sm text-warning-400">
-          <p>{t('subscription.deviceAddon.supportRequired')}</p>
-          <Link to="/support" className="btn-secondary block w-full py-3">
-            {t('nav.support')}
-          </Link>
-        </div>
-      )}
+      {purchaseEnabled &&
+        needsTopup &&
+        !waitingForPayment &&
+        !manualHold &&
+        !canCreateAnotherAttempt && (
+          <div className="space-y-3 rounded-xl bg-warning-500/10 p-3 text-center text-sm text-warning-400">
+            <p>{t(supportMessageKey)}</p>
+            <Link to="/support" className="btn-secondary block w-full py-3">
+              {t('nav.support')}
+            </Link>
+          </div>
+        )}
 
       {waitingForPayment && (
         <div className="space-y-3 rounded-xl border border-dark-700 p-4 text-center">
@@ -539,7 +674,7 @@ export function DeviceAddonFlow({
               ? t('subscription.deviceAddon.creationUnknown')
               : t('subscription.deviceAddon.awaitingPayment')}
           </p>
-          {attempt.can_open_payment === true && paymentUrl && (
+          {purchaseEnabled && attempt.can_open_payment === true && paymentUrl && (
             <button
               type="button"
               onClick={() =>
@@ -567,7 +702,7 @@ export function DeviceAddonFlow({
             : t('subscription.deviceAddon.balanceCredited')}
         </p>
       )}
-      {!needsTopup && !manualHold ? (
+      {purchaseEnabled && !needsTopup ? (
         <button
           type="button"
           disabled={busy || !quoteReady}
@@ -580,13 +715,26 @@ export function DeviceAddonFlow({
         </button>
       ) : null}
 
+      {purchaseEnabled && intentIdProp && intent && (
+        <button
+          type="button"
+          disabled={attemptRouteUnresolved}
+          onClick={() => void handleStartNew()}
+          className="btn-secondary w-full py-3"
+        >
+          {t('subscription.deviceAddon.chooseAnother')}
+        </button>
+      )}
+
       {error && (
         <p className="text-center text-sm text-error-400">
           {error instanceof DeviceAddonStorageUnavailableError
             ? t('subscription.deviceAddon.storageUnavailable')
             : error instanceof DeviceAddonPendingRetryError
               ? t('subscription.deviceAddon.pendingRetry')
-              : getApiErrorMessage(error, t('common.error'))}
+              : (intent?.quote_error?.message ??
+                getDeviceAddonError(error)?.message ??
+                getApiErrorMessage(error, t('common.error')))}
         </p>
       )}
     </div>

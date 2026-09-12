@@ -3,10 +3,12 @@ import { useNavigate } from 'react-router';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { adminPaymentsApi, type SearchStats } from '../api/adminPayments';
+import { getDeviceAddonError } from '../api/deviceAddon';
 import { DateField } from '../components/DateField';
 import { useCurrency } from '../hooks/useCurrency';
 import type { PendingPayment, PaginatedResponse } from '../types';
 import { usePlatform } from '../platform/hooks/usePlatform';
+import { useNativeDialog } from '../platform/hooks/useNativeDialog';
 import {
   BackIcon,
   SearchIcon,
@@ -76,6 +78,7 @@ export default function AdminPayments() {
   const queryClient = useQueryClient();
   const { formatAmount, currencySymbol } = useCurrency();
   const { capabilities } = usePlatform();
+  const { confirm: confirmDialog } = useNativeDialog();
 
   const [searchInput, setSearchInput] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
@@ -87,6 +90,7 @@ export default function AdminPayments() {
   const [methodFilter, setMethodFilter] = useState<string>('');
   const [page, setPage] = useState(1);
   const [checkingPaymentId, setCheckingPaymentId] = useState<string | null>(null);
+  const [closingPaymentId, setClosingPaymentId] = useState<string | null>(null);
 
   // Debounce search input (300ms)
   useEffect(() => {
@@ -156,6 +160,24 @@ export default function AdminPayments() {
   const handleCheckPayment = (payment: PendingPayment) => {
     setCheckingPaymentId(`${payment.method}_${payment.id}`);
     checkPaymentMutation.mutate({ method: payment.method, paymentId: payment.id });
+  };
+
+  const closeAttemptMutation = useMutation({
+    mutationFn: ({ method, paymentId }: { method: string; paymentId: number }) =>
+      adminPaymentsApi.closeDeviceAddonAttempt(method, paymentId),
+    onSuccess: async () => {
+      await refetch();
+      queryClient.invalidateQueries({ queryKey: ['admin-payments-search-stats'] });
+    },
+    onSettled: () => {
+      setClosingPaymentId(null);
+    },
+  });
+
+  const handleCloseAttempt = async (payment: PendingPayment) => {
+    if (!(await confirmDialog(t('admin.payments.closeAttemptConfirm')))) return;
+    setClosingPaymentId(`${payment.method}_${payment.id}`);
+    closeAttemptMutation.mutate({ method: payment.method, paymentId: payment.id });
   };
 
   const handleResetSearch = () => {
@@ -402,6 +424,7 @@ export default function AdminPayments() {
             {payments.items.map((payment) => {
               const paymentKey = `${payment.method}_${payment.id}`;
               const isChecking = checkingPaymentId === paymentKey;
+              const isClosing = closingPaymentId === paymentKey;
               const isCancelled = payment.status.toLowerCase().includes('cancel');
 
               return (
@@ -422,7 +445,18 @@ export default function AdminPayments() {
                             {t('admin.payments.paid')}
                           </span>
                         )}
+                        {payment.is_device_addon && (
+                          <span className="rounded-full bg-accent-500/20 px-2 py-0.5 text-xs font-medium text-accent-300">
+                            {t('admin.payments.deviceAddon')}
+                          </span>
+                        )}
                       </div>
+
+                      {payment.is_device_addon && payment.device_addon_reason_text && (
+                        <div className="mb-2 rounded-lg border border-warning-500/30 bg-warning-500/10 px-3 py-2 text-sm text-warning-300">
+                          {payment.device_addon_reason_text}
+                        </div>
+                      )}
 
                       {/* Amount */}
                       <div
@@ -538,6 +572,17 @@ export default function AdminPayments() {
                           )}
                         </button>
                       )}
+                      {payment.can_close_device_addon_attempt && (
+                        <button
+                          onClick={() => void handleCloseAttempt(payment)}
+                          disabled={isClosing}
+                          className="btn-secondary px-3 py-1.5 text-xs"
+                        >
+                          {isClosing
+                            ? t('admin.payments.closingAttempt')
+                            : t('admin.payments.closeAttempt')}
+                        </button>
+                      )}
                     </div>
                   </div>
 
@@ -560,6 +605,21 @@ export default function AdminPayments() {
                     checkPaymentMutation.variables?.method === payment.method && (
                       <div className="mt-3 rounded-lg border border-error-500/30 bg-error-500/10 p-2 text-sm text-error-400">
                         {t('admin.payments.checkError')}
+                      </div>
+                    )}
+                  {closeAttemptMutation.isSuccess &&
+                    closeAttemptMutation.variables?.paymentId === payment.id &&
+                    closeAttemptMutation.variables?.method === payment.method && (
+                      <div className="mt-3 rounded-lg border border-success-500/30 bg-success-500/10 p-2 text-sm text-success-400">
+                        {closeAttemptMutation.data?.message}
+                      </div>
+                    )}
+                  {closeAttemptMutation.isError &&
+                    closeAttemptMutation.variables?.paymentId === payment.id &&
+                    closeAttemptMutation.variables?.method === payment.method && (
+                      <div className="mt-3 rounded-lg border border-error-500/30 bg-error-500/10 p-2 text-sm text-error-400">
+                        {getDeviceAddonError(closeAttemptMutation.error)?.message ??
+                          t('admin.payments.closeAttemptError')}
                       </div>
                     )}
                 </div>

@@ -20,9 +20,18 @@ import { PlatformProvider } from '../platform';
 // проходит, в общем прогоне даёт красный код возврата, то есть красный CI.
 vi.setConfig({ testTimeout: 30000, hookTimeout: 30000 });
 
-const { getUser, updateSubscription, notifyError, notifySuccess } = vi.hoisted(() => ({
+const {
+  getUser,
+  updateSubscription,
+  getUserDeviceAddons,
+  retryDeviceAddonFulfillment,
+  notifyError,
+  notifySuccess,
+} = vi.hoisted(() => ({
   getUser: vi.fn(),
   updateSubscription: vi.fn(),
+  getUserDeviceAddons: vi.fn().mockResolvedValue({ items: [] }),
+  retryDeviceAddonFulfillment: vi.fn(),
   notifyError: vi.fn(),
   notifySuccess: vi.fn(),
 }));
@@ -41,6 +50,8 @@ vi.mock('../api/adminUsers', () => ({
     getUserGifts: vi.fn().mockResolvedValue({ gifts: [] }),
     getReferrals: vi.fn().mockResolvedValue([]),
     getSubscriptionRequestHistory: vi.fn().mockResolvedValue({ items: [], total: 0 }),
+    getUserDeviceAddons,
+    retryDeviceAddonFulfillment,
   },
 }));
 
@@ -249,6 +260,50 @@ describe('Отказ сервера на форме подписки доход�
     await waitFor(() => expect(updateSubscription).toHaveBeenCalled());
     await waitFor(() =>
       expect(notifyError).toHaveBeenCalledWith('admin.users.userActions.error', 'common.error'),
+    );
+  });
+
+  it('структурированная причина отказа повтора докупки доходит до админа', async () => {
+    getUser.mockResolvedValue(USER);
+    getUserDeviceAddons.mockResolvedValue({
+      items: [
+        {
+          public_id: 'f57bbac7-42c4-4386-93e7-3cd0850e69ad',
+          devices_to_add: 2,
+          price_kopeks: 10_000,
+          purchase_state: 'purchased',
+          fulfillment_state: 'needs_attention',
+          reason: 'panel_patch_failed',
+          purchased_at: '2026-09-11T10:00:00Z',
+          fulfilled_at: null,
+          created_at: '2026-09-11T09:59:00Z',
+          attempts: [],
+        },
+      ],
+    });
+    retryDeviceAddonFulfillment.mockRejectedValue({
+      isAxiosError: true,
+      response: {
+        status: 409,
+        data: {
+          detail: {
+            code: 'device_addon_retry_not_allowed',
+            message: 'Повтор уже недоступен для текущего состояния.',
+          },
+        },
+      },
+    });
+
+    await renderPage();
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'admin.users.detail.deviceAddons.retry' }),
+    );
+
+    await waitFor(() =>
+      expect(notifyError).toHaveBeenCalledWith(
+        'Повтор уже недоступен для текущего состояния.',
+        'common.error',
+      ),
     );
   });
 });

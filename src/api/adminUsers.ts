@@ -453,6 +453,27 @@ export interface AdminUserGiftsResponse {
   received_total: number;
 }
 
+export interface AdminDeviceAddonAttempt {
+  public_id: string;
+  status: string;
+  amount_kopeks: number;
+  reason: string | null;
+  created_at: string;
+}
+
+export interface AdminDeviceAddonIntent {
+  public_id: string;
+  devices_to_add: number;
+  price_kopeks: number;
+  purchase_state: 'draft' | 'purchased';
+  fulfillment_state: 'pending' | 'ready' | 'needs_attention';
+  reason: string | null;
+  purchased_at: string | null;
+  fulfilled_at: string | null;
+  created_at: string;
+  attempts: AdminDeviceAddonAttempt[];
+}
+
 export const adminUsersApi = {
   // List users
   getUsers: async (
@@ -489,6 +510,26 @@ export const adminUsersApi = {
   // Get user detail
   getUser: async (userId: number): Promise<UserDetailResponse> => {
     const response = await apiClient.get(`/cabinet/admin/users/${userId}`);
+    return response.data;
+  },
+
+  getUserDeviceAddons: async (userId: number): Promise<{ items: AdminDeviceAddonIntent[] }> => {
+    const response = await apiClient.get(`/cabinet/admin/users/${userId}/device-addons`);
+    return response.data;
+  },
+
+  retryDeviceAddonFulfillment: async (
+    userId: number,
+    intentPublicId: string,
+  ): Promise<{
+    success: boolean;
+    message: string;
+    public_id: string;
+    fulfillment_state: string;
+  }> => {
+    const response = await apiClient.post(
+      `/cabinet/admin/users/${userId}/device-addons/${intentPublicId}/retry-fulfillment`,
+    );
     return response.data;
   },
 
