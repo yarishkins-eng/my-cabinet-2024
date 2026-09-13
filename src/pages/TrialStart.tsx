@@ -1,21 +1,12 @@
-import { useRef, useState } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useState } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { subscriptionApi } from '@/api/subscription';
 import { balanceApi } from '@/api/balance';
 import PageLoader from '@/components/common/PageLoader';
 import { useCurrency } from '@/hooks/useCurrency';
-
-function activationKey(): string {
-  return typeof crypto?.randomUUID === 'function'
-    ? crypto.randomUUID()
-    : `trial-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-}
-
-function isCheckoutStateConflict(error: unknown): boolean {
-  return (error as { response?: { status?: unknown } })?.response?.status === 409;
-}
+import { useTrialActivation } from '@/hooks/useTrialActivation';
 
 /**
  * The dedicated intent route for Telegram's "Try for free" CTA.
@@ -30,7 +21,6 @@ export default function TrialStart() {
   const queryClient = useQueryClient();
   const { formatAmount, currencySymbol } = useCurrency();
   const [error, setError] = useState<string | null>(null);
-  const idempotencyKey = useRef(activationKey());
   const trial = useQuery({
     queryKey: ['trial-info'],
     queryFn: subscriptionApi.getTrialInfo,
@@ -42,35 +32,16 @@ export default function TrialStart() {
     enabled: Boolean(trial.data?.requires_payment),
   });
 
-  const activate = useMutation({
-    mutationFn: (resolution: 'activate' | 'abandon_pending_invoice') =>
-      subscriptionApi.activateTrial({
-        resolution,
-        expectedCheckoutId:
-          resolution === 'abandon_pending_invoice' ? trial.data?.checkout?.id : undefined,
-        idempotencyKey: idempotencyKey.current,
-      }),
-    onSuccess: async () => {
-      setError(null);
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ['subscription'] }),
-        queryClient.invalidateQueries({ queryKey: ['subscriptions-list'] }),
-        queryClient.invalidateQueries({ queryKey: ['trial-info'] }),
-        queryClient.invalidateQueries({ queryKey: ['device-first-open-checkout'] }),
-        queryClient.invalidateQueries({ queryKey: ['balance'] }),
-      ]);
-      navigate('/', { replace: true });
+  // После успеха хук сам приземляет на экран подключения новой подписки — и после обычной
+  // активации, и после «Начать пробный период» поверх закрытого счёта.
+  const activate = useTrialActivation({
+    onConflict: async ({ code, message }) => {
+      // Стенд в сбросе отвечает своим текстом — он точнее, чем «состояние заказа изменилось».
+      setError(code === 'test_account_reset' && message ? message : t('trialStart.orderChanged'));
+      await trial.refetch();
+      await queryClient.invalidateQueries({ queryKey: ['device-first-open-checkout'] });
     },
-    onError: async (nextError) => {
-      if (isCheckoutStateConflict(nextError)) {
-        idempotencyKey.current = activationKey();
-        setError(t('trialStart.orderChanged'));
-        await trial.refetch();
-        await queryClient.invalidateQueries({ queryKey: ['device-first-open-checkout'] });
-        return;
-      }
-      setError(t('trialStart.activateError'));
-    },
+    onError: (messageKey) => setError(t(messageKey)),
   });
 
   if (trial.isLoading) return <PageLoader variant="dark" />;
@@ -170,8 +141,15 @@ export default function TrialStart() {
           <button
             type="button"
             disabled={!canActivate || activate.isPending}
+            aria-busy={activate.isPending}
             className="min-h-12 w-full rounded-xl bg-accent-500 px-5 py-3 font-semibold text-white disabled:opacity-50"
-            onClick={() => activate.mutate('abandon_pending_invoice')}
+            onClick={() => {
+              setError(null);
+              activate.start({
+                resolution: 'abandon_pending_invoice',
+                expectedCheckoutId: checkout.id,
+              });
+            }}
           >
             {activate.isPending ? t('trialStart.activating') : t('trialStart.startTrial')}
           </button>
@@ -209,8 +187,12 @@ export default function TrialStart() {
             <button
               type="button"
               disabled={!canActivate || activate.isPending}
+              aria-busy={activate.isPending}
               className="min-h-12 w-full rounded-xl bg-accent-500 px-5 py-3 font-semibold text-white disabled:opacity-50"
-              onClick={() => activate.mutate('activate')}
+              onClick={() => {
+                setError(null);
+                activate.start({ resolution: 'activate' });
+              }}
             >
               {activate.isPending
                 ? t('trialStart.activating')
@@ -240,7 +222,10 @@ export default function TrialStart() {
       )}
 
       {error && (
-        <p className="rounded-xl border border-error-400/30 bg-error-500/10 p-3 text-sm text-error-300">
+        <p
+          role="alert"
+          className="rounded-xl border border-error-400/30 bg-error-500/10 p-3 text-sm text-error-300 light:text-error-700"
+        >
           {error}
         </p>
       )}
