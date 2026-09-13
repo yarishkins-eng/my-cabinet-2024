@@ -2821,7 +2821,8 @@
         "periodsRequired": "Add at least one period",
         "dailyPriceRequired": "Enter a price per day greater than 0",
         "trafficPackagesRequired": "Add at least one traffic package (or disable traffic topup)",
-        "serverSelectionRequired": "Select at least one server"
+        "serverSelectionRequired": "Select at least one server",
+        "devicePurchaseOptionsInvalid": "Device options do not match the base limit, the maximum, or the device price"
       }
     },
     "servers": {

@@ -2274,7 +2274,8 @@
         "fieldsRequired": "请填写必填字段（设备数、等级）",
         "periodsRequired": "请添加至少一个期限",
         "dailyPriceRequired": "请输入大于0的每日价格",
-        "trafficPackagesRequired": "请添加至少一个流量包（或关闭流量购买）"
+        "trafficPackagesRequired": "请添加至少一个流量包（或关闭流量购买）",
+        "devicePurchaseOptionsInvalid": "设备选项与基础限制、最大值或设备价格不一致"
       }
     },
     "servers": {

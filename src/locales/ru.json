@@ -3225,7 +3225,8 @@
         "periodsRequired": "Добавьте хотя бы один период",
         "dailyPriceRequired": "Укажите цену за день больше 0",
         "trafficPackagesRequired": "Добавьте хотя бы один пакет трафика (или отключите докупку)",
-        "serverSelectionRequired": "Выберите хотя бы один сервер"
+        "serverSelectionRequired": "Выберите хотя бы один сервер",
+        "devicePurchaseOptionsInvalid": "Варианты устройств не согласуются с базовым лимитом, максимумом или ценой устройства"
       }
     },
     "servers": {
