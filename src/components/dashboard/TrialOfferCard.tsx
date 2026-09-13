@@ -1,8 +1,11 @@
+import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Link } from 'react-router';
+import { Link, useNavigate } from 'react-router';
+import { useQueryClient } from '@tanstack/react-query';
 import type { TrialInfo } from '../../types';
 import { useCurrency } from '../../hooks/useCurrency';
 import { useTheme } from '../../hooks/useTheme';
+import { useTrialActivation } from '../../hooks/useTrialActivation';
 import { getGlassColors } from '../../utils/glassTheme';
 import { BoltIcon, SparklesIcon } from '@/components/icons';
 
@@ -18,11 +21,42 @@ export default function TrialOfferCard({
   balanceRubles,
 }: TrialOfferCardProps) {
   const { t } = useTranslation();
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const { formatAmount, currencySymbol } = useCurrency();
   const { isDark } = useTheme();
   const g = getGlassColors(isDark);
   const isFree = !trialInfo.requires_payment;
   const canAfford = balanceKopeks >= trialInfo.price_kopeks;
+  const [error, setError] = useState<string | null>(null);
+  const activation = useTrialActivation({
+    onConflict: async ({ code, message }) => {
+      // Сервер под блокировкой увидел не то, что знала Главная (счёт появился, подписка
+      // уже есть, стенд в сбросе). Говорим об этом и перечитываем правду: следующее нажатие
+      // уже пойдёт куда надо, а если подписка есть — карточка исчезнет сама.
+      setError(code === 'test_account_reset' && message ? message : t('trialStart.orderChanged'));
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['trial-info'] }),
+        queryClient.invalidateQueries({ queryKey: ['subscription'] }),
+        queryClient.invalidateQueries({ queryKey: ['subscriptions-list'] }),
+        queryClient.invalidateQueries({ queryKey: ['device-first-open-checkout'] }),
+      ]);
+    },
+    onError: (messageKey) => setError(t(messageKey)),
+  });
+  // Сервер уже сказал в `trial-info`, мешает ли что-то пробному. Только эти два состояния
+  // активируем прямо с карточки; висящий счёт, сомнительный платёж и отсутствие поля решает
+  // экран `/trial`, как и раньше — там человек видит свой заказ и выбирает сам.
+  const directActivation =
+    trialInfo.checkout_state === 'ready' || trialInfo.checkout_state === 'discardable_quote';
+  const startTrial = () => {
+    setError(null);
+    if (!directActivation) {
+      navigate('/trial');
+      return;
+    }
+    activation.start({ resolution: 'activate' });
+  };
 
   return (
     <div
@@ -202,9 +236,9 @@ export default function TrialOfferCard({
         </div>
       )}
 
-      {/* Every trial CTA goes through the explicit intent route.  That route
-          first resolves any unfinished Device-First invoice on the server;
-          no card may post activation directly. */}
+      {/* Платный пробный по-прежнему идёт через экран `/trial` (деньги). Бесплатный
+          активируется одним нажатием: забор от незавершённого счёта стоит на сервере,
+          а состояние заказа карточка уже знает из `trial-info`. */}
       {!isFree && trialInfo.price_kopeks > 0 ? (
         canAfford ? (
           <Link
@@ -232,9 +266,12 @@ export default function TrialOfferCard({
           </Link>
         )
       ) : (
-        <Link
-          to="/trial"
-          className="w-full rounded-[14px] py-4 text-base font-bold tracking-tight transition-all duration-300 disabled:opacity-50"
+        <button
+          type="button"
+          onClick={startTrial}
+          disabled={activation.isPending}
+          aria-busy={activation.isPending}
+          className="block w-full rounded-[14px] py-4 text-base font-bold tracking-tight transition-all duration-300 disabled:opacity-50"
           style={
             isDark
               ? {
@@ -251,8 +288,16 @@ export default function TrialOfferCard({
                 }
           }
         >
-          {t('subscription.trial.activate')}
-        </Link>
+          {activation.isPending ? t('trialStart.activating') : t('subscription.trial.activate')}
+        </button>
+      )}
+      {error && (
+        <p
+          role="alert"
+          className="relative mt-4 rounded-xl border border-error-400/30 bg-error-500/10 p-3 text-left text-sm text-error-300 light:text-error-700"
+        >
+          {error}
+        </p>
       )}
     </div>
   );
