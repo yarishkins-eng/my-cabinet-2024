@@ -153,7 +153,15 @@ export default function TrialOfferCard({
       {/* Trial stats */}
       <div className="mb-7 flex justify-center gap-8">
         {[
-          { value: String(trialInfo.duration_days), label: t('subscription.trial.days') },
+          {
+            value: String(trialInfo.duration_days),
+            // Подпись склоняется от числа («день / дня / дней»), само число уже стоит крупно выше —
+            // из словарной формы «{{count}} дней» его вырезаем, чтобы не печатать дважды.
+            label: t('subscription.trial.days', { count: trialInfo.duration_days }).replace(
+              /^\d+\s*/,
+              '',
+            ),
+          },
           {
             value: trialInfo.traffic_limit_gb === 0 ? '∞' : String(trialInfo.traffic_limit_gb),
             label: t('common.units.gb'),
