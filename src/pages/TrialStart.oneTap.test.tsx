@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MemoryRouter, Route, Routes, useLocation, useNavigate } from 'react-router';
 import TrialStart from './TrialStart';
@@ -81,6 +81,8 @@ function renderTrialStart() {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
+  // Знание Главной, лежащее в кэше к моменту активации, — улика для инвалидации после успеха.
+  queryClient.setQueryData(['subscription'], { subscription: null, has_subscription: false });
   render(
     <QueryClientProvider client={queryClient}>
       <MemoryRouter initialEntries={['/trial']}>
@@ -108,9 +110,11 @@ describe('ПТ-1 · экран /trial приземляет на подключе
   it('ready: «Активировать бесплатно» → один POST → /connection?sub=<id>, «назад» ведёт на Главную', async () => {
     getTrialInfo.mockResolvedValue(readyTrial);
     activateTrial.mockResolvedValue(createdTrial);
-    renderTrialStart();
+    const queryClient = renderTrialStart();
+    const button = await screen.findByRole('button', { name: 'trialStart.activateFree' });
+    const reads = getTrialInfo.mock.calls.length;
 
-    fireEvent.click(await screen.findByRole('button', { name: 'trialStart.activateFree' }));
+    fireEvent.click(button);
 
     await waitFor(() => expect(locationText()).toBe('/connection?sub=4242'));
     expect(screen.getByText('CONNECTION_SCREEN')).toBeTruthy();
@@ -123,6 +127,38 @@ describe('ПТ-1 · экран /trial приземляет на подключе
     fireEvent.click(screen.getByRole('button', { name: 'PROBE_BACK' }));
     await waitFor(() => expect(locationText()).toBe('/'));
     expect(screen.getByText('HOME_SCREEN')).toBeTruthy();
+    // Оффер пробного протух вместе с подпиской: экран перечитал `trial-info` после успеха
+    // (у него живой наблюдатель — инвалидация видна как повторное чтение), а знание Главной
+    // о подписке помечено протухшим — она не покажет оффер человеку с живым пробным.
+    await waitFor(() => expect(getTrialInfo.mock.calls.length).toBeGreaterThan(reads));
+    expect(queryClient.getQueryState(['subscription'])?.isInvalidated).toBe(true);
+  });
+
+  it('пока запрос летит: кнопка погашена и занята, второй тап не даёт второго POST', async () => {
+    getTrialInfo.mockResolvedValue(readyTrial);
+    let finish: (value: Subscription) => void = () => {};
+    activateTrial.mockImplementation(
+      () =>
+        new Promise<Subscription>((resolve) => {
+          finish = resolve;
+        }),
+    );
+    renderTrialStart();
+    const button = await screen.findByRole('button', { name: 'trialStart.activateFree' });
+
+    fireEvent.click(button);
+    fireEvent.click(button);
+    await waitFor(() => expect(button.hasAttribute('disabled')).toBe(true));
+    expect(button.getAttribute('aria-busy')).toBe('true');
+    expect(screen.getByRole('button', { name: 'trialStart.activating' })).toBe(button);
+    fireEvent.click(button);
+    expect(activateTrial).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      finish(createdTrial);
+    });
+    await waitFor(() => expect(locationText()).toBe('/connection?sub=4242'));
+    expect(activateTrial).toHaveBeenCalledTimes(1);
   });
 
   it('висящий счёт: «Начать пробный период» шлёт abandon с id заказа и тоже сажает на подключение', async () => {
@@ -205,7 +241,9 @@ describe('ПТ-1 · отказы сервера на /trial', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: 'trialStart.activateFree' }));
 
-    expect(await screen.findByText('trialStart.activateError')).toBeTruthy();
+    // Ошибка объявляется скринридеру: блок с ролью alert, а не просто текст.
+    const alert = await screen.findByRole('alert');
+    expect(alert.textContent).toBe('trialStart.activateError');
     await waitFor(() =>
       expect(
         screen.getByRole('button', { name: 'trialStart.activateFree' }).hasAttribute('disabled'),

@@ -63,6 +63,9 @@ function Probe() {
       <button type="button" onClick={() => navigate(-1)}>
         PROBE_BACK
       </button>
+      <button type="button" onClick={() => navigate('/balance')}>
+        PROBE_BALANCE
+      </button>
     </div>
   );
 }
@@ -141,6 +144,8 @@ describe('ПТ-1 · карточка активирует пробный одн�
       expect(queryClient.getQueryState(['subscription'])?.isInvalidated).toBe(true),
     );
     expect(queryClient.getQueryState(['subscriptions-list'])?.isInvalidated).toBe(true);
+    // И оффер пробного тоже: иначе он залипает на Главной у человека с уже живым пробным.
+    expect(queryClient.getQueryState(['trial-info'])?.isInvalidated).toBe(true);
   });
 
   it('discardable_quote: черновик без счёта не мешает — активируем прямо с карточки', async () => {
@@ -223,6 +228,38 @@ describe('ПТ-1 · карточка активирует пробный одн�
   });
 });
 
+describe('ПТ-1 · человек ушёл с экрана, пока сервер думал', () => {
+  it('ответ пришёл после ухода: без призрачного перехода, но пробный учтён', async () => {
+    let finish: (value: Subscription) => void = () => {};
+    activateTrial.mockImplementation(
+      () =>
+        new Promise<Subscription>((resolve) => {
+          finish = resolve;
+        }),
+    );
+    const queryClient = renderCard(freeTrial);
+
+    fireEvent.click(activateButton());
+    // Сервер ждёт панель до 10 с — человек нажал «Баланс» в нижней навигации.
+    fireEvent.click(screen.getByRole('button', { name: 'PROBE_BALANCE' }));
+    await waitFor(() => expect(locationText()).toBe('/balance'));
+
+    await act(async () => {
+      finish(createdTrial);
+    });
+
+    // Никуда не перебросило: он на балансе, куда шёл.
+    await waitFor(() =>
+      expect(queryClient.getQueryState(['subscription'])?.isInvalidated).toBe(true),
+    );
+    expect(locationText()).toBe('/balance');
+    expect(screen.getByText('BALANCE_SCREEN')).toBeTruthy();
+    // Но следы активации на месте: подсказка погашена, кэш Главной перечитается.
+    expect(localStorage.getItem('app_device_hint_seen_4242')).toBe('true');
+    expect(queryClient.getQueryState(['trial-info'])?.isInvalidated).toBe(true);
+  });
+});
+
 describe('ПТ-1 · отказы сервера с карточки', () => {
   it('409: человек остаётся на Главной с сообщением, знание Главной перечитывается, ключ меняется', async () => {
     activateTrial
@@ -238,6 +275,8 @@ describe('ПТ-1 · отказы сервера с карточки', () => {
     expect(locationText()).toBe('/');
     expect(queryClient.getQueryState(['trial-info'])?.isInvalidated).toBe(true);
     expect(queryClient.getQueryState(['subscription'])?.isInvalidated).toBe(true);
+    // В многотарифном режиме «подписки нет» судят по списку — его тоже перечитываем.
+    expect(queryClient.getQueryState(['subscriptions-list'])?.isInvalidated).toBe(true);
 
     // Повтор идёт с НОВЫМ ключом идемпотентности: старый закреплён за отвергнутым запросом.
     await waitFor(() => expect(activateButton().hasAttribute('disabled')).toBe(false));
@@ -275,6 +314,16 @@ describe('ПТ-1 · отказы сервера с карточки', () => {
     expect(locationText()).toBe('/');
   });
 
+  it('403 с другим кодом (например, подписка на канал) — общий текст, не про ограничение аккаунта', async () => {
+    activateTrial.mockRejectedValue(httpError(403, { code: 'channel_subscription_required' }));
+    renderCard(freeTrial);
+
+    fireEvent.click(activateButton());
+
+    const alert = await screen.findByRole('alert');
+    expect(alert.textContent).toBe('trialStart.activateError');
+  });
+
   it('иной отказ: текст ошибки под кнопкой, кнопка снова жива, человек на Главной', async () => {
     activateTrial.mockRejectedValueOnce(httpError(500)).mockResolvedValueOnce(createdTrial);
     renderCard(freeTrial);
@@ -286,8 +335,9 @@ describe('ПТ-1 · отказы сервера с карточки', () => {
     expect(locationText()).toBe('/');
     await waitFor(() => expect(activateButton().hasAttribute('disabled')).toBe(false));
 
-    // Повтор по совету текста работает: ошибка гаснет, посадка на подключение.
+    // Повтор по совету текста работает: ошибка гаснет СРАЗУ, ещё до ответа, посадка на подключение.
     fireEvent.click(activateButton());
+    expect(screen.queryByRole('alert')).toBeNull();
     await waitFor(() => expect(locationText()).toBe('/connection?sub=4242'));
     expect(activateTrial).toHaveBeenCalledTimes(2);
     // Ключ идемпотентности НЕ сменился: сервер мог уже выполнить первый запрос, и повтор с тем

@@ -1,4 +1,4 @@
-import { useCallback, useRef } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router';
 import { subscriptionApi } from '@/api/subscription';
@@ -53,10 +53,12 @@ function conflictOf(error: unknown): TrialConflict {
 
 /**
  * 403 `subscription_restricted` — повтор не поможет, «попробуйте ещё раз» соврало бы; текст тот же,
- * что у кассы для этого же отказа (`deviceFirst.errorRestricted`). Остальное — общий отказ с повтором.
+ * что у кассы для этого же отказа (`deviceFirst.errorRestricted`). Узнаём по коду, а не по статусу:
+ * 403 с другими кодами (канал, чёрный список) показывает свой экран поверх, и текст про
+ * ограничение аккаунта там был бы неправдой. Остальное — общий отказ с повтором.
  */
 export function trialActivationErrorKey(error: unknown): string {
-  return responseOf(error)?.status === 403
+  return conflictOf(error).code === 'subscription_restricted'
     ? 'deviceFirst.errorRestricted'
     : 'trialStart.activateError';
 }
@@ -87,6 +89,22 @@ export function useTrialActivation({ onConflict, onError }: TrialActivationHandl
   // `isPending` доезжает до кнопки через планировщик react-query (макротаск): второй тап в это
   // окно ушёл бы вторым POST с тем же ключом. Замок синхронный, снимается в `onSettled`.
   const inFlight = useRef(false);
+  // Ответ может идти до 10 с (сервер ждёт панель). Если человек за это время ушёл с экрана
+  // нижней навигацией или «назад», перебрасывать его на подключение из-под другого экрана
+  // нельзя: пробный активирован, кэш погашен, а дальше он идёт сам.
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+  // Экран подключения — отдельный ленивый кусок кода, у новичка ещё не загруженный. Без
+  // предзагрузки переход после успеха ждёт его, а React всё это время держит старый экран
+  // с уже перечитанным состоянием («подписка есть», кнопка снова живая).
+  useEffect(() => {
+    import('@/pages/Connection').catch(() => undefined);
+  }, []);
 
   const mutation = useMutation({
     mutationFn: (input: TrialActivationInput) =>
@@ -105,8 +123,10 @@ export function useTrialActivation({ onConflict, onError }: TrialActivationHandl
       // в веб-браузере (там кнопка экрана зовёт `navigate(-1)` без запасного пути).
       // Обе навигации применяются синхронно, потому что кабинет на классическом
       // `BrowserRouter`; data-router (`createBrowserRouter`) отменял бы первую второй.
-      navigate('/', { replace: true });
-      navigate(trialLandingPath(subscription.id));
+      if (mounted.current) {
+        navigate('/', { replace: true });
+        navigate(trialLandingPath(subscription.id));
+      }
       // Экран подключения читает свои запросы заново сам (`staleTime: 0`); остальные ключи
       // гасим не дожидаясь, чтобы Главная не мигнула новым состоянием перед уходом.
       void Promise.all(
@@ -136,5 +156,7 @@ export function useTrialActivation({ onConflict, onError }: TrialActivationHandl
     [mutate],
   );
 
-  return { start, isPending: mutation.isPending };
+  // После успеха кнопка остаётся погашенной до размонтирования: между ответом и сменой
+  // экрана она не должна снова звать «Активировать».
+  return { start, isPending: mutation.isPending || mutation.isSuccess };
 }

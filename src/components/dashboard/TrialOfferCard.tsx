@@ -38,6 +38,7 @@ export default function TrialOfferCard({
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['trial-info'] }),
         queryClient.invalidateQueries({ queryKey: ['subscription'] }),
+        queryClient.invalidateQueries({ queryKey: ['subscriptions-list'] }),
         queryClient.invalidateQueries({ queryKey: ['device-first-open-checkout'] }),
       ]);
     },
