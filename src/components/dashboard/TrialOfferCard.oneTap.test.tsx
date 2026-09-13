@@ -74,6 +74,10 @@ function renderCard(trialInfo: TrialInfo, balanceKopeks = 0) {
   // То, что знает Главная к моменту нажатия: инвалидацию этих ключей и проверяем как улику.
   queryClient.setQueryData(['trial-info'], trialInfo);
   queryClient.setQueryData(['subscription'], { subscription: null, has_subscription: false });
+  queryClient.setQueryData(['subscriptions-list'], {
+    subscriptions: [],
+    multi_tariff_enabled: false,
+  });
   render(
     <QueryClientProvider client={queryClient}>
       <MemoryRouter initialEntries={['/']}>
@@ -115,8 +119,9 @@ afterEach(() => cleanup());
 describe('ПТ-1 · карточка активирует пробный одним нажатием', () => {
   it('ready: один POST с resolution=activate → экран подключения новой подписки', async () => {
     activateTrial.mockResolvedValue(createdTrial);
-    renderCard(freeTrial);
+    const queryClient = renderCard(freeTrial);
     expect(locationText()).toBe('/');
+    expect(queryClient.getQueryState(['subscription'])?.isInvalidated).toBe(false);
 
     fireEvent.click(activateButton());
 
@@ -128,6 +133,11 @@ describe('ПТ-1 · карточка активирует пробный одн�
       expectedCheckoutId: undefined,
     });
     expect(typeof activateTrial.mock.calls[0][0].idempotencyKey).toBe('string');
+    // Знание Главной и списка подписок протухло: при возврате «назад» они перечитаются.
+    await waitFor(() =>
+      expect(queryClient.getQueryState(['subscription'])?.isInvalidated).toBe(true),
+    );
+    expect(queryClient.getQueryState(['subscriptions-list'])?.isInvalidated).toBe(true);
   });
 
   it('discardable_quote: черновик без счёта не мешает — активируем прямо с карточки', async () => {
