@@ -109,6 +109,7 @@ function renderCard(trialInfo: TrialInfo, balanceKopeks = 0) {
           <Route path="/trial" element={<div>TRIAL_SCREEN</div>} />
           <Route path="/connection" element={<div>CONNECTION_SCREEN</div>} />
           <Route path="/balance" element={<div>BALANCE_SCREEN</div>} />
+          <Route path="/before" element={<div>BEFORE_SCREEN</div>} />
         </Routes>
       </MemoryRouter>
     </QueryClientProvider>,
@@ -128,6 +129,18 @@ beforeEach(() => {
   }
 });
 afterEach(() => cleanup());
+
+// Первым в файле нарочно: модуль кэшируется после первого импорта, и флаг общий на файл.
+// Предпроверка `false` держит порядок честным — если тест переедет ниже, он упадёт громко,
+// а не пройдёт за счёт соседей. Vitest без `sequence.shuffle` идёт по порядку объявления.
+describe('ПТ-1 · чанк экрана подключения греется заранее', () => {
+  it('запрашивается при монтировании карточки, до нажатия', async () => {
+    expect(connectionChunkRequested).toBe(false);
+    renderCard(freeTrial);
+    await waitFor(() => expect(connectionChunkRequested).toBe(true));
+    expect(activateTrial).not.toHaveBeenCalled();
+  });
+});
 
 describe('ПТ-1 · карточка активирует пробный одним нажатием', () => {
   it('ready: один POST с resolution=activate → экран подключения новой подписки', async () => {
@@ -236,20 +249,14 @@ describe('ПТ-1 · карточка активирует пробный одн�
 });
 
 describe('ПТ-1 · между ответом и сменой экрана', () => {
-  it('чанк экрана подключения запрашивается при монтировании карточки, до нажатия', async () => {
-    // Модуль кэшируется после первого импорта, поэтому флаг общий на файл: его поднимает
-    // только предзагрузка из хука (маршруты здесь — заглушки), а нажатий в этом тесте нет.
-    renderCard(freeTrial);
-    await waitFor(() => expect(connectionChunkRequested).toBe(true));
-    expect(activateTrial).not.toHaveBeenCalled();
-  });
-
   it('после успеха кнопка остаётся погашенной, пока карточка ещё на экране', async () => {
     activateTrial.mockResolvedValue(createdTrial);
     const queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
     });
-    // Карточка вне <Routes>: переживает переход, как в бою — пока грузится чанк подключения.
+    // Карточка вне <Routes> нарочно: в бою маршрут «/» размонтирует её в том же такте, что
+    // ставит подключение, и этот кадр не виден. Тест проверяет только контракт хука —
+    // `isPending` после успеха не гаснет, — а не жизнь DOM на настоящем маршруте.
     render(
       <QueryClientProvider client={queryClient}>
         <MemoryRouter initialEntries={['/']}>
