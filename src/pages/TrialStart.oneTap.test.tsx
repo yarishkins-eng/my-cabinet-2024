@@ -198,9 +198,9 @@ describe('ПТ-1 · отказы сервера на /trial', () => {
     expect(locationText()).toBe('/trial');
   });
 
-  it('иной отказ: общий текст, кнопка снова жива', async () => {
+  it('иной отказ: общий текст, кнопка снова жива, повтор идёт с тем же ключом', async () => {
     getTrialInfo.mockResolvedValue(readyTrial);
-    activateTrial.mockRejectedValue(httpError(500));
+    activateTrial.mockRejectedValueOnce(httpError(500)).mockResolvedValueOnce(createdTrial);
     renderTrialStart();
 
     fireEvent.click(await screen.findByRole('button', { name: 'trialStart.activateFree' }));
@@ -212,5 +212,12 @@ describe('ПТ-1 · отказы сервера на /trial', () => {
       ).toBe(false),
     );
     expect(locationText()).toBe('/trial');
+
+    fireEvent.click(screen.getByRole('button', { name: 'trialStart.activateFree' }));
+    await waitFor(() => expect(locationText()).toBe('/connection?sub=4242'));
+    expect(activateTrial).toHaveBeenCalledTimes(2);
+    expect(activateTrial.mock.calls[1][0].idempotencyKey).toBe(
+      activateTrial.mock.calls[0][0].idempotencyKey,
+    );
   });
 });

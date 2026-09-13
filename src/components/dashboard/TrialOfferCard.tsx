@@ -293,7 +293,7 @@ export default function TrialOfferCard({
       {error && (
         <p
           role="alert"
-          className="relative mt-4 rounded-xl border border-error-400/30 bg-error-500/10 p-3 text-left text-sm text-error-300"
+          className="relative mt-4 rounded-xl border border-error-400/30 bg-error-500/10 p-3 text-left text-sm text-error-300 light:text-error-700"
         >
           {error}
         </p>

@@ -80,7 +80,9 @@ function renderCard(trialInfo: TrialInfo, balanceKopeks = 0) {
   });
   render(
     <QueryClientProvider client={queryClient}>
-      <MemoryRouter initialEntries={['/']}>
+      {/* Под Главной лежит ещё одна запись: так видно, что хук ПОДМЕНЯЕТ текущую, а не
+          просто кладёт подключение сверху — «назад» обязан привести на Главную, не глубже. */}
+      <MemoryRouter initialEntries={['/before', '/']} initialIndex={1}>
         <Probe />
         <Routes>
           <Route
@@ -160,6 +162,9 @@ describe('ПТ-1 · карточка активирует пробный одн�
 
     await waitFor(() => expect(locationText()).toBe('/'));
     expect(screen.queryByText('TRIAL_SCREEN')).toBeNull();
+    // Ещё одно «назад» — и только теперь запись, лежавшая под Главной.
+    fireEvent.click(screen.getByRole('button', { name: 'PROBE_BACK' }));
+    await waitFor(() => expect(locationText()).toBe('/before'));
   });
 
   it('после успеха подсказка «Подключить» для этой подписки погашена', async () => {
@@ -284,6 +289,11 @@ describe('ПТ-1 · отказы сервера с карточки', () => {
     fireEvent.click(activateButton());
     await waitFor(() => expect(locationText()).toBe('/connection?sub=4242'));
     expect(activateTrial).toHaveBeenCalledTimes(2);
+    // Ключ идемпотентности НЕ сменился: сервер мог уже выполнить первый запрос, и повтор с тем
+    // же ключом — безопасный реплей, а не вторая активация. Меняется он только после 409.
+    expect(activateTrial.mock.calls[1][0].idempotencyKey).toBe(
+      activateTrial.mock.calls[0][0].idempotencyKey,
+    );
   });
 });
 

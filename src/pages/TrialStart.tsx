@@ -141,6 +141,7 @@ export default function TrialStart() {
           <button
             type="button"
             disabled={!canActivate || activate.isPending}
+            aria-busy={activate.isPending}
             className="min-h-12 w-full rounded-xl bg-accent-500 px-5 py-3 font-semibold text-white disabled:opacity-50"
             onClick={() => {
               setError(null);
@@ -186,6 +187,7 @@ export default function TrialStart() {
             <button
               type="button"
               disabled={!canActivate || activate.isPending}
+              aria-busy={activate.isPending}
               className="min-h-12 w-full rounded-xl bg-accent-500 px-5 py-3 font-semibold text-white disabled:opacity-50"
               onClick={() => {
                 setError(null);
@@ -220,7 +222,10 @@ export default function TrialStart() {
       )}
 
       {error && (
-        <p className="rounded-xl border border-error-400/30 bg-error-500/10 p-3 text-sm text-error-300">
+        <p
+          role="alert"
+          className="rounded-xl border border-error-400/30 bg-error-500/10 p-3 text-sm text-error-300 light:text-error-700"
+        >
           {error}
         </p>
       )}
