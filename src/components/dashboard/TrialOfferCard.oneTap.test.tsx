@@ -29,6 +29,13 @@ vi.mock('@/api/subscription', () => ({
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key }),
 }));
+// Экран подключения — ленивый чанк; хук обязан запросить его заранее, ещё при монтировании
+// карточки. Фабрика мока срабатывает ровно при первом импорте модуля — это и есть улика.
+let connectionChunkRequested = false;
+vi.mock('@/pages/Connection', () => {
+  connectionChunkRequested = true;
+  return { default: () => null };
+});
 vi.mock('../../hooks/useTheme', () => ({ useTheme: () => ({ isDark: true }) }));
 vi.mock('../../hooks/useCurrency', () => ({
   useCurrency: () => ({ formatAmount: (value: number) => String(value), currencySymbol: '₽' }),
@@ -225,6 +232,44 @@ describe('ПТ-1 · карточка активирует пробный одн�
     });
     await waitFor(() => expect(locationText()).toBe('/connection?sub=4242'));
     expect(activateTrial).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('ПТ-1 · между ответом и сменой экрана', () => {
+  it('чанк экрана подключения запрашивается при монтировании карточки, до нажатия', async () => {
+    // Модуль кэшируется после первого импорта, поэтому флаг общий на файл: его поднимает
+    // только предзагрузка из хука (маршруты здесь — заглушки), а нажатий в этом тесте нет.
+    renderCard(freeTrial);
+    await waitFor(() => expect(connectionChunkRequested).toBe(true));
+    expect(activateTrial).not.toHaveBeenCalled();
+  });
+
+  it('после успеха кнопка остаётся погашенной, пока карточка ещё на экране', async () => {
+    activateTrial.mockResolvedValue(createdTrial);
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    // Карточка вне <Routes>: переживает переход, как в бою — пока грузится чанк подключения.
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={['/']}>
+          <Probe />
+          <TrialOfferCard trialInfo={freeTrial} balanceKopeks={0} balanceRubles={0} />
+          <Routes>
+            <Route path="/" element={<div>HOME_SCREEN</div>} />
+            <Route path="/connection" element={<div>CONNECTION_SCREEN</div>} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    fireEvent.click(activateButton());
+
+    await waitFor(() => expect(locationText()).toBe('/connection?sub=4242'));
+    const button = screen.getByRole('button', { name: 'trialStart.activating' });
+    expect(button.hasAttribute('disabled')).toBe(true);
+    expect(button.getAttribute('aria-busy')).toBe('true');
+    expect(screen.queryByRole('button', { name: 'subscription.trial.activate' })).toBeNull();
   });
 });
 
