@@ -306,8 +306,9 @@ describe('ПТ-1 · человек ушёл с экрана, пока серве
     );
     expect(locationText()).toBe('/balance');
     expect(screen.getByText('BALANCE_SCREEN')).toBeTruthy();
-    // Но следы активации на месте: подсказка погашена, кэш Главной перечитается.
-    expect(localStorage.getItem('app_device_hint_seen_4242')).toBe('true');
+    // Кэш Главной перечитается; а подсказка «Подключить» НЕ погашена — экран подключения
+    // ему не показали, пусть Главная подскажет, когда он вернётся.
+    expect(localStorage.getItem('app_device_hint_seen_4242')).toBeNull();
     expect(queryClient.getQueryState(['trial-info'])?.isInvalidated).toBe(true);
   });
 });
