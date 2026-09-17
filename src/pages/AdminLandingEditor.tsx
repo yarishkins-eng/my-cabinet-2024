@@ -872,7 +872,7 @@ export default function AdminLandingEditor() {
                       type="datetime-local"
                       value={discountStartsAt}
                       onChange={(e) => setDiscountStartsAt(e.target.value)}
-                      className="w-full rounded-lg border border-dark-700 bg-dark-800 px-3 py-2 text-sm text-dark-100 outline-none focus:border-accent-500 [&::-webkit-calendar-picker-indicator]:invert"
+                      className="w-full rounded-lg border border-dark-700 bg-dark-800 px-3 py-2 text-sm text-dark-100 outline-none focus:border-accent-500"
                     />
                   </div>
                   <div>
@@ -883,7 +883,7 @@ export default function AdminLandingEditor() {
                       type="datetime-local"
                       value={discountEndsAt}
                       onChange={(e) => setDiscountEndsAt(e.target.value)}
-                      className="w-full rounded-lg border border-dark-700 bg-dark-800 px-3 py-2 text-sm text-dark-100 outline-none focus:border-accent-500 [&::-webkit-calendar-picker-indicator]:invert"
+                      className="w-full rounded-lg border border-dark-700 bg-dark-800 px-3 py-2 text-sm text-dark-100 outline-none focus:border-accent-500"
                     />
                   </div>
                 </div>
