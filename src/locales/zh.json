@@ -3216,15 +3216,6 @@
       "users": "用户",
       "security": "安全"
     },
-    "theme": {
-      "accentColor": "强调色",
-      "customizeColors": "自定义颜色",
-      "hexCode": "HEX代码",
-      "hue": "色调",
-      "lightness": "亮度",
-      "quickPresets": "快速预设",
-      "saturation": "饱和度"
-    },
     "remnawave": {
       "connected": "已连接",
       "disconnected": "未配置",
@@ -4229,29 +4220,6 @@
     "emailMergeCodeLabel": "邮件中的验证码",
     "emailMergeConfirm": "确认并合并",
     "emailMergeCodeInvalid": "验证码无效或已过期"
-  },
-  "theme": {
-    "colors": "主题颜色",
-    "reset": "重置",
-    "quickPresets": "快速预设",
-    "quickPresetsDescription": "选择现成的配色方案",
-    "customColors": "自定义颜色",
-    "customColorsDescription": "单独自定义每种颜色",
-    "accent": "主题色",
-    "accentDescription": "用于按钮、链接和交互元素的主品牌颜色",
-    "darkTheme": "深色主题",
-    "lightTheme": "浅色主题",
-    "background": "背景",
-    "surface": "表面",
-    "text": "文字",
-    "textSecondary": "次要文字",
-    "statusColors": "状态颜色",
-    "success": "成功",
-    "warning": "警告",
-    "error": "错误",
-    "preview": "预览",
-    "previewButton": "主要按钮",
-    "previewSecondary": "次要按钮"
   },
   "languages": {
     "ru": "Русский",

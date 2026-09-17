@@ -257,7 +257,7 @@ export function ThemeTab() {
                 {t('admin.settings.accentColor')}
               </h4>
               <ColorPicker
-                label={t('theme.accent')}
+                label={t('admin.settings.accentColor')}
                 value={draftColors.accent}
                 onChange={(color) => updateDraftColor('accent', color)}
               />

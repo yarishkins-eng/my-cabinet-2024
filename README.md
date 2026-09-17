@@ -312,7 +312,7 @@ bedolaga-cabinet/
 ├── src/
 │   ├── api/           # API клиенты (axios)
 │   ├── components/    # React компоненты (UI kit)
-│   ├── contexts/      # React контексты (auth, theme)
+│   ├── providers/     # React-провайдеры (цвета палитры, WebSocket, тосты)
 │   ├── hooks/         # Custom hooks
 │   ├── locales/       # Переводы (i18n)
 │   ├── pages/         # Страницы приложения
