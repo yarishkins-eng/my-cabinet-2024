@@ -24,7 +24,6 @@ import {
   PiLock,
   PiMagnifyingGlass,
   PiMegaphone,
-  PiMoon,
   PiPalette,
   PiPauseCircle,
   PiPencil,
@@ -168,12 +167,8 @@ export const LogoutIcon = ({ className }: IconProps) => (
   <PiSignOut className={cn('h-5 w-5', className)} />
 );
 
-// Theme
+// Daily tariff marker (AdminTariffCreate)
 export const SunIcon = ({ className }: IconProps) => <PiSun className={cn('h-5 w-5', className)} />;
-
-export const MoonIcon = ({ className }: IconProps) => (
-  <PiMoon className={cn('h-5 w-5', className)} />
-);
 
 export const PaletteIcon = ({ className }: IconProps) => (
   <PiPalette className={cn('h-5 w-5', className)} />

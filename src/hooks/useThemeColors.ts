@@ -103,50 +103,6 @@ export function applyThemeColors(colors: ThemeColors): void {
   root.style.setProperty('--color-dark-900', interpolateRgb(darkSurfaceRgb, darkBgRgb, 0.7));
   root.style.setProperty('--color-dark-950', rgbToString(darkBgRgb.r, darkBgRgb.g, darkBgRgb.b));
 
-  const lightBgRgb = hexToRgb(colors.lightBackground);
-  const lightSurfaceRgb = hexToRgb(colors.lightSurface);
-  const lightTextRgb = hexToRgb(colors.lightText);
-  const lightTextSecRgb = hexToRgb(colors.lightTextSecondary);
-
-  // Apply champagne palette with actual user colors:
-  // Background colors (light shades): 50-100 = surface, 200-400 = background tones
-  root.style.setProperty(
-    '--color-champagne-50',
-    rgbToString(lightSurfaceRgb.r, lightSurfaceRgb.g, lightSurfaceRgb.b),
-  );
-  root.style.setProperty('--color-champagne-100', interpolateRgb(lightSurfaceRgb, lightBgRgb, 0.3));
-  root.style.setProperty(
-    '--color-champagne-200',
-    rgbToString(lightBgRgb.r, lightBgRgb.g, lightBgRgb.b),
-  );
-  root.style.setProperty('--color-champagne-300', interpolateRgb(lightBgRgb, lightTextSecRgb, 0.2));
-  root.style.setProperty('--color-champagne-400', interpolateRgb(lightBgRgb, lightTextSecRgb, 0.4));
-
-  // Transition colors (500-600): between bg and text
-  root.style.setProperty('--color-champagne-500', interpolateRgb(lightBgRgb, lightTextSecRgb, 0.6));
-  root.style.setProperty(
-    '--color-champagne-600',
-    rgbToString(lightTextSecRgb.r, lightTextSecRgb.g, lightTextSecRgb.b),
-  );
-
-  // Text colors (700-950): secondary to primary text
-  root.style.setProperty(
-    '--color-champagne-700',
-    interpolateRgb(lightTextSecRgb, lightTextRgb, 0.33),
-  );
-  root.style.setProperty(
-    '--color-champagne-800',
-    interpolateRgb(lightTextSecRgb, lightTextRgb, 0.66),
-  );
-  root.style.setProperty(
-    '--color-champagne-900',
-    rgbToString(lightTextRgb.r, lightTextRgb.g, lightTextRgb.b),
-  );
-  root.style.setProperty(
-    '--color-champagne-950',
-    rgbToString(lightTextRgb.r, lightTextRgb.g, lightTextRgb.b),
-  );
-
   for (const shade of SHADE_LEVELS) {
     root.style.setProperty(`--color-accent-${shade}`, accentPalette[shade]);
     root.style.setProperty(`--color-success-${shade}`, successPalette[shade]);
@@ -159,11 +115,6 @@ export function applyThemeColors(colors: ThemeColors): void {
   root.style.setProperty('--color-dark-surface', colors.darkSurface);
   root.style.setProperty('--color-dark-text', colors.darkText);
   root.style.setProperty('--color-dark-text-secondary', colors.darkTextSecondary);
-
-  root.style.setProperty('--color-light-bg', colors.lightBackground);
-  root.style.setProperty('--color-light-surface', colors.lightSurface);
-  root.style.setProperty('--color-light-text', colors.lightText);
-  root.style.setProperty('--color-light-text-secondary', colors.lightTextSecondary);
 }
 
 export function useThemeColors() {

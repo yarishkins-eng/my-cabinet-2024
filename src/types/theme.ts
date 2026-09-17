@@ -3,17 +3,11 @@ export interface ThemeColors {
   // Main accent color
   accent: string;
 
-  // Dark theme
+  // Page palette (the cabinet is dark-only)
   darkBackground: string;
   darkSurface: string;
   darkText: string;
   darkTextSecondary: string;
-
-  // Light theme
-  lightBackground: string;
-  lightSurface: string;
-  lightText: string;
-  lightTextSecondary: string;
 
   // Status colors
   success: string;
@@ -26,17 +20,6 @@ export interface ThemeSettings extends ThemeColors {
   updated_at?: string;
 }
 
-// Enabled themes settings
-export interface EnabledThemes {
-  dark: boolean;
-  light: boolean;
-}
-
-export const DEFAULT_ENABLED_THEMES: EnabledThemes = {
-  dark: true,
-  light: true,
-};
-
 // Default theme colors
 export const DEFAULT_THEME_COLORS: ThemeColors = {
   accent: '#3b82f6',
@@ -45,11 +28,6 @@ export const DEFAULT_THEME_COLORS: ThemeColors = {
   darkSurface: '#0f172a',
   darkText: '#f1f5f9',
   darkTextSecondary: '#94a3b8',
-
-  lightBackground: '#F7E7CE',
-  lightSurface: '#FEF9F0',
-  lightText: '#1F1A12',
-  lightTextSecondary: '#7D6B48',
 
   success: '#22c55e',
   warning: '#f59e0b',
