@@ -21,9 +21,6 @@ vi.mock('@/components/Toast', () => ({ useToast: () => ({ showToast: vi.fn() }) 
 vi.mock('@/api/balance', () => ({
   balanceApi: { getPaymentMethods: vi.fn() },
 }));
-vi.mock('@/hooks/useTheme', () => ({
-  useTheme: () => ({ isDark: true }),
-}));
 vi.mock('@/hooks/useCurrency', () => ({
   useCurrency: () => ({
     formatAmount: (value: number) => value.toFixed(2),

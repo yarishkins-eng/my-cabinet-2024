@@ -17,7 +17,6 @@ import {
   mountClosingBehavior,
   disableClosingConfirmation,
   mountBackButton,
-  bindThemeParamsCssVars,
   bindViewportCssVars,
   requestFullscreen,
   isFullscreen,
@@ -87,9 +86,6 @@ if (isTelegramEnv && !alreadyInitialized) {
           } catch {}
         })
         .catch(() => {});
-    } catch {}
-    try {
-      bindThemeParamsCssVars();
     } catch {}
     try {
       mountSwipeBehavior();

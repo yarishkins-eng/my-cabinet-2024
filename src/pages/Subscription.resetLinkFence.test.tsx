@@ -49,7 +49,6 @@ vi.mock('../utils/glassTheme', () => ({
   }),
 }));
 vi.mock('../utils/clipboard', () => ({ copyToClipboard: vi.fn() }));
-vi.mock('../hooks/useTheme', () => ({ useTheme: () => ({ isLight: false }) }));
 vi.mock('../components/InsufficientBalancePrompt', () => ({ default: Blank }));
 vi.mock('../hooks/useCurrency', () => ({
   useCurrency: () => ({ formatAmount: String, currencySymbol: '₽' }),

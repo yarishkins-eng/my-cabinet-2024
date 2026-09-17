@@ -180,7 +180,7 @@ function ProtectedRoute({
   const location = useLocation();
 
   if (isLoading) {
-    return <PageLoader variant="dark" />;
+    return <PageLoader />;
   }
 
   if (!isAuthenticated) {
@@ -198,7 +198,7 @@ function AdminRoute({ children }: { children: React.ReactNode }) {
   const location = useLocation();
 
   if (isLoading) {
-    return <PageLoader variant="light" />;
+    return <PageLoader />;
   }
 
   if (!isAuthenticated) {
@@ -220,7 +220,7 @@ function AdminRoute({ children }: { children: React.ReactNode }) {
 function LazyPage({ children }: { children: React.ReactNode }) {
   return (
     <ErrorBoundary level="page">
-      <Suspense fallback={<PageLoader variant="dark" />}>{children}</Suspense>
+      <Suspense fallback={<PageLoader />}>{children}</Suspense>
     </ErrorBoundary>
   );
 }

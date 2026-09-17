@@ -33,7 +33,7 @@ export function PermissionRoute({
 
   // Still loading auth state, or admin but permissions not fetched yet
   if (isLoading || (isAdmin && !permissionsLoaded)) {
-    return <PageLoader variant="light" />;
+    return <PageLoader />;
   }
 
   if (!isAuthenticated) {

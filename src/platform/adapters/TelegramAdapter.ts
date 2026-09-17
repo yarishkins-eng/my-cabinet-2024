@@ -12,7 +12,6 @@ import {
   setMiniAppHeaderColor,
   setMiniAppBottomBarColor,
   setMiniAppBackgroundColor,
-  themeParamsState,
   getCloudStorageItem,
   setCloudStorageItem,
   deleteCloudStorageItem,
@@ -212,32 +211,6 @@ function createThemeController(): ThemeController {
       try {
         setMiniAppBackgroundColor(color as `#${string}`);
       } catch {}
-    },
-
-    getThemeParams() {
-      if (!inTelegram) return null;
-      try {
-        const params = themeParamsState();
-        if (!params) return null;
-        return {
-          bg_color: params.bgColor,
-          text_color: params.textColor,
-          hint_color: params.hintColor,
-          link_color: params.linkColor,
-          button_color: params.buttonColor,
-          button_text_color: params.buttonTextColor,
-          secondary_bg_color: params.secondaryBgColor,
-          header_bg_color: params.headerBgColor,
-          bottom_bar_bg_color: params.bottomBarBgColor,
-          accent_text_color: params.accentTextColor,
-          section_bg_color: params.sectionBgColor,
-          section_header_text_color: params.sectionHeaderTextColor,
-          subtitle_text_color: params.subtitleTextColor,
-          destructive_text_color: params.destructiveTextColor,
-        };
-      } catch {
-        return null;
-      }
     },
   };
 }

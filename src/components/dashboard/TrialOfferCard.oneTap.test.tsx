@@ -36,7 +36,6 @@ vi.mock('@/pages/Connection', () => {
   connectionChunkRequested = true;
   return { default: () => null };
 });
-vi.mock('../../hooks/useTheme', () => ({ useTheme: () => ({ isDark: true }) }));
 vi.mock('../../hooks/useCurrency', () => ({
   useCurrency: () => ({ formatAmount: (value: number) => String(value), currencySymbol: '₽' }),
 }));

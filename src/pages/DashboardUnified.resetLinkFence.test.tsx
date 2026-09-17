@@ -92,8 +92,6 @@ vi.mock('react-i18next', async (importOriginal) => {
     useTranslation: () => ({ t: (key: string) => key, i18n: { language: 'ru' } }),
   };
 });
-vi.mock('../hooks/useTheme', () => ({ useTheme: () => ({ isDark: true }) }));
-vi.mock('@/hooks/useTheme', () => ({ useTheme: () => ({ isDark: true }) }));
 vi.mock('../hooks/useCurrency', () => ({
   useCurrency: () => ({ formatAmount: (value: number) => value.toFixed(2), currencySymbol: '₽' }),
 }));

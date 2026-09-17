@@ -29,7 +29,6 @@ vi.mock('@/utils/backgroundConfig', () => ({
   setCachedConfig: vi.fn(),
 }));
 
-import { ThemeProvider } from '@/hooks/useTheme';
 import { BackgroundRenderer, StaticBackgroundRenderer } from './BackgroundRenderer';
 
 describe('BackgroundRenderer backdrop', () => {
@@ -42,7 +41,6 @@ describe('BackgroundRenderer backdrop', () => {
       reducedOnMobile: false,
       settings: {},
     });
-    document.documentElement.className = '';
     // jsdom has no matchMedia; BackgroundRenderer reads prefers-reduced-motion.
     window.matchMedia = vi.fn().mockReturnValue({
       matches: false,
@@ -57,13 +55,7 @@ describe('BackgroundRenderer backdrop', () => {
   });
 
   it('paints one opaque dark backdrop under the animated effect', () => {
-    // Враждебный вход: посторонний поставил светлый класс — заглушка обязана его снять.
-    document.documentElement.className = 'light';
-    render(
-      <ThemeProvider>
-        <BackgroundRenderer />
-      </ThemeProvider>,
-    );
+    render(<BackgroundRenderer />);
 
     const layers = document.body.querySelectorAll<HTMLElement>('[data-app-background-theme]');
     expect(layers).toHaveLength(1);
@@ -73,18 +65,12 @@ describe('BackgroundRenderer backdrop', () => {
     expect(layer.style.opacity).toBe('');
     expect(screen.getByTestId('aurora-effect')).toBeTruthy();
     expect(screen.getByTestId('aurora-effect').parentElement?.style.opacity).toBe('0.5');
-    expect(document.documentElement.classList.contains('dark')).toBe(true);
-    expect(document.documentElement.classList.contains('light')).toBe(false);
   });
 
   it('keeps the opaque dark backdrop when animation is disabled', () => {
     animationConfig.enabled = false;
 
-    render(
-      <ThemeProvider>
-        <BackgroundRenderer />
-      </ThemeProvider>,
-    );
+    render(<BackgroundRenderer />);
 
     expect(screen.queryByTestId('aurora-effect')).toBeNull();
     expect(document.body.querySelectorAll('[data-app-background-theme]')).toHaveLength(1);
@@ -95,11 +81,7 @@ describe('BackgroundRenderer backdrop', () => {
   });
 
   it('does not paint a backdrop for a static landing background', () => {
-    render(
-      <ThemeProvider>
-        <StaticBackgroundRenderer config={animationConfig} />
-      </ThemeProvider>,
-    );
+    render(<StaticBackgroundRenderer config={animationConfig} />);
 
     const layer = document.body.querySelector<HTMLElement>('[data-app-background-theme="dark"]');
     expect(layer).not.toBeNull();

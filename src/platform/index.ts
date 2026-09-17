@@ -20,7 +20,6 @@ export type {
   DialogController,
   ThemeController,
   CloudStorageController,
-  TelegramThemeParams,
 } from './types';
 
 // Hooks

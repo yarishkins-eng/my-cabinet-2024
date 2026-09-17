@@ -29,9 +29,6 @@ vi.mock('react-i18next', async (importOriginal) => {
     useTranslation: () => ({ t: (key: string) => key }),
   };
 });
-vi.mock('@/hooks/useTheme', () => ({
-  useTheme: () => ({ isDark: true }),
-}));
 vi.mock('@/store/successNotification', () => ({
   useCloseOnSuccessNotification: vi.fn(),
 }));

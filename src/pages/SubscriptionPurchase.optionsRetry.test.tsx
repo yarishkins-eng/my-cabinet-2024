@@ -12,7 +12,6 @@ vi.mock('react-i18next', async (importOriginal) => ({
   ...(await importOriginal<typeof import('react-i18next')>()),
   useTranslation: () => ({ t: (key: string) => key }),
 }));
-vi.mock('@/hooks/useTheme', () => ({ useTheme: () => ({ isDark: true }) }));
 vi.mock('@/store/successNotification', () => ({ useCloseOnSuccessNotification: vi.fn() }));
 vi.mock('@/components/WebBackButton', () => ({ WebBackButton: () => <button>back</button> }));
 vi.mock('@/components/subscription/purchase/DeviceFirstConfigurator', () => ({
