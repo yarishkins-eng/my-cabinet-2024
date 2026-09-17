@@ -52,11 +52,6 @@
   box-shadow: none;
   pointer-events: auto;
 }
-
-.light .hover-border-gradient {
-  --_bg: var(--border-inner-bg, rgb(var(--color-champagne-100)));
-}
-
 @media (prefers-reduced-motion: reduce) {
   .hover-border-gradient {
     animation-play-state: paused;
@@ -153,19 +148,6 @@
     --color-dark-900: 15, 23, 42;
     --color-dark-950: 10, 15, 26;
 
-    /* Champagne palette (RGB values) */
-    --color-champagne-50: 255, 253, 249;
-    --color-champagne-100: 254, 249, 240;
-    --color-champagne-200: 247, 231, 206;
-    --color-champagne-300: 232, 212, 181;
-    --color-champagne-400: 212, 188, 150;
-    --color-champagne-500: 191, 164, 119;
-    --color-champagne-600: 160, 139, 94;
-    --color-champagne-700: 125, 107, 72;
-    --color-champagne-800: 92, 79, 53;
-    --color-champagne-900: 61, 52, 36;
-    --color-champagne-950: 31, 26, 18;
-
     /* Accent palette (RGB values) - dynamically set by ThemeColorsProvider */
     --color-accent-50: 239, 246, 255;
     --color-accent-100: 219, 234, 254;
@@ -230,11 +212,6 @@
     --color-dark-surface: #0f172a;
     --color-dark-text: #f1f5f9;
     --color-dark-text-secondary: #94a3b8;
-
-    --color-light-bg: #f7e7ce;
-    --color-light-surface: #fef9f0;
-    --color-light-text: #1f1a12;
-    --color-light-text-secondary: #7d6b48;
   }
 
   html {
@@ -275,15 +252,6 @@
   ::-webkit-scrollbar-thumb:hover {
     background: rgb(var(--color-dark-600));
   }
-
-  .light ::-webkit-scrollbar-thumb {
-    background: rgb(var(--color-champagne-400));
-  }
-
-  .light ::-webkit-scrollbar-thumb:hover {
-    background: rgb(var(--color-champagne-500));
-  }
-
   /* Smooth scroll only on desktop - mobile uses native */
   @media (min-width: 1024px) {
     html {
@@ -326,32 +294,6 @@
   main {
     contain: content;
   }
-
-  /* Light theme - Champagne */
-  .light body {
-    @apply bg-champagne-200 font-sans text-champagne-900 antialiased;
-    overscroll-behavior-y: contain;
-    -webkit-overflow-scrolling: touch;
-  }
-
-  /* Light theme: swap dark palette → dynamic champagne palette from API.
-     Uses var() to reference values set by applyThemeColors().
-     !important overrides inline styles from applyThemeColors on :root. */
-  .light {
-    --color-dark-50: var(--color-champagne-950) !important;
-    --color-dark-100: var(--color-champagne-900) !important;
-    --color-dark-200: var(--color-champagne-800) !important;
-    --color-dark-300: var(--color-champagne-700) !important;
-    --color-dark-400: var(--color-champagne-600) !important;
-    --color-dark-500: var(--color-champagne-500) !important;
-    --color-dark-600: var(--color-champagne-400) !important;
-    --color-dark-700: var(--color-champagne-300) !important;
-    --color-dark-800: var(--color-champagne-50) !important;
-    --color-dark-850: var(--color-champagne-100) !important;
-    --color-dark-900: var(--color-champagne-100) !important;
-    --color-dark-950: var(--color-champagne-200) !important;
-  }
-
   /* Custom scrollbar - Dark */
   .dark ::-webkit-scrollbar {
     @apply w-2;
@@ -367,23 +309,6 @@
 
   .dark ::-webkit-scrollbar-thumb:hover {
     @apply bg-dark-600;
-  }
-
-  /* Custom scrollbar - Light */
-  .light ::-webkit-scrollbar {
-    @apply w-2;
-  }
-
-  .light ::-webkit-scrollbar-track {
-    @apply bg-champagne-200;
-  }
-
-  .light ::-webkit-scrollbar-thumb {
-    @apply rounded-full bg-champagne-400;
-  }
-
-  .light ::-webkit-scrollbar-thumb:hover {
-    @apply bg-champagne-500;
   }
 }
 
@@ -499,38 +424,6 @@ img.twemoji {
       gap: var(--bento-gap-lg);
     }
   }
-
-  .light .bento-card {
-    @apply border-champagne-300/50 bg-champagne-50/90 shadow-sm;
-    /* Light Theme Glass Border */
-    box-shadow: inset 0 1px 0 0 rgba(0, 0, 0, 0.03);
-  }
-
-  @media (min-width: 1024px) {
-    .light .bento-card {
-      @apply bg-champagne-50/85;
-    }
-  }
-
-  .light .bento-card-hover:hover {
-    @apply border-champagne-400/50 bg-champagne-50 shadow-md;
-    transform: translateY(-2px) translateZ(0);
-    /* Intensify Light Theme Glass Border */
-    box-shadow:
-      inset 0 1px 0 0 rgba(0, 0, 0, 0.06),
-      0 10px 40px -10px rgba(160, 139, 94, 0.15);
-  }
-
-  /* Adjust spotlight for light theme to be a warm glow */
-  .light .bento-card-hover::after {
-    background: radial-gradient(circle at top, rgba(255, 253, 249, 0.8), transparent 70%);
-  }
-
-  .light .bento-card-glow:hover {
-    @apply border-accent-400/40 shadow-lg;
-    transform: translateY(-2px) translateZ(0);
-  }
-
   /* ========== DARK THEME COMPONENTS (default) ========== */
 
   /* Cards - Dark (unified style) */
@@ -630,13 +523,6 @@ img.twemoji {
   [role='button']:focus-visible {
     @apply ring-2 ring-accent-500/50 ring-offset-2 ring-offset-dark-900;
   }
-
-  .light button:focus-visible,
-  .light a:focus-visible,
-  .light [role='button']:focus-visible {
-    @apply ring-offset-champagne-100;
-  }
-
   .label {
     @apply mb-2 block text-sm font-medium text-dark-300;
   }
@@ -738,148 +624,6 @@ img.twemoji {
       -webkit-backdrop-filter: none !important;
     }
   }
-
-  /* ========== LIGHT THEME COMPONENTS (Champagne) ========== */
-
-  /* Cards - Light */
-  .light .card {
-    @apply border-champagne-300/50 bg-champagne-50/90 p-5 shadow-sm sm:p-6;
-    border-radius: var(--bento-radius);
-    box-shadow: inset 0 1px 0 0 rgba(0, 0, 0, 0.03);
-  }
-
-  @media (min-width: 1024px) {
-    .light .card {
-      @apply bg-champagne-50/85;
-    }
-  }
-
-  .light .card-hover {
-    @apply hover:border-champagne-400/50 hover:bg-champagne-50 hover:shadow-md;
-  }
-
-  .light .card-glow {
-    @apply hover:border-accent-400/40 hover:shadow-lg;
-  }
-
-  /* Glass effect - Light (optimized for mobile) */
-  .light .glass {
-    @apply border border-champagne-300/40 bg-champagne-50/90;
-  }
-
-  @media (min-width: 1024px) {
-    .light .glass {
-      @apply bg-champagne-50/60 backdrop-blur-xl;
-    }
-  }
-
-  /* Buttons - Light */
-  .light .btn {
-    @apply focus-visible:ring-offset-champagne-100;
-  }
-
-  .light .btn-primary {
-    @apply bg-champagne-700 text-white shadow-lg shadow-champagne-500/20 hover:bg-champagne-600 hover:shadow-xl hover:shadow-champagne-500/30 focus-visible:ring-champagne-500 active:bg-champagne-800;
-  }
-
-  .light .btn-secondary {
-    @apply border border-champagne-300 bg-champagne-50 text-champagne-800 hover:border-champagne-400 hover:bg-champagne-100 hover:text-champagne-900 focus-visible:ring-champagne-400 active:bg-champagne-200;
-  }
-
-  .light .btn-ghost {
-    @apply text-champagne-600 hover:bg-champagne-200/50 hover:text-champagne-900 focus-visible:ring-champagne-400;
-  }
-
-  .light .btn-danger {
-    @apply border border-error-200 bg-error-50 text-error-600 hover:border-error-300 hover:bg-error-100 active:bg-error-200;
-  }
-
-  .light .btn-icon {
-    @apply text-champagne-500 hover:bg-champagne-200/50 hover:text-champagne-800;
-  }
-
-  /* Inputs - Light */
-  .light .input {
-    @apply rounded-xl border border-champagne-300 bg-champagne-50 text-champagne-900 placeholder-champagne-400 focus:border-accent-400 focus:ring-accent-300/30;
-  }
-
-  .light .input-error {
-    @apply border-error-300 focus:border-error-400 focus:ring-error-300/30;
-  }
-
-  .light .label {
-    @apply text-champagne-700;
-  }
-
-  /* Badge - Light */
-  .light .badge-success {
-    @apply border border-success-200 bg-success-50 text-success-700;
-  }
-
-  .light .badge-warning {
-    @apply border border-warning-200 bg-warning-50 text-warning-700;
-  }
-
-  .light .badge-error {
-    @apply border border-error-200 bg-error-50 text-error-700;
-  }
-
-  .light .badge-info {
-    @apply border border-accent-200 bg-accent-50 text-accent-700;
-  }
-
-  .light .badge-neutral {
-    @apply border border-champagne-300 bg-champagne-200/50 text-champagne-700;
-  }
-
-  /* Stat card - Light */
-  .light .stat-value {
-    @apply text-champagne-900;
-  }
-
-  .light .stat-label {
-    @apply text-champagne-600;
-  }
-
-  /* Navigation - Light */
-  .light .nav-item {
-    @apply text-champagne-600 hover:bg-champagne-200/50 hover:text-champagne-900;
-  }
-
-  .light .nav-item-active {
-    @apply bg-champagne-200/70 text-champagne-800;
-  }
-
-  .light .bottom-nav {
-    @apply bg-white/95;
-    box-shadow:
-      0 4px 30px rgba(0, 0, 0, 0.1),
-      0 0 0 1px rgba(0, 0, 0, 0.05);
-  }
-
-  @media (min-width: 1024px) {
-    .light .bottom-nav {
-      @apply bg-white/80 backdrop-blur-xl;
-    }
-  }
-
-  .light .bottom-nav-item {
-    @apply text-champagne-500;
-  }
-
-  .light .bottom-nav-item:hover {
-    @apply text-champagne-700;
-  }
-
-  .light .bottom-nav-item-active {
-    @apply bg-champagne-300/40 text-champagne-800;
-  }
-
-  /* Divider - Light */
-  .light .divider {
-    @apply border-t border-champagne-200;
-  }
-
   /* Safe area */
   .safe-area-pb {
     padding-bottom: calc(0.5rem + var(--safe-area-inset-bottom));
@@ -893,20 +637,10 @@ img.twemoji {
   .skeleton {
     @apply animate-pulse rounded-lg bg-dark-800;
   }
-
-  .light .skeleton {
-    @apply bg-champagne-300;
-  }
-
   /* Link */
   .link {
     @apply text-accent-400 transition-colors duration-200 hover:text-accent-300;
   }
-
-  .light .link {
-    @apply text-accent-600 hover:text-accent-500;
-  }
-
   /* Prose styles for formatted content */
   .prose {
     @apply leading-relaxed text-dark-200;
@@ -1040,96 +774,6 @@ img.twemoji {
   .prose video {
     @apply my-4 block h-auto w-full max-w-full rounded-xl;
   }
-
-  /* Light theme prose styles */
-  .light .prose {
-    @apply text-champagne-800;
-  }
-
-  .light .prose h1 {
-    @apply text-champagne-950;
-  }
-
-  .light .prose h2 {
-    @apply text-champagne-950;
-  }
-
-  .light .prose h3,
-  .light .prose h4 {
-    @apply text-champagne-900;
-  }
-
-  .light .prose li {
-    @apply text-champagne-700;
-  }
-
-  .light .prose li::marker {
-    @apply text-champagne-600;
-  }
-
-  .light .prose a {
-    @apply text-accent-600 hover:text-accent-500;
-  }
-
-  .light .prose strong,
-  .light .prose b {
-    @apply text-champagne-900;
-  }
-
-  .light .prose em,
-  .light .prose i {
-    @apply text-champagne-700;
-  }
-
-  .light .prose s,
-  .light .prose del {
-    @apply text-champagne-500;
-  }
-
-  .light .prose tg-spoiler {
-    @apply bg-champagne-300 text-transparent hover:bg-transparent hover:text-champagne-800;
-  }
-
-  .light .prose blockquote {
-    @apply border-champagne-400 bg-champagne-100/50 text-champagne-700;
-  }
-
-  .light .prose code {
-    @apply bg-champagne-200 text-champagne-800;
-  }
-
-  .light .prose pre {
-    @apply border border-champagne-300 bg-champagne-100;
-  }
-
-  .light .prose hr {
-    @apply border-champagne-300;
-  }
-
-  .light .prose th {
-    @apply border-champagne-300 bg-champagne-200 text-champagne-900;
-  }
-
-  .light .prose td {
-    @apply border-champagne-300 text-champagne-700;
-  }
-
-  .light .prose mark {
-    @apply bg-warning-400/30 text-champagne-900;
-  }
-
-  .light .prose iframe {
-    @apply border border-champagne-300;
-  }
-
-  .light .prose video {
-    @apply border border-champagne-300;
-  }
-
-  .light .prose img {
-    @apply border border-champagne-300;
-  }
-
   /* Support for plain text with line breaks */
   .prose-plain {
     @apply whitespace-pre-line;
@@ -1230,16 +874,6 @@ img.twemoji {
   background-size: 200% 100%;
   animation: shimmer 1.5s infinite;
 }
-
-.light .shimmer {
-  background: linear-gradient(
-    90deg,
-    theme('colors.champagne.200') 0%,
-    theme('colors.champagne.300') 50%,
-    theme('colors.champagne.200') 100%
-  );
-}
-
 /* Tap effect on mobile */
 @media (hover: none) {
   .btn:active,
@@ -1404,8 +1038,7 @@ input[type='checkbox']:hover:not(:checked) {
    The library declares its rdp variables ON .rdp-root, so overriding them on a
    parent (.rdp-dark) gets shadowed. We must target `.rdp-dark .rdp-root` to win.
    All colors go through the app's theme tokens (the dark and accent scales),
-   which flip for light themes (e.g. champagne) — so the picker stays legible in
-   every theme without bespoke per-theme rules. */
+   so the picker follows the admin palette without bespoke rules. */
 .rdp-dark {
   color: rgb(var(--color-dark-100));
   font-size: 0.85rem;
@@ -1470,31 +1103,10 @@ input[type='checkbox']:hover:not(:checked) {
   color: rgb(var(--color-dark-100));
   background-color: rgb(var(--color-dark-700));
 }
-
-.light input[type='checkbox'] {
-  border-color: rgb(var(--color-champagne-400));
-  background-color: rgb(var(--color-champagne-100));
-}
-
-.light input[type='checkbox']:checked {
-  background-color: rgb(var(--color-accent-500));
-  border-color: rgb(var(--color-accent-500));
-}
-
-.light input[type='checkbox']:hover:not(:checked) {
-  border-color: rgb(var(--color-champagne-500));
-  background-color: rgb(var(--color-champagne-200));
-}
-
 /* Selection color */
 ::selection {
   @apply bg-accent-500/30 text-dark-50;
 }
-
-.light ::selection {
-  @apply bg-champagne-400/50 text-champagne-950;
-}
-
 /* Onboarding styles */
 .onboarding-overlay {
   @apply pointer-events-none fixed inset-0 z-[100];
@@ -1521,15 +1133,6 @@ input[type='checkbox']:hover:not(:checked) {
   @apply absolute h-3 w-3 border-l border-t border-accent-500/30 bg-dark-900;
   transform: rotate(45deg);
 }
-
-.light .onboarding-tooltip {
-  @apply border-champagne-400/50 bg-white shadow-champagne-500/20;
-}
-
-.light .onboarding-tooltip::before {
-  @apply border-champagne-400/50 bg-white;
-}
-
 .onboarding-tooltip.tooltip-top::before {
   @apply -bottom-1.5 left-1/2 -translate-x-1/2;
   transform: translateX(-50%) rotate(-135deg);
@@ -1773,20 +1376,6 @@ input[type='checkbox']:hover:not(:checked) {
 .page-exit {
   animation: pageExit 0.2s ease-in both;
 }
-
-/* Light theme sheet overrides */
-.light .sheet-backdrop {
-  @apply bg-black/40;
-}
-
-.light .sheet-container {
-  @apply bg-champagne-100;
-}
-
-.light .sheet-handle {
-  @apply bg-champagne-400;
-}
-
 /* ── Admin Panel: Floating Orbs Background ── */
 @keyframes adminOrbFloat {
   0% {
@@ -1844,12 +1433,6 @@ input[type='checkbox']:hover:not(:checked) {
   pointer-events: none;
   animation: adminOrbFloat 20s ease-in-out infinite alternate;
 }
-
-.light .admin-orb {
-  filter: blur(140px);
-  opacity: 0.15 !important;
-}
-
 /* Mobile: reduce orb count and blur for performance */
 @media (max-width: 1023px) {
   .admin-orb {
