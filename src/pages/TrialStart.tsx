@@ -44,7 +44,7 @@ export default function TrialStart() {
     onError: (messageKey) => setError(t(messageKey)),
   });
 
-  if (trial.isLoading) return <PageLoader variant="dark" />;
+  if (trial.isLoading) return <PageLoader />;
   if (trial.isError || !trial.data) {
     return (
       <section className="mx-auto max-w-xl space-y-5 px-4 py-8 sm:py-12">

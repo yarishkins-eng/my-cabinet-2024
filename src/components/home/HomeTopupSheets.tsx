@@ -26,7 +26,6 @@ const noop = () => {};
 export default function HomeTopupSheets({
   subscription,
   subscriptionId,
-  isDark,
   purchaseOptions,
   showDeviceTopup,
   showTrafficTopup,
@@ -39,7 +38,6 @@ export default function HomeTopupSheets({
 }: {
   subscription: Subscription;
   subscriptionId: number | undefined;
-  isDark: boolean;
   purchaseOptions: PurchaseOptions | undefined;
   showDeviceTopup: boolean;
   showTrafficTopup: boolean;
@@ -67,7 +65,6 @@ export default function HomeTopupSheets({
           devicesToAdd={devicesToAdd}
           onDevicesToAddChange={onDevicesToAddChange}
           purchaseOptions={purchaseOptions}
-          isDark={isDark}
         />
       )}
       {showTrafficTopup && (
@@ -80,7 +77,6 @@ export default function HomeTopupSheets({
           selectedTrafficPackage={selectedTrafficPackage}
           onSelectedTrafficPackageChange={onSelectedTrafficPackageChange}
           purchaseOptions={purchaseOptions}
-          isDark={isDark}
         />
       )}
     </div>

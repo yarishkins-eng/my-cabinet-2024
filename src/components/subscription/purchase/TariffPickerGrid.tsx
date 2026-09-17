@@ -1,6 +1,5 @@
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router';
-import { useTheme } from '../../../hooks/useTheme';
 import { useCurrency } from '../../../hooks/useCurrency';
 import { usePromoDiscount } from '../../../hooks/usePromoDiscount';
 import { getGlassColors } from '../../../utils/glassTheme';
@@ -43,8 +42,7 @@ export function TariffPickerGrid({
 }: TariffPickerGridProps) {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const { isDark } = useTheme();
-  const g = getGlassColors(isDark);
+  const g = getGlassColors();
   const { formatAmount, currencySymbol } = useCurrency();
   const { applyPromoDiscount } = usePromoDiscount();
 

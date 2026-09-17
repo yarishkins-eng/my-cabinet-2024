@@ -1,43 +1,34 @@
 /**
- * Theme-aware glass morphism color tokens.
- * Provides consistent colors for the glassmorphic card components
- * that work on both dark and light backgrounds.
+ * Glass morphism color tokens for the glassmorphic card components.
+ * The cabinet is dark-only, so this is a fixed set; the function is kept
+ * (no arguments) because callers and a test mock import it by name.
  */
-export function getGlassColors(isDark: boolean) {
+export function getGlassColors() {
   return {
     // Card container
-    cardBg: isDark
-      ? 'linear-gradient(145deg, rgba(255,255,255,0.05) 0%, rgba(255,255,255,0.02) 100%)'
-      : 'linear-gradient(145deg, rgba(255,255,255,0.95) 0%, rgba(255,255,255,0.88) 100%)',
-    cardBorder: isDark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.1)',
+    cardBg: 'linear-gradient(145deg, rgba(255,255,255,0.05) 0%, rgba(255,255,255,0.02) 100%)',
+    cardBorder: 'rgba(255,255,255,0.07)',
 
     // Inner sections (cards within cards)
-    innerBg: isDark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.03)',
-    innerBorder: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.06)',
+    innerBg: 'rgba(255,255,255,0.03)',
+    innerBorder: 'rgba(255,255,255,0.04)',
 
     // Hover states
-    hoverBg: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)',
-    hoverBorder: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.1)',
+    hoverBg: 'rgba(255,255,255,0.05)',
 
     // Text
-    text: isDark ? '#fff' : '#1a1a2e',
-    textSecondary: isDark ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.5)',
-    textMuted: isDark ? 'rgba(255,255,255,0.3)' : 'rgba(0,0,0,0.35)',
-    textFaint: isDark ? 'rgba(255,255,255,0.25)' : 'rgba(0,0,0,0.25)',
-    textGhost: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)',
+    text: '#fff',
+    textSecondary: 'rgba(255,255,255,0.4)',
+    textMuted: 'rgba(255,255,255,0.3)',
+    textFaint: 'rgba(255,255,255,0.25)',
+    textGhost: 'rgba(255,255,255,0.08)',
 
     // Progress bar track
-    trackBg: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)',
-    trackBorder: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.06)',
+    trackBg: 'rgba(255,255,255,0.06)',
+    trackBorder: 'rgba(255,255,255,0.04)',
 
     // Code blocks
-    codeBg: isDark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.04)',
-    codeBorder: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.06)',
-
-    // Glow effects — reduced in light mode
-    glowAlpha: isDark ? '15' : '08',
-
-    // Shadows for light mode depth
-    shadow: isDark ? 'none' : '0 2px 16px rgba(0,0,0,0.08), 0 0 0 1px rgba(0,0,0,0.03)',
+    codeBg: 'rgba(255,255,255,0.03)',
+    codeBorder: 'rgba(255,255,255,0.04)',
   };
 }

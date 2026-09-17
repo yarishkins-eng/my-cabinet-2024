@@ -5,7 +5,6 @@ import { UseMutationResult } from '@tanstack/react-query';
 import TrafficProgressBar from './TrafficProgressBar';
 import Sparkline from './Sparkline';
 import { useAnimatedNumber } from '../../hooks/useAnimatedNumber';
-import { useTheme } from '../../hooks/useTheme';
 import { useTrafficZone } from '../../hooks/useTrafficZone';
 import { formatTraffic } from '../../utils/formatTraffic';
 import { getGlassColors } from '../../utils/glassTheme';
@@ -35,8 +34,7 @@ export default function SubscriptionCardActive({
 }: SubscriptionCardActiveProps) {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const { isDark } = useTheme();
-  const g = getGlassColors(isDark);
+  const g = getGlassColors();
 
   const usedPercent = trafficData?.traffic_used_percent ?? subscription.traffic_used_percent;
   const usedGb = trafficData?.traffic_used_gb ?? subscription.traffic_used_gb;
@@ -61,13 +59,8 @@ export default function SubscriptionCardActive({
         background: g.cardBg,
         border: subscription.is_trial
           ? '1px solid rgba(var(--color-accent-400), 0.15)'
-          : isDark
-            ? `1px solid ${g.cardBorder}`
-            : `1px solid rgba(${zone.mainVarRaw}, 0.14)`,
+          : `1px solid ${g.cardBorder}`,
         padding: '28px 28px 24px',
-        boxShadow: isDark
-          ? g.shadow
-          : `0 2px 16px rgba(${zone.mainVarRaw}, 0.07), 0 0 0 1px rgba(${zone.mainVarRaw}, 0.03)`,
       }}
     >
       {/* Decorative trial-shimmer border + ambient background glow removed.

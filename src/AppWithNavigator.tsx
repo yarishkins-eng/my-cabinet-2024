@@ -13,7 +13,6 @@ import { ErrorBoundary } from './components/ErrorBoundary';
 import { PlatformProvider } from './platform/PlatformProvider';
 import { usePlatform } from './platform/hooks/usePlatform';
 import { ThemeColorsProvider } from './providers/ThemeColorsProvider';
-import { ThemeProvider } from './hooks/useTheme';
 import { WebSocketProvider } from './providers/WebSocketProvider';
 import { ToastProvider } from './components/Toast';
 import { TooltipProvider } from './components/primitives/Tooltip';
@@ -248,19 +247,17 @@ export function AppWithNavigator() {
       <ErrorBoundary level="page">
         <PlatformProvider>
           <GlobalInteractionGuard />
-          <ThemeProvider>
-            <ThemeColorsProvider>
-              <TooltipProvider>
-                <ToastProvider>
-                  <WebSocketProvider>
-                    <Twemoji options={TWEMOJI_OPTIONS}>
-                      <App />
-                    </Twemoji>
-                  </WebSocketProvider>
-                </ToastProvider>
-              </TooltipProvider>
-            </ThemeColorsProvider>
-          </ThemeProvider>
+          <ThemeColorsProvider>
+            <TooltipProvider>
+              <ToastProvider>
+                <WebSocketProvider>
+                  <Twemoji options={TWEMOJI_OPTIONS}>
+                    <App />
+                  </Twemoji>
+                </WebSocketProvider>
+              </ToastProvider>
+            </TooltipProvider>
+          </ThemeColorsProvider>
         </PlatformProvider>
       </ErrorBoundary>
     </BrowserRouter>

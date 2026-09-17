@@ -23,7 +23,6 @@ import { XIcon } from '@/components/icons';
 import { useToast } from '@/components/Toast';
 import { getGlassColors } from '@/utils/glassTheme';
 import { closedCartCopy, operatorReviewCopy } from '@/utils/deviceFirstMoney';
-import { useTheme } from '@/hooks/useTheme';
 import { usePlatform } from '@/platform';
 import { copyToClipboard } from '@/utils/clipboard';
 
@@ -50,10 +49,9 @@ export function DeviceFirstConfigurator({
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const queryClient = useQueryClient();
-  const { isDark } = useTheme();
   const { openLink } = usePlatform();
   const { showToast } = useToast();
-  const g = getGlassColors(isDark);
+  const g = getGlassColors();
   const paymentLinkOpenedRef = useRef(false);
   const paymentDeclinedRef = useRef(false);
   const refreshInFlightRef = useRef(false);
@@ -1632,7 +1630,7 @@ export function DeviceFirstConfigurator({
          а `main` резервирует 112 — без своего запаса нижние ~14 px последнего элемента ушли бы
          под непрозрачную панель, и тап по ним уводил бы с экрана. Оставлено 24 px. */
       className="relative rounded-3xl p-4 pb-6 min-[360px]:p-5 min-[360px]:pb-6 sm:p-7 sm:pb-7"
-      style={{ background: g.cardBg, border: `1px solid ${g.cardBorder}`, boxShadow: g.shadow }}
+      style={{ background: g.cardBg, border: `1px solid ${g.cardBorder}` }}
     >
       {/* 🔴 РЕК-18.1. Замер живым прогоном: главная кнопка стояла на 766 px при сгибе 499 — на
           267 px ниже, страница в 2,1 экрана. Две шапки подряд (h1 страницы и эта, с описанием)
@@ -2053,9 +2051,9 @@ export function DeviceFirstConfigurator({
                           ожидание про следующий шаг. Слиты в один — 20 px. Каждая половина
                           остаётся ОТДЕЛЬНЫМ узлом, чтобы сторожа находили их по ключу и чтобы
                           проверка позиции («предупреждение выше кнопок») продолжала работать.
-                          ⛔ Цвет `text-dark-300`, а НЕ `-400`: в светлой теме `-400` на 12 px
-                          даёт контраст 3,31 при норме 4,5. Этот же дефект в этом файле уже
-                          чинили однажды — комментарий об этом стоит у сводки ниже. */}
+                          Цвет `text-dark-300`, а не `-400`: запрет пришёл из светлой темы
+                          (3,31:1 на шампани при норме 4,5, РС-14д); в тёмной `-400` читаем,
+                          оставлено ради единообразия с остальными подстрочниками. */}
                       <p className="text-xs text-dark-300">
                         {hasWallet && (
                           <span>
@@ -2162,8 +2160,8 @@ export function DeviceFirstConfigurator({
                   // ровно та ошибка, про которую в этом файле уже написано дважды.
                   setTopUpJustPaidKopeks(null);
                 }}
-                // 🔴 РЕК-3, находка линзы UX. Было `text-dark-500` — контраст 2,4:1 в светлой
-                // теме и 3,8:1 в тёмной, то есть ниже порога читаемости в обеих. Пока человек
+                // 🔴 РЕК-3, находка линзы UX. Было `text-dark-500` — контраст 3,8:1 в тёмной
+                // теме (и 2,4:1 в светлой, которой больше нет), ниже порога читаемости. Пока человек
                 // приходил на этот экран САМ, это была тихая кнопка «назад»; теперь экран
                 // открывается без него, и это ЕДИНСТВЕННАЯ дверь обратно к вариантам, которая
                 // сохраняет выбор (системная «назад» Телеграма его теряет — мина JF).
@@ -2943,8 +2941,8 @@ function SelectionSummary({
               главную кнопку до нуля видимых пикселей над нижней панелью.
               ⚠️ `text-end`, а не `text-right`: в персидском разметка RTL, и физическое
               выравнивание ставило подстрочник под ПОДПИСЬ, а не под число.
-              ⚠️ `text-dark-300`, а не `-400`: в светлой теме `-400` даёт 3,2:1 при 12 px —
-              ниже порога читаемости. Ту же цену этот файл уже платил этапом раньше.
+              `text-dark-300`, а не `-400`: запрет пришёл из светлой темы (3,2:1 при 12 px,
+              РС-14д); в тёмной `-400` читаем, оставлено ради единообразия.
               ⚠️ Честно про `role="status"`: живой регион, появляющийся ВМЕСТЕ со своим текстом,
               большинство скринридеров не объявляет. Оставлен как единственная дешёвая попытка,
               но доступность приземления им НЕ закрыта — это отдельный пункт плана. */}

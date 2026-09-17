@@ -7,7 +7,6 @@ import type { BlockRendererProps } from './types';
 export function AccordionBlock({
   blocks,
   isMobile,
-  isLight,
   getLocalizedText,
   getSvgHtml,
   renderBlockButtons,
@@ -27,20 +26,14 @@ export function AccordionBlock({
   return (
     <div className="space-y-2">
       {visibleBlocks.map((block, index) => {
-        const gradientStyle = getColorGradient(block.svgIconColor || 'cyan', isLight);
+        const gradientStyle = getColorGradient(block.svgIconColor || 'cyan');
         const isOpen = openIndex === index;
 
         return (
           <div
             key={index}
             className={`overflow-hidden rounded-2xl border transition-colors ${
-              isLight
-                ? isOpen
-                  ? 'border-accent-500/30 bg-white/80 shadow-sm'
-                  : 'border-dark-700/60 bg-white/60'
-                : isOpen
-                  ? 'border-accent-500/30 bg-dark-800/50'
-                  : 'border-dark-700/50 bg-dark-800/50'
+              isOpen ? 'border-accent-500/30 bg-dark-800/50' : 'border-dark-700/50 bg-dark-800/50'
             }`}
           >
             {/* Control */}

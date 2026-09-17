@@ -5,7 +5,6 @@ import { Link, useSearchParams } from 'react-router';
 import { subscriptionApi } from '../api/subscription';
 import { WebBackButton } from '../components/WebBackButton';
 import { getGlassColors } from '../utils/glassTheme';
-import { useTheme } from '../hooks/useTheme';
 import type { Tariff, ClassicPurchaseOptions } from '../types';
 import { useCloseOnSuccessNotification } from '../store/successNotification';
 import { SwitchTariffSheet } from '../components/subscription/sheets/SwitchTariffSheet';
@@ -23,8 +22,7 @@ export default function SubscriptionPurchase() {
     ? parseInt(searchParams.get('subscriptionId')!, 10)
     : undefined;
   const deviceFirstCheckoutId = searchParams.get('checkout');
-  const { isDark } = useTheme();
-  const g = getGlassColors(isDark);
+  const g = getGlassColors();
 
   // Subscription query (shares cache with /subscription page)
   const { data: subscriptionResponse, isLoading } = useQuery({
@@ -264,7 +262,6 @@ export default function SubscriptionPurchase() {
             style={{
               background: g.cardBg,
               border: `1px solid ${g.cardBorder}`,
-              boxShadow: g.shadow,
               padding: '24px 28px',
             }}
           >

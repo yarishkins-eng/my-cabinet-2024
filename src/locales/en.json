@@ -2459,15 +2459,6 @@
       "selectAllSubs": "Select all subscriptions",
       "deselectAllSubs": "Deselect all subscriptions"
     },
-    "theme": {
-      "accentColor": "Accent color",
-      "customizeColors": "Customize colors",
-      "hexCode": "HEX code",
-      "hue": "Hue",
-      "lightness": "Lightness",
-      "quickPresets": "Quick presets",
-      "saturation": "Saturation"
-    },
     "buttons": {
       "color": "Button color",
       "emojiId": "Custom Emoji ID",
@@ -5013,29 +5004,6 @@
     "emailMergeCodeLabel": "Code from the email",
     "emailMergeConfirm": "Confirm and merge",
     "emailMergeCodeInvalid": "Invalid or expired code"
-  },
-  "theme": {
-    "colors": "Theme Colors",
-    "reset": "Reset",
-    "quickPresets": "Quick Presets",
-    "quickPresetsDescription": "Choose a ready-made color scheme",
-    "customColors": "Custom Colors",
-    "customColorsDescription": "Customize each color individually",
-    "accent": "Accent Color",
-    "accentDescription": "Main brand color for buttons, links and interactive elements",
-    "darkTheme": "Dark Theme",
-    "lightTheme": "Light Theme",
-    "background": "Background",
-    "surface": "Surface",
-    "text": "Text",
-    "textSecondary": "Secondary Text",
-    "statusColors": "Status Colors",
-    "success": "Success",
-    "warning": "Warning",
-    "error": "Error",
-    "preview": "Preview",
-    "previewButton": "Primary Button",
-    "previewSecondary": "Secondary Button"
   },
   "languages": {
     "ru": "Русский",

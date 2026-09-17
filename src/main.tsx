@@ -17,7 +17,6 @@ import {
   mountClosingBehavior,
   disableClosingConfirmation,
   mountBackButton,
-  bindThemeParamsCssVars,
   bindViewportCssVars,
   requestFullscreen,
   isFullscreen,
@@ -65,8 +64,7 @@ if (isTelegramEnv && !alreadyInitialized) {
     applyTelegramLanguage();
 
     // Each mount in its own try/catch so one failure doesn't block others.
-    // mountMiniApp() internally mounts themeParams in SDK v3,
-    // so we don't call mountThemeParams() separately to avoid ConcurrentCallError.
+    // themeParams кабинету не нужны: он всегда тёмный и тему телефона не читает.
     try {
       // mountMiniApp() в SDK 3.x асинхронный: до его завершения setMiniApp*()
       // бросают «the component is unmounted». Поэтому — в .then().
@@ -87,9 +85,6 @@ if (isTelegramEnv && !alreadyInitialized) {
           } catch {}
         })
         .catch(() => {});
-    } catch {}
-    try {
-      bindThemeParamsCssVars();
     } catch {}
     try {
       mountSwipeBehavior();

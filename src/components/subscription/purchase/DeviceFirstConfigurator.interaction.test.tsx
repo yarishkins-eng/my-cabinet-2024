@@ -57,9 +57,6 @@ vi.mock('@/components/Toast', () => ({
 vi.mock('@/utils/clipboard', () => ({
   copyToClipboard: vi.fn().mockResolvedValue(undefined),
 }));
-vi.mock('@/hooks/useTheme', () => ({
-  useTheme: () => ({ isDark: true }),
-}));
 vi.mock('@/hooks/useCurrency', () => ({
   useCurrency: () => ({
     formatAmount: (value: number) => value.toFixed(2),
@@ -3411,8 +3408,8 @@ describe('DeviceFirstConfigurator interaction safety', () => {
     expect(screen.queryByText('deviceFirst.autostartHeldTitle')).toBeNull();
     // 🔴 Заодно пришпиливаем решение о читаемости выхода: «Изменить параметры» — единственная
     // дверь назад, сохраняющая выбор, и на автоматически открытом экране она обязана читаться.
-    // Мутационный прогон показал, что возврат цвета к `text-dark-500` (контраст 2,4:1 в светлой
-    // теме) не ловит ни один тест. Сторож слабый — он про класс, а не про контраст, — но он
+    // Мутационный прогон показал, что возврат цвета к `text-dark-500` (контраст 3,8:1 в тёмной
+    // теме, ниже порога) не ловит ни один тест. Сторож слабый — он про класс, а не про контраст, — но он
     // делает молчаливый откат видимым.
     // ⛔ Смотрим СПИСОК классов, а не подстроку: `toContain('text-dark-300')` был зелёным и на
     // возвращённом `text-dark-500 hover:text-dark-300` — подстрока находилась в `hover:`.

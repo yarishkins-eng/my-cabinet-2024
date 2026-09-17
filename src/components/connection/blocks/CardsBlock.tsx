@@ -5,7 +5,6 @@ import type { BlockRendererProps } from './types';
 export function CardsBlock({
   blocks,
   isMobile,
-  isLight,
   getLocalizedText,
   getSvgHtml,
   renderBlockButtons,
@@ -23,16 +22,12 @@ export function CardsBlock({
   return (
     <div className="space-y-3">
       {visibleBlocks.map((block, index) => {
-        const gradientStyle = getColorGradient(block.svgIconColor || 'cyan', isLight);
+        const gradientStyle = getColorGradient(block.svgIconColor || 'cyan');
 
         return (
           <div
             key={index}
-            className={`rounded-2xl border p-4 sm:p-5 ${
-              isLight
-                ? 'border-dark-700/60 bg-white/80 shadow-sm'
-                : 'border-dark-700/50 bg-dark-800/50'
-            }`}
+            className="rounded-2xl border border-dark-700/50 bg-dark-800/50 p-4 sm:p-5"
           >
             <div className="flex items-start gap-3 sm:gap-4">
               <ThemeIcon

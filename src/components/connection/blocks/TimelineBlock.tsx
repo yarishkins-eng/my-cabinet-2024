@@ -5,7 +5,6 @@ import type { BlockRendererProps } from './types';
 export function TimelineBlock({
   blocks,
   isMobile,
-  isLight,
   getLocalizedText,
   getSvgHtml,
   renderBlockButtons,
@@ -23,7 +22,7 @@ export function TimelineBlock({
   return (
     <div className="space-y-0">
       {visibleBlocks.map((block, index) => {
-        const gradientStyle = getColorGradientSolid(block.svgIconColor || 'cyan', isLight);
+        const gradientStyle = getColorGradientSolid(block.svgIconColor || 'cyan');
         const isLast = index === visibleBlocks.length - 1;
 
         return (
@@ -36,9 +35,7 @@ export function TimelineBlock({
                 gradientStyle={gradientStyle}
                 isMobile={isMobile}
               />
-              {!isLast && (
-                <div className={`w-0.5 flex-1 ${isLight ? 'bg-dark-700/40' : 'bg-dark-700'}`} />
-              )}
+              {!isLast && <div className="w-0.5 flex-1 bg-dark-700" />}
             </div>
             {/* Right column: content */}
             <div className={`min-w-0 flex-1 ${isLast ? '' : 'pb-6'}`}>

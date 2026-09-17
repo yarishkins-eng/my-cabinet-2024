@@ -3,7 +3,6 @@ import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { subscriptionApi } from '../../../api/subscription';
-import { useTheme } from '../../../hooks/useTheme';
 import { useCurrency } from '../../../hooks/useCurrency';
 import { usePromoDiscount } from '../../../hooks/usePromoDiscount';
 import { useCloseOnSuccessNotification } from '../../../store/successNotification';
@@ -52,8 +51,7 @@ export function ClassicPurchaseWizard({
   const { t } = useTranslation();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const { isDark } = useTheme();
-  const g = getGlassColors(isDark);
+  const g = getGlassColors();
   const { formatAmount, currencySymbol } = useCurrency();
   const { activeDiscount, applyPromoDiscount } = usePromoDiscount();
 
@@ -210,7 +208,6 @@ export function ClassicPurchaseWizard({
       style={{
         background: g.cardBg,
         border: `1px solid ${g.cardBorder}`,
-        boxShadow: g.shadow,
         padding: '24px 28px',
       }}
     >

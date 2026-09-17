@@ -3340,15 +3340,6 @@
         "toPanelDesc": "صادر کردن کاربران از ربات به Remnawave"
       }
     },
-    "theme": {
-      "accentColor": "رنگ تأکیدی",
-      "customizeColors": "سفارشی‌سازی رنگ‌ها",
-      "hexCode": "کد HEX",
-      "hue": "رنگ‌مایه",
-      "lightness": "روشنایی",
-      "quickPresets": "پیش‌تنظیم‌های سریع",
-      "saturation": "اشباع"
-    },
     "roles": {
       "title": "نقش‌ها و مجوزها",
       "subtitle": "مدیریت نقش‌های مدیران و مجوزهای آن‌ها",
@@ -4239,29 +4230,6 @@
     "emailMergeCodeLabel": "کد ارسال‌شده در ایمیل",
     "emailMergeConfirm": "تأیید و ادغام",
     "emailMergeCodeInvalid": "کد نامعتبر یا منقضی‌شده"
-  },
-  "theme": {
-    "colors": "رنگ‌های تم",
-    "reset": "بازنشانی",
-    "quickPresets": "پیش‌تنظیمات سریع",
-    "quickPresetsDescription": "یک طرح رنگی آماده انتخاب کنید",
-    "customColors": "رنگ‌های سفارشی",
-    "customColorsDescription": "هر رنگ را جداگانه سفارشی کنید",
-    "accent": "رنگ تأکیدی",
-    "accentDescription": "رنگ اصلی برند برای دکمه‌ها، لینک‌ها و عناصر تعاملی",
-    "darkTheme": "تم تیره",
-    "lightTheme": "تم روشن",
-    "background": "پس‌زمینه",
-    "surface": "سطح",
-    "text": "متن",
-    "textSecondary": "متن ثانویه",
-    "statusColors": "رنگ‌های وضعیت",
-    "success": "موفقیت",
-    "warning": "هشدار",
-    "error": "خطا",
-    "preview": "پیش‌نمایش",
-    "previewButton": "دکمه اصلی",
-    "previewSecondary": "دکمه ثانویه"
   },
   "languages": {
     "ru": "Русский",

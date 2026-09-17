@@ -5,7 +5,6 @@ import type { BlockRendererProps } from './types';
 export function MinimalBlock({
   blocks,
   isMobile,
-  isLight,
   getLocalizedText,
   getSvgHtml,
   renderBlockButtons,
@@ -23,18 +22,11 @@ export function MinimalBlock({
   return (
     <div>
       {visibleBlocks.map((block, index) => {
-        const gradientStyle = getColorGradient(block.svgIconColor || 'cyan', isLight);
+        const gradientStyle = getColorGradient(block.svgIconColor || 'cyan');
         const isLast = index === visibleBlocks.length - 1;
 
         return (
-          <div
-            key={index}
-            className={
-              isLast
-                ? 'pb-4'
-                : `mb-4 border-b pb-4 ${isLight ? 'border-dark-700/40' : 'border-dark-700/50'}`
-            }
-          >
+          <div key={index} className={isLast ? 'pb-4' : 'mb-4 border-b border-dark-700/50 pb-4'}>
             <div className="mb-2 flex items-center gap-3">
               <ThemeIcon
                 getSvgHtml={getSvgHtml}

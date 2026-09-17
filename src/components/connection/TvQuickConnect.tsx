@@ -23,7 +23,6 @@ const HTML5_QRCODE_CDN = 'https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-
 
 interface Props {
   subscriptionUrl: string;
-  isLight: boolean;
 }
 
 interface Html5QrcodeInstance {
@@ -37,7 +36,7 @@ interface Html5QrcodeInstance {
   clear: () => void;
 }
 
-export default function TvQuickConnect({ subscriptionUrl, isLight }: Props) {
+export default function TvQuickConnect({ subscriptionUrl }: Props) {
   const { t } = useTranslation();
   const [code, setCode] = useState('');
   const [sending, setSending] = useState(false);
@@ -191,13 +190,12 @@ export default function TvQuickConnect({ subscriptionUrl, isLight }: Props) {
     }
   }, [tgNative, sendToTV, showToast, onScanDecoded, t]);
 
-  const inputClass = isLight
-    ? 'w-full rounded-xl border border-dark-700/60 bg-white px-4 py-3 text-center text-2xl font-bold tracking-[0.3em] uppercase text-dark-100 outline-none focus:border-accent-500 focus:ring-1 focus:ring-accent-500'
-    : 'w-full rounded-xl border border-dark-700 bg-dark-900/50 px-4 py-3 text-center text-2xl font-bold tracking-[0.3em] uppercase text-dark-100 outline-none focus:border-accent-500 focus:ring-1 focus:ring-accent-500';
+  const inputClass =
+    'w-full rounded-xl border border-dark-700 bg-dark-900/50 px-4 py-3 text-center text-2xl font-bold tracking-[0.3em] uppercase text-dark-100 outline-none focus:border-accent-500 focus:ring-1 focus:ring-accent-500';
 
   // Full-width buttons in the same outlined-accent language as the config blocks
   // (so the Happ TV block adapts to the subscription-page styles, not a one-off).
-  const actionBtnClass = `${blockButtonClass('light', isLight)} flex w-full items-center justify-center`;
+  const actionBtnClass = `${blockButtonClass('light')} flex w-full items-center justify-center`;
 
   return (
     <div className="mt-3 space-y-4">

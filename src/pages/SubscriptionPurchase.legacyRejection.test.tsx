@@ -13,7 +13,6 @@ vi.mock('react-i18next', async (importOriginal) => ({
   ...(await importOriginal<typeof import('react-i18next')>()),
   useTranslation: () => ({ t: (key: string) => key }),
 }));
-vi.mock('@/hooks/useTheme', () => ({ useTheme: () => ({ isDark: true }) }));
 vi.mock('@/hooks/useCurrency', () => ({
   useCurrency: () => ({ formatAmount: String, currencySymbol: 'RUB' }),
 }));

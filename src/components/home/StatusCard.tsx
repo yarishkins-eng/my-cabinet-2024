@@ -1,5 +1,4 @@
 import { useTranslation } from 'react-i18next';
-import { useTheme } from '../../hooks/useTheme';
 import { getGlassColors } from '../../utils/glassTheme';
 import { formatUntil } from '../../utils/format';
 import { CalendarIcon, GiftIcon } from '@/components/icons';
@@ -16,8 +15,7 @@ import TrafficFraction from './TrafficFraction';
  */
 export default function StatusCard({ state, meta }: { state: ScreenState; meta: HomeMeta }) {
   const { t } = useTranslation();
-  const { isDark } = useTheme();
-  const g = getGlassColors(isDark);
+  const g = getGlassColors();
 
   const until = formatUntil(meta.endDate);
   const isGrace = state.code === 'grace';

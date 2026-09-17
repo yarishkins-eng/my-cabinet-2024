@@ -14,7 +14,6 @@ import {
   expandViewport,
   retrieveLaunchParams,
   retrieveRawInitData,
-  themeParamsState,
   closeMiniApp as sdkCloseMiniApp,
   postEvent,
 } from '@telegram-apps/sdk-react';
@@ -92,31 +91,6 @@ export function isTelegramMobile(): boolean {
 export function getTelegramInitData(): string | null {
   try {
     return retrieveRawInitData() || null;
-  } catch {
-    return null;
-  }
-}
-
-function isDarkHexColor(hex: string): boolean {
-  const m = hex.replace('#', '');
-  const full = m.length === 3 ? m.replace(/(.)/g, '$1$1') : m;
-  if (full.length !== 6) return false;
-  const r = parseInt(full.slice(0, 2), 16);
-  const g = parseInt(full.slice(2, 4), 16);
-  const b = parseInt(full.slice(4, 6), 16);
-  // Perceived sRGB luminance; below 0.5 reads as a dark surface.
-  return (0.299 * r + 0.587 * g + 0.114 * b) / 255 < 0.5;
-}
-
-/**
- * The Telegram client's effective color scheme ('light' | 'dark'), derived from
- * the theme background color. Returns null outside Telegram or before theme params load.
- */
-export function getTelegramColorScheme(): 'light' | 'dark' | null {
-  if (!detectTelegram()) return null;
-  try {
-    const bg = themeParamsState()?.bgColor;
-    return bg ? (isDarkHexColor(bg) ? 'dark' : 'light') : null;
   } catch {
     return null;
   }

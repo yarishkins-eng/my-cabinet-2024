@@ -1,5 +1,4 @@
 import { useTranslation } from 'react-i18next';
-import { useTheme } from '../../hooks/useTheme';
 import { getGlassColors } from '../../utils/glassTheme';
 import { useHaptic } from '../../platform';
 import { CalendarIcon, CheckIcon, ChevronRightIcon, DevicesIcon } from '@/components/icons';
@@ -73,8 +72,7 @@ export default function SubscriptionListCard({
   onClick: () => void;
 }) {
   const { t, i18n } = useTranslation();
-  const { isDark } = useTheme();
-  const g = getGlassColors(isDark);
+  const g = getGlassColors();
   const { impact } = useHaptic();
 
   const handleClick = () => {
@@ -114,13 +112,9 @@ export default function SubscriptionListCard({
 
   const bgColor =
     isTrial || isLimitedStatus
-      ? isDark
-        ? 'rgba(251,191,36,0.04)'
-        : 'rgba(251,191,36,0.03)'
+      ? 'rgba(251,191,36,0.04)'
       : isExpired
-        ? isDark
-          ? 'rgba(255,59,92,0.04)'
-          : 'rgba(255,59,92,0.03)'
+        ? 'rgba(255,59,92,0.04)'
         : g.cardBg;
 
   return (

@@ -17,7 +17,6 @@ const theme = {
   setHeaderColor: vi.fn(),
   setBottomBarColor: vi.fn(),
   setBackgroundColor: vi.fn(),
-  getThemeParams: () => null,
 };
 
 vi.mock('@/platform', () => ({

@@ -45,9 +45,6 @@ vi.mock('./platform/PlatformProvider', () => ({
 vi.mock('./providers/ThemeColorsProvider', () => ({
   ThemeColorsProvider: ({ children }: { children: ReactNode }) => children,
 }));
-vi.mock('./hooks/useTheme', () => ({
-  ThemeProvider: ({ children }: { children: ReactNode }) => children,
-}));
 vi.mock('./providers/WebSocketProvider', () => ({
   WebSocketProvider: ({ children }: { children: ReactNode }) => children,
 }));

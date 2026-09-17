@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo } from 'react';
 
 import { rgbToHex } from '../utils/colorConversion';
 
@@ -46,26 +46,11 @@ export interface ChartColors {
 }
 
 /**
- * Reads theme-aware colors from CSS custom properties for use in Recharts.
- * Returns hex values derived from the current theme's CSS variables,
- * adapting to light/dark mode and admin-customized accent colors.
- *
- * Colors are memoized and only recomputed when the document element's
- * class attribute changes (i.e. theme switch).
+ * Reads chart colors from the palette CSS custom properties for use in Recharts
+ * (the admin-customized accent and the dark scale). Read once per mount: the
+ * cabinet is dark-only, there is no theme switch to react to.
  */
 export function useChartColors(): ChartColors {
-  const [themeKey, setThemeKey] = useState(() =>
-    typeof document !== 'undefined' ? document.documentElement.className : '',
-  );
-
-  useEffect(() => {
-    const observer = new MutationObserver(() => {
-      setThemeKey(document.documentElement.className);
-    });
-    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
-    return () => observer.disconnect();
-  }, []);
-
   const colors = useMemo<ChartColors>(
     () => ({
       earnings: cssVarToHex(CSS_VARS.earnings, FALLBACK.earnings),
@@ -76,8 +61,7 @@ export function useChartColors(): ChartColors {
       tick: cssVarToHex(CSS_VARS.tick, FALLBACK.tick),
       label: cssVarToHex(CSS_VARS.label, FALLBACK.label),
     }),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [themeKey],
+    [],
   );
 
   return colors;
