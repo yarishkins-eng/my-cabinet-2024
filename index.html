@@ -45,6 +45,21 @@
           var s = document.createElement('script');
           s.src = 'https://telegram.org/js/telegram-web-app.js';
           s.async = true;
+          // Этот скрипт при загрузке сам красит шапку, подложку и нижнюю панель
+          // Telegram в тему телефона. Он async и приезжает с чужого домена — на
+          // холодном кэше позже нашего кода, и тогда перекрывает тёмное, а наша
+          // библиотека повтор с тем же цветом не шлёт. Поэтому сразу после его
+          // загрузки возвращаем тёмное его же средствами. Кабинет всегда тёмный;
+          // цвета те же, что theme-color/body ниже и DEFAULT_THEME_COLORS.
+          s.onload = function () {
+            try {
+              var wa = window.Telegram && window.Telegram.WebApp;
+              if (!wa) return;
+              wa.setBackgroundColor('#0a0f1a');
+              wa.setHeaderColor('#0f172a');
+              wa.setBottomBarColor('#0f172a');
+            } catch (e) {}
+          };
           document.head.appendChild(s);
         }
       })();

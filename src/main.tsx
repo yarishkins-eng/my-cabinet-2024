@@ -74,17 +74,19 @@ if (isTelegramEnv && !alreadyInitialized) {
       // панель и подложку в цвет темы телефона — на светлом телефоне это белая
       // вспышка. Подложка первой (самая заметная), каждый вызов в своём try:
       // setBottomBarColor требует Mini Apps 7.10+, остальные — старше.
-      mountMiniApp().then(() => {
-        try {
-          setMiniAppBackgroundColor(DEFAULT_THEME_COLORS.darkBackground as `#${string}`);
-        } catch {}
-        try {
-          setMiniAppHeaderColor(DEFAULT_THEME_COLORS.darkSurface as `#${string}`);
-        } catch {}
-        try {
-          setMiniAppBottomBarColor(DEFAULT_THEME_COLORS.darkSurface as `#${string}`);
-        } catch {}
-      });
+      mountMiniApp()
+        .then(() => {
+          try {
+            setMiniAppBackgroundColor(DEFAULT_THEME_COLORS.darkBackground as `#${string}`);
+          } catch {}
+          try {
+            setMiniAppHeaderColor(DEFAULT_THEME_COLORS.darkSurface as `#${string}`);
+          } catch {}
+          try {
+            setMiniAppBottomBarColor(DEFAULT_THEME_COLORS.darkSurface as `#${string}`);
+          } catch {}
+        })
+        .catch(() => {});
     } catch {}
     try {
       bindThemeParamsCssVars();

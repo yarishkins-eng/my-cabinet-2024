@@ -57,6 +57,8 @@ describe('BackgroundRenderer backdrop', () => {
   });
 
   it('paints one opaque dark backdrop under the animated effect', () => {
+    // Враждебный вход: посторонний поставил светлый класс — заглушка обязана его снять.
+    document.documentElement.className = 'light';
     render(
       <ThemeProvider>
         <BackgroundRenderer />
