@@ -35,7 +35,7 @@ export function TimelineBlock({
                 gradientStyle={gradientStyle}
                 isMobile={isMobile}
               />
-              {!isLast && <div className={'w-0.5 flex-1 bg-dark-700'} />}
+              {!isLast && <div className="w-0.5 flex-1 bg-dark-700" />}
             </div>
             {/* Right column: content */}
             <div className={`min-w-0 flex-1 ${isLast ? '' : 'pb-6'}`}>

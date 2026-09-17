@@ -76,7 +76,7 @@ export function ServerManagementSheet({
     return (
       <button
         onClick={onOpen}
-        className={`w-full rounded-xl border border-dark-700/50 bg-dark-800/50 p-4 text-left transition-colors hover:border-dark-600`}
+        className="w-full rounded-xl border border-dark-700/50 bg-dark-800/50 p-4 text-left transition-colors hover:border-dark-600"
       >
         <div className="flex items-center justify-between">
           <div>
@@ -94,7 +94,7 @@ export function ServerManagementSheet({
   }
 
   return (
-    <div className={`rounded-xl border border-dark-700/50 bg-dark-800/50 p-5`}>
+    <div className="rounded-xl border border-dark-700/50 bg-dark-800/50 p-5">
       <div className="mb-4 flex items-center justify-between">
         <h3 className="font-medium text-dark-100">
           {t('subscription.additionalOptions.manageServersTitle')}
@@ -117,7 +117,7 @@ export function ServerManagementSheet({
         </div>
       ) : countriesData && countriesData.countries.length > 0 ? (
         <div className="space-y-4">
-          <div className={`rounded-lg bg-dark-700/30 p-2 text-xs text-dark-500`}>
+          <div className="rounded-lg bg-dark-700/30 p-2 text-xs text-dark-500">
             {t('subscription.serverManagement.statusLegend')}
           </div>
 
@@ -231,7 +231,7 @@ export function ServerManagementSheet({
             const missingAmount = purchaseOptions ? totalCost - purchaseOptions.balance_kopeks : 0;
 
             return hasChanges ? (
-              <div className={`space-y-3 border-t border-dark-700/50 pt-3`}>
+              <div className="space-y-3 border-t border-dark-700/50 pt-3">
                 {added.length > 0 && (
                   <div className="text-sm">
                     <span className="text-success-400">

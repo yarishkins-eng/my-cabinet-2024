@@ -40,7 +40,7 @@ describe('color-scheme страницы', () => {
   it('index.html объявляет тёмную схему до загрузки CSS и не знает светлой', () => {
     // После СТ-2 класс dark на <html> ставит только разметка: на нём держатся
     // .dark body, скроллбары и darkMode: 'class' в Tailwind.
-    expect(htmlSource).toMatch(/<html[^>]*\bclass="dark"/);
+    expect(htmlSource).toMatch(/<html[^>]*\sclass="dark"/);
     expect(htmlSource).toMatch(/<meta\s+name="color-scheme"\s+content="dark"\s*\/?>/);
     expect(htmlSource).toMatch(/html\s*{[^}]*color-scheme:\s*dark\b[^}]*}/);
     expect(htmlSource).not.toMatch(LIGHT_SCHEME);
@@ -53,10 +53,14 @@ describe('color-scheme страницы', () => {
     expect(globalsCss).not.toMatch(/\.light\b|champagne|prefers-color-scheme/);
   });
 
-  it('index.html возвращает Telegram те же тёмные цвета, что и палитра приложения', () => {
+  it('index.html возвращает Telegram тёмные цвета по умолчанию — те же, что DEFAULT_THEME_COLORS', () => {
     // Старая telegram-web-app.js при поздней загрузке перекрашивает шапку/подложку/панель
     // в тему телефона; onload в index.html возвращает тёмное. Константы там — копия
-    // DEFAULT_THEME_COLORS, и без этого сторожа они разъедутся молча.
+    // DEFAULT_THEME_COLORS (не серверной палитры — мина MM), и без этого сторожа
+    // четыре копии разъедутся молча.
+    expect(htmlSource).toContain(
+      `<meta name="theme-color" content="${DEFAULT_THEME_COLORS.darkBackground}"`,
+    );
     expect(htmlSource).toContain(`setBackgroundColor('${DEFAULT_THEME_COLORS.darkBackground}')`);
     expect(htmlSource).toContain(`setHeaderColor('${DEFAULT_THEME_COLORS.darkSurface}')`);
     expect(htmlSource).toContain(`setBottomBarColor('${DEFAULT_THEME_COLORS.darkSurface}')`);
@@ -77,7 +81,9 @@ describe('color-scheme страницы', () => {
     const offenders: string[] = [];
     for (const file of walk(fileURLToPath(new URL('..', import.meta.url)))) {
       const text = readFileSync(file, 'utf8');
-      const hit = text.match(/['"`\s](light|dark):[a-z[]/);
+      // Плюс классы снесённой палитры и переменные светлой: Tailwind и браузер
+      // выбросят их молча, а в дереве они означают, что светлая ветка вернулась.
+      const hit = text.match(/['"`\s](light|dark):[a-z[]|champagne|--color-light-/);
       if (hit) offenders.push(`${file.replace(/^.*\/src\//, 'src/')}: ${hit[0].trim()}`);
     }
     expect(offenders).toEqual([]);

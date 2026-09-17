@@ -71,7 +71,7 @@ export function DeviceReductionSheet({
     return (
       <button
         onClick={onOpen}
-        className={`w-full rounded-xl border border-dark-700/50 bg-dark-800/50 p-4 text-left transition-colors hover:border-dark-600`}
+        className="w-full rounded-xl border border-dark-700/50 bg-dark-800/50 p-4 text-left transition-colors hover:border-dark-600"
       >
         <div className="flex items-center justify-between">
           <div>
@@ -89,7 +89,7 @@ export function DeviceReductionSheet({
   }
 
   return (
-    <div className={`rounded-xl border border-dark-700/50 bg-dark-800/50 p-5`}>
+    <div className="rounded-xl border border-dark-700/50 bg-dark-800/50 p-5">
       <div className="mb-4 flex items-center justify-between">
         <h3 className="font-medium text-dark-100">
           {t('subscription.additionalOptions.reduceDevicesTitle')}

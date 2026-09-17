@@ -18,6 +18,7 @@ React + Vite + TypeScript | Авторизация через Telegram | Мул�
 ```
 
 Frontend — это статические файлы (HTML, JS, CSS). Обратный прокси выполняет две задачи:
+
 1. Раздает статику frontend
 2. Проксирует `/api/*` запросы на backend бота (с удалением префикса `/api`)
 
@@ -206,7 +207,7 @@ services:
 networks:
   bot_network:
     external: true
-    name: remnawave-bedolaga-telegram-bot_bot_network  # Сеть вашего бота
+    name: remnawave-bedolaga-telegram-bot_bot_network # Сеть вашего бота
 ```
 
 ### Caddyfile
@@ -234,28 +235,28 @@ https://cabinet.example.com {
 
 ### Build-time (вшиваются в JS при сборке)
 
-| Переменная | Описание | По умолчанию |
-|---|---|---|
-| `VITE_API_URL` | Путь к API (`/api` или полный URL) | `/api` |
-| `VITE_TELEGRAM_BOT_USERNAME` | Username Telegram бота (без @) | — |
-| `VITE_APP_NAME` | Название в шапке и вкладке браузера | `Cabinet` |
-| `VITE_APP_LOGO` | Текст логотипа (1-2 символа) | `V` |
+| Переменная                   | Описание                            | По умолчанию |
+| ---------------------------- | ----------------------------------- | ------------ |
+| `VITE_API_URL`               | Путь к API (`/api` или полный URL)  | `/api`       |
+| `VITE_TELEGRAM_BOT_USERNAME` | Username Telegram бота (без @)      | —            |
+| `VITE_APP_NAME`              | Название в шапке и вкладке браузера | `Cabinet`    |
+| `VITE_APP_LOGO`              | Текст логотипа (1-2 символа)        | `V`          |
 
 ### Runtime (только для Docker контейнера)
 
-| Переменная | Описание | По умолчанию |
-|---|---|---|
-| `CABINET_PORT` | Порт контейнера на хосте | `3020` |
+| Переменная     | Описание                 | По умолчанию |
+| -------------- | ------------------------ | ------------ |
+| `CABINET_PORT` | Порт контейнера на хосте | `3020`       |
 
 ### Backend бота (.env бота)
 
-| Переменная | Описание | По умолчанию |
-|---|---|---|
-| `CABINET_ENABLED` | Включить Cabinet API | `false` |
-| `CABINET_JWT_SECRET` | Секретный ключ для JWT | `BOT_TOKEN` |
-| `CABINET_ALLOWED_ORIGINS` | CORS origins (через запятую) | — |
-| `CABINET_ACCESS_TOKEN_EXPIRE_MINUTES` | Время жизни access token | `15` |
-| `CABINET_REFRESH_TOKEN_EXPIRE_DAYS` | Время жизни refresh token | `7` |
+| Переменная                            | Описание                     | По умолчанию |
+| ------------------------------------- | ---------------------------- | ------------ |
+| `CABINET_ENABLED`                     | Включить Cabinet API         | `false`      |
+| `CABINET_JWT_SECRET`                  | Секретный ключ для JWT       | `BOT_TOKEN`  |
+| `CABINET_ALLOWED_ORIGINS`             | CORS origins (через запятую) | —            |
+| `CABINET_ACCESS_TOKEN_EXPIRE_MINUTES` | Время жизни access token     | `15`         |
+| `CABINET_REFRESH_TOKEN_EXPIRE_DAYS`   | Время жизни refresh token    | `7`          |
 
 ## Устранение проблем
 
@@ -271,6 +272,7 @@ https://cabinet.example.com {
 
 1. Backend бота не запущен — проверьте `docker ps`
 2. Контейнеры в разных Docker сетях — проверьте и подключите:
+
    ```bash
    # Проверить сети контейнера
    docker inspect <container> --format='{{json .NetworkSettings.Networks}}' | python3 -m json.tool
@@ -278,6 +280,7 @@ https://cabinet.example.com {
    # Подключить к нужной сети
    docker network connect <network_name> <container_name>
    ```
+
 3. Неправильное имя сервиса в прокси — проверьте через:
    ```bash
    docker exec <caddy_container> wget -qO- http://remnawave_bot:8080/health
@@ -312,7 +315,7 @@ bedolaga-cabinet/
 ├── src/
 │   ├── api/           # API клиенты (axios)
 │   ├── components/    # React компоненты (UI kit)
-│   ├── providers/     # React-провайдеры (цвета палитры, WebSocket, тосты)
+│   ├── providers/     # React-провайдеры (цвета палитры, WebSocket, живое обновление состояния)
 │   ├── hooks/         # Custom hooks
 │   ├── locales/       # Переводы (i18n)
 │   ├── pages/         # Страницы приложения
