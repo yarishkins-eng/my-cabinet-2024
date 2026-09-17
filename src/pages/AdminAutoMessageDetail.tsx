@@ -433,7 +433,7 @@ export default function AdminAutoMessageDetail() {
             {/* Значок виден и во время правки: именно тогда важнее всего понимать,
                 чей текст перед тобой. */}
             {data.text_source === 'custom' && (
-              <span className="rounded bg-accent-500/15 px-2 py-1 text-[11px] text-accent-300 light:text-accent-700">
+              <span className="rounded bg-accent-500/15 px-2 py-1 text-[11px] text-accent-300">
                 {t('admin.autoMessages.detail.textEdited')}
               </span>
             )}
@@ -478,7 +478,7 @@ export default function AdminAutoMessageDetail() {
           {/* Ответ сервера показывается ПОСЛЕ сохранения, то есть когда поле уже закрылось.
               Прежде плашка жила внутри поля и не показывалась НИКОГДА. */}
           {textDraft === null && textWarning && (
-            <p className="mt-3 rounded-lg border border-warning-500/40 bg-warning-500/10 px-3 py-2 text-xs text-warning-300 light:text-warning-700">
+            <p className="mt-3 rounded-lg border border-warning-500/40 bg-warning-500/10 px-3 py-2 text-xs text-warning-300">
               {textWarning}
             </p>
           )}
@@ -524,7 +524,7 @@ export default function AdminAutoMessageDetail() {
               <textarea
                 ref={textFieldRef}
                 aria-label={t('admin.autoMessages.detail.text')}
-                className="input min-h-[150px] w-full text-sm leading-relaxed light:border-champagne-500"
+                className="input min-h-[150px] w-full text-sm leading-relaxed"
                 value={textDraft}
                 spellCheck={false}
                 autoCorrect="off"
@@ -532,7 +532,7 @@ export default function AdminAutoMessageDetail() {
                 onChange={(event) => setTextDraft(event.target.value)}
               />
               <p
-                className={`mt-1 px-1 text-[11px] ${tooLong ? 'text-error-300 light:text-error-700' : 'text-dark-300'}`}
+                className={`mt-1 px-1 text-[11px] ${tooLong ? 'text-error-300' : 'text-dark-300'}`}
               >
                 {tooLong
                   ? t('admin.autoMessages.detail.textTooLong', { count: draftLength, max: textMax })
@@ -556,7 +556,7 @@ export default function AdminAutoMessageDetail() {
               {error && (
                 <p
                   role="alert"
-                  className="mt-2 rounded-lg border border-error-500/40 bg-error-500/10 px-3 py-2 text-xs text-error-300 light:text-error-700"
+                  className="mt-2 rounded-lg border border-error-500/40 bg-error-500/10 px-3 py-2 text-xs text-error-300"
                 >
                   {error}
                 </p>

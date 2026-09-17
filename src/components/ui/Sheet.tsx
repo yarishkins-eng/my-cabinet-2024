@@ -385,8 +385,3 @@ export function Sheet({
 
   return createPortal(sheet, document.body);
 }
-
-// Light theme styles applied via CSS
-// Add to globals.css:
-// .light .sheet-backdrop { @apply bg-dark-950/40; }
-// .light .sheet-container { @apply bg-champagne-100; }

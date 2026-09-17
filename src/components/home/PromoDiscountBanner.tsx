@@ -146,10 +146,7 @@ export default function PromoDiscountBanner() {
               {deadline ? ` · ${t('promo.offers.expires', { time: deadline })}` : ''}
             </div>
             {errorMessage && (
-              <div
-                role="alert"
-                className="mt-1 text-[13px] leading-snug text-error-400 light:text-error-700"
-              >
+              <div role="alert" className="mt-1 text-[13px] leading-snug text-error-400">
                 {errorMessage}
               </div>
             )}

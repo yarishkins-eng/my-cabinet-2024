@@ -224,7 +224,7 @@ export default function TrialStart() {
       {error && (
         <p
           role="alert"
-          className="rounded-xl border border-error-400/30 bg-error-500/10 p-3 text-sm text-error-300 light:text-error-700"
+          className="rounded-xl border border-error-400/30 bg-error-500/10 p-3 text-sm text-error-300"
         >
           {error}
         </p>
