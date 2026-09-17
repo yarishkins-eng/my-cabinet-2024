@@ -4,15 +4,13 @@ import { useTranslation } from 'react-i18next';
 import { ClipboardIcon, PlusIcon } from '@/components/icons';
 import { subscriptionApi } from '../api/subscription';
 import { balanceApi } from '../api/balance';
-import { useTheme } from '../hooks/useTheme';
 import { getGlassColors } from '../utils/glassTheme';
 import SubscriptionListCard from '../components/subscription/SubscriptionListCard';
 import TrialOfferCard from '../components/dashboard/TrialOfferCard';
 
 function EmptyState({ onBuy }: { onBuy: () => void }) {
   const { t } = useTranslation();
-  const { isDark } = useTheme();
-  const g = getGlassColors(isDark);
+  const g = getGlassColors();
 
   return (
     <div
@@ -44,8 +42,7 @@ function EmptyState({ onBuy }: { onBuy: () => void }) {
 export default function Subscriptions() {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const { isDark } = useTheme();
-  const g = getGlassColors(isDark);
+  const g = getGlassColors();
 
   const { data, isLoading } = useQuery({
     queryKey: ['subscriptions-list'],

@@ -12,7 +12,6 @@ import { API } from '../config/constants';
 import { useTrafficRefresh } from '../hooks/useTrafficRefresh';
 import { usePullToRefresh } from '../hooks/usePullToRefresh';
 import { useScreenState, type ScreenStateInput } from '../hooks/useScreenState';
-import { useTheme } from '../hooks/useTheme';
 import { useCurrency } from '../hooks/useCurrency';
 import { useHaptic } from '../platform';
 import HeroZone from '../components/home/HeroZone';
@@ -60,7 +59,6 @@ export default function DashboardUnified() {
   const user = useAuthStore((state) => state.user);
   const refreshUser = useAuthStore((state) => state.refreshUser);
   const queryClient = useQueryClient();
-  const { isDark } = useTheme();
   const { formatAmount, currencySymbol } = useCurrency();
   const haptic = useHaptic();
   const [showDeviceHint, setShowDeviceHint] = useState(false);
@@ -540,7 +538,6 @@ export default function DashboardUnified() {
                     <HomeTopupSheets
                       subscription={subscription}
                       subscriptionId={subscriptionId}
-                      isDark={isDark}
                       purchaseOptions={purchaseOptions}
                       showDeviceTopup={showDeviceTopup}
                       showTrafficTopup={showTrafficTopup}

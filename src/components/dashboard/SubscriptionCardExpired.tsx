@@ -5,7 +5,6 @@ import { useQueryClient } from '@tanstack/react-query';
 import { AxiosError } from 'axios';
 import type { Subscription } from '../../types';
 import { subscriptionApi } from '../../api/subscription';
-import { useTheme } from '../../hooks/useTheme';
 import { useCurrency } from '../../hooks/useCurrency';
 import { useHapticFeedback } from '../../platform/hooks/useHaptic';
 import { getGlassColors } from '../../utils/glassTheme';
@@ -26,8 +25,7 @@ export default function SubscriptionCardExpired({
   className,
 }: SubscriptionCardExpiredProps) {
   const { t } = useTranslation();
-  const { isDark } = useTheme();
-  const g = getGlassColors(isDark);
+  const g = getGlassColors();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const location = useLocation();
@@ -124,12 +122,7 @@ export default function SubscriptionCardExpired({
       className={`relative overflow-hidden rounded-3xl ${className ?? ''}`}
       style={{
         background: g.cardBg,
-        border: isDark
-          ? `1px solid rgba(${accent.r},${accent.g},${accent.b},0.12)`
-          : `1px solid rgba(${accent.r},${accent.g},${accent.b},0.2)`,
-        boxShadow: isDark
-          ? g.shadow
-          : `0 2px 16px rgba(${accent.r},${accent.g},${accent.b},0.1), 0 0 0 1px rgba(${accent.r},${accent.g},${accent.b},0.06)`,
+        border: `1px solid rgba(${accent.r},${accent.g},${accent.b},0.12)`,
         padding: '28px 28px 24px',
       }}
     >
@@ -150,12 +143,9 @@ export default function SubscriptionCardExpired({
       <div
         className="pointer-events-none absolute inset-0"
         style={{
-          opacity: isDark ? 0.02 : 0.04,
-          backgroundImage: isDark
-            ? `linear-gradient(rgba(255,255,255,0.1) 1px, transparent 1px),
-               linear-gradient(90deg, rgba(255,255,255,0.1) 1px, transparent 1px)`
-            : `linear-gradient(rgba(0,0,0,0.06) 1px, transparent 1px),
-               linear-gradient(90deg, rgba(0,0,0,0.06) 1px, transparent 1px)`,
+          opacity: 0.02,
+          backgroundImage: `linear-gradient(rgba(255,255,255,0.1) 1px, transparent 1px),
+               linear-gradient(90deg, rgba(255,255,255,0.1) 1px, transparent 1px)`,
           backgroundSize: '40px 40px',
         }}
         aria-hidden="true"

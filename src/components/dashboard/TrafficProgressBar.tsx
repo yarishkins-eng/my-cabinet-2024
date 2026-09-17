@@ -2,7 +2,6 @@ import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useTrafficZone } from '../../hooks/useTrafficZone';
 import { formatTraffic } from '../../utils/formatTraffic';
-import { useTheme } from '../../hooks/useTheme';
 import { getGlassColors } from '../../utils/glassTheme';
 
 interface TrafficProgressBarProps {
@@ -23,8 +22,7 @@ export default function TrafficProgressBar({
   compact = false,
 }: TrafficProgressBarProps) {
   const { t } = useTranslation();
-  const { isDark } = useTheme();
-  const g = getGlassColors(isDark);
+  const g = getGlassColors();
   const zone = useTrafficZone(percent);
 
   // Gradient always starts from the accent color (normal zone)

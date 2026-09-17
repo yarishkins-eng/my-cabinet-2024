@@ -35,7 +35,6 @@ function renderSheet() {
         subscriptionId={44}
         targetDeviceLimit={1}
         onTargetDeviceLimitChange={vi.fn()}
-        isDark
       />
     </QueryClientProvider>,
   );

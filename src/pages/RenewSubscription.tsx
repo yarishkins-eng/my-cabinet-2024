@@ -3,7 +3,6 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { Navigate, useNavigate, useParams } from 'react-router';
 import { subscriptionApi } from '../api/subscription';
-import { useTheme } from '../hooks/useTheme';
 import { getGlassColors } from '../utils/glassTheme';
 import { useCurrency } from '../hooks/useCurrency';
 import { useHaptic } from '../platform';
@@ -17,8 +16,7 @@ export default function RenewSubscription() {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const { isDark } = useTheme();
-  const g = getGlassColors(isDark);
+  const g = getGlassColors();
   const { formatAmount, currencySymbol } = useCurrency();
   const { impact } = useHaptic();
 
@@ -168,11 +166,7 @@ export default function RenewSubscription() {
                 }}
                 className="w-full rounded-2xl border p-4 text-left transition-all duration-200"
                 style={{
-                  background: isSelected
-                    ? isDark
-                      ? 'rgba(var(--color-accent-400), 0.08)'
-                      : 'rgba(var(--color-accent-400), 0.05)'
-                    : g.cardBg,
+                  background: isSelected ? 'rgba(var(--color-accent-400), 0.08)' : g.cardBg,
                   borderColor: isSelected ? 'rgb(var(--color-accent-400))' : g.cardBorder,
                 }}
               >

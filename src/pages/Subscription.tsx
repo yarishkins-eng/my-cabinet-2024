@@ -13,7 +13,6 @@ import { useTrafficRefresh } from '../hooks/useTrafficRefresh';
 import { formatTraffic } from '../utils/formatTraffic';
 import { getGlassColors } from '../utils/glassTheme';
 import { copyToClipboard } from '../utils/clipboard';
-import { useTheme } from '../hooks/useTheme';
 import InsufficientBalancePrompt from '../components/InsufficientBalancePrompt';
 import { useCurrency } from '../hooks/useCurrency';
 import { useCloseOnSuccessNotification } from '../store/successNotification';
@@ -192,8 +191,7 @@ export default function Subscription() {
   const navigate = useNavigate();
   const { subscriptionId: subIdParam } = useParams<{ subscriptionId?: string }>();
   const subscriptionId = subIdParam ? parseInt(subIdParam, 10) : undefined;
-  const { isDark } = useTheme();
-  const g = getGlassColors(isDark);
+  const g = getGlassColors();
   const haptic = useHaptic();
   const [copied, setCopied] = useState(false);
   const [showDeleteSheet, setShowDeleteSheet] = useState(false);
@@ -529,12 +527,7 @@ export default function Subscription() {
                 background: g.cardBg,
                 border: subscription.is_trial
                   ? '1px solid rgba(var(--color-accent-400), 0.15)'
-                  : isDark
-                    ? `1px solid ${g.cardBorder}`
-                    : `1px solid ${zone.mainHex}25`,
-                boxShadow: isDark
-                  ? g.shadow
-                  : `0 2px 16px ${zone.mainHex}12, 0 0 0 1px ${zone.mainHex}08`,
+                  : `1px solid ${g.cardBorder}`,
                 padding: '28px 28px 24px',
               }}
             >
@@ -1060,7 +1053,6 @@ export default function Subscription() {
           style={{
             background: g.cardBg,
             border: `1px solid ${g.cardBorder}`,
-            boxShadow: g.shadow,
           }}
         >
           <div
@@ -1080,7 +1072,6 @@ export default function Subscription() {
           style={{
             background: g.cardBg,
             border: `1px solid ${g.cardBorder}`,
-            boxShadow: g.shadow,
             padding: '24px 28px',
           }}
         >
@@ -1282,7 +1273,6 @@ export default function Subscription() {
             style={{
               background: g.cardBg,
               border: `1px solid ${g.cardBorder}`,
-              boxShadow: g.shadow,
               padding: '24px 28px',
             }}
           >
@@ -1300,7 +1290,6 @@ export default function Subscription() {
               devicesToAdd={devicesToAdd}
               onDevicesToAddChange={setDevicesToAdd}
               purchaseOptions={purchaseOptions}
-              isDark={isDark}
             />
 
             {/* Reduce Devices */}
@@ -1313,7 +1302,6 @@ export default function Subscription() {
                 subscriptionId={subscriptionId}
                 targetDeviceLimit={targetDeviceLimit}
                 onTargetDeviceLimitChange={setTargetDeviceLimit}
-                isDark={isDark}
               />
             </div>
 
@@ -1329,7 +1317,6 @@ export default function Subscription() {
                   selectedTrafficPackage={selectedTrafficPackage}
                   onSelectedTrafficPackageChange={setSelectedTrafficPackage}
                   purchaseOptions={purchaseOptions}
-                  isDark={isDark}
                 />
               </div>
             )}
@@ -1346,7 +1333,6 @@ export default function Subscription() {
                   selectedServers={selectedServersToUpdate}
                   onSelectedServersChange={setSelectedServersToUpdate}
                   purchaseOptions={purchaseOptions}
-                  isDark={isDark}
                 />
               </div>
             )}
@@ -1362,7 +1348,6 @@ export default function Subscription() {
             style={{
               background: g.cardBg,
               border: `1px solid ${g.cardBorder}`,
-              boxShadow: g.shadow,
               padding: '16px 20px',
             }}
           >
@@ -1419,7 +1404,6 @@ export default function Subscription() {
           style={{
             background: g.cardBg,
             border: `1px solid ${g.cardBorder}`,
-            boxShadow: g.shadow,
             padding: '24px 28px',
           }}
         >

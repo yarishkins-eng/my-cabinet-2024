@@ -25,7 +25,6 @@ export interface TrafficTopupSheetProps {
   selectedTrafficPackage: number | null;
   onSelectedTrafficPackageChange: (gb: number | null) => void;
   purchaseOptions: PurchaseOptions | undefined;
-  isDark: boolean;
 }
 
 export function TrafficTopupSheet({
@@ -37,7 +36,6 @@ export function TrafficTopupSheet({
   selectedTrafficPackage,
   onSelectedTrafficPackageChange,
   purchaseOptions,
-  isDark,
 }: TrafficTopupSheetProps) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
@@ -73,7 +71,7 @@ export function TrafficTopupSheet({
     return (
       <button
         onClick={onOpen}
-        className={`w-full rounded-xl border p-4 text-left transition-colors ${isDark ? 'border-dark-700/50 bg-dark-800/50 hover:border-dark-600' : 'border-champagne-300/60 bg-champagne-200/40 hover:border-champagne-400'}`}
+        className={`w-full rounded-xl border border-dark-700/50 bg-dark-800/50 p-4 text-left transition-colors hover:border-dark-600`}
       >
         <div className="flex items-center justify-between">
           <div>
@@ -94,9 +92,7 @@ export function TrafficTopupSheet({
   }
 
   return (
-    <div
-      className={`rounded-xl border p-5 ${isDark ? 'border-dark-700/50 bg-dark-800/50' : 'border-champagne-300/60 bg-champagne-200/40'}`}
-    >
+    <div className={`rounded-xl border border-dark-700/50 bg-dark-800/50 p-5`}>
       <div className="mb-4 flex items-center justify-between">
         <h3 className="font-medium text-dark-100">
           {t('subscription.additionalOptions.buyTrafficTitle')}
@@ -113,9 +109,7 @@ export function TrafficTopupSheet({
         </button>
       </div>
 
-      <div
-        className={`mb-4 rounded-lg p-2 text-xs ${isDark ? 'bg-dark-700/30 text-dark-500' : 'bg-champagne-300/40 text-champagne-600'}`}
-      >
+      <div className={`mb-4 rounded-lg bg-dark-700/30 p-2 text-xs text-dark-500`}>
         ⚠️ {t('subscription.additionalOptions.trafficWarning')}
       </div>
 
@@ -133,9 +127,7 @@ export function TrafficTopupSheet({
                 className={`rounded-xl border p-4 text-center transition-all ${
                   selectedTrafficPackage === pkg.gb
                     ? 'border-accent-500 bg-accent-500/10'
-                    : isDark
-                      ? 'border-dark-700/50 bg-dark-800/50 hover:border-dark-600'
-                      : 'border-champagne-300/60 bg-champagne-200/40 hover:border-champagne-400'
+                    : 'border-dark-700/50 bg-dark-800/50 hover:border-dark-600'
                 }`}
               >
                 <div className="text-lg font-semibold text-dark-100">

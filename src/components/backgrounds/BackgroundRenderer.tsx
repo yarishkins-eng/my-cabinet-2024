@@ -6,7 +6,6 @@ import type { AnimationConfig, BackgroundType } from '@/components/ui/background
 import { DEFAULT_ANIMATION_CONFIG } from '@/components/ui/backgrounds/types';
 import { backgroundComponents, prefetchBackground } from '@/components/ui/backgrounds/registry';
 import { validateConfig, getCachedConfig, setCachedConfig } from '@/utils/backgroundConfig';
-import { useTheme } from '@/hooks/useTheme';
 
 // Prefetch the background JS chunk immediately based on localStorage cache.
 const cachedConfig = getCachedConfig();
@@ -41,7 +40,6 @@ function RenderBackground({
   config: AnimationConfig;
   includeThemeBackdrop?: boolean;
 }) {
-  const { theme, isDark } = useTheme();
   const prefersReducedMotion = useMemo(
     () => window.matchMedia('(prefers-reduced-motion: reduce)').matches,
     [],
@@ -68,14 +66,10 @@ function RenderBackground({
   return createPortal(
     <div
       className="pointer-events-none fixed inset-0"
-      data-app-background-theme={theme}
+      data-app-background-theme="dark"
       style={{
         zIndex: -2,
-        backgroundColor: includeThemeBackdrop
-          ? isDark
-            ? 'var(--color-dark-bg)'
-            : 'var(--color-light-bg)'
-          : undefined,
+        backgroundColor: includeThemeBackdrop ? 'var(--color-dark-bg)' : undefined,
       }}
     >
       {shouldRenderAnimation && Component && (
@@ -95,13 +89,9 @@ function RenderBackground({
       )}
     </div>,
     document.body,
-    // Telegram Desktop/macOS can retain the separately painted body/root canvas
-    // together with this negative-z animated surface after the DOM has already
-    // switched themes. Route navigation happened to invalidate those pixels.
-    // For the application backdrop, replace the portal subtree on every theme
-    // change and paint the base colour inside it; static landing backgrounds keep
-    // a stable key because they do not own the application backdrop.
-    includeThemeBackdrop ? `app-background-${theme}` : 'static-background',
+    // The application backdrop paints the base colour inside the portal;
+    // static landing backgrounds do not own the application backdrop.
+    includeThemeBackdrop ? 'app-background' : 'static-background',
   );
 }
 

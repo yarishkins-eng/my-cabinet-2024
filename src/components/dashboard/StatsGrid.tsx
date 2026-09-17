@@ -2,7 +2,6 @@ import { PiCaretRight } from 'react-icons/pi';
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router';
 import { useCurrency } from '../../hooks/useCurrency';
-import { useTheme } from '../../hooks/useTheme';
 import { getGlassColors } from '../../utils/glassTheme';
 
 interface StatsGridProps {
@@ -24,8 +23,7 @@ export default function StatsGrid({
 }: StatsGridProps) {
   const { t } = useTranslation();
   const { formatAmount, currencySymbol } = useCurrency();
-  const { isDark } = useTheme();
-  const g = getGlassColors(isDark);
+  const g = getGlassColors();
 
   const accentColor = 'rgb(var(--color-accent-400))';
   const accentBg = 'rgba(var(--color-accent-400), 0.07)';
@@ -98,7 +96,6 @@ export default function StatsGrid({
           style={{
             background: g.cardBg,
             border: `1px solid ${g.cardBorder}`,
-            boxShadow: g.shadow,
             padding: '18px 20px 20px',
           }}
           data-onboarding={card.onboarding}

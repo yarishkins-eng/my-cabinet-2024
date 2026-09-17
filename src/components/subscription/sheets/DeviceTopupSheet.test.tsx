@@ -27,7 +27,6 @@ it('restores one outer header and closes through the shared reset handler', () =
       devicesToAdd={3}
       onDevicesToAddChange={onDevicesToAddChange}
       purchaseOptions={undefined}
-      isDark
     />,
   );
 

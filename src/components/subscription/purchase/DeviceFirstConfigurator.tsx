@@ -23,7 +23,6 @@ import { XIcon } from '@/components/icons';
 import { useToast } from '@/components/Toast';
 import { getGlassColors } from '@/utils/glassTheme';
 import { closedCartCopy, operatorReviewCopy } from '@/utils/deviceFirstMoney';
-import { useTheme } from '@/hooks/useTheme';
 import { usePlatform } from '@/platform';
 import { copyToClipboard } from '@/utils/clipboard';
 
@@ -50,10 +49,9 @@ export function DeviceFirstConfigurator({
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const queryClient = useQueryClient();
-  const { isDark } = useTheme();
   const { openLink } = usePlatform();
   const { showToast } = useToast();
-  const g = getGlassColors(isDark);
+  const g = getGlassColors();
   const paymentLinkOpenedRef = useRef(false);
   const paymentDeclinedRef = useRef(false);
   const refreshInFlightRef = useRef(false);
@@ -1632,7 +1630,7 @@ export function DeviceFirstConfigurator({
          а `main` резервирует 112 — без своего запаса нижние ~14 px последнего элемента ушли бы
          под непрозрачную панель, и тап по ним уводил бы с экрана. Оставлено 24 px. */
       className="relative rounded-3xl p-4 pb-6 min-[360px]:p-5 min-[360px]:pb-6 sm:p-7 sm:pb-7"
-      style={{ background: g.cardBg, border: `1px solid ${g.cardBorder}`, boxShadow: g.shadow }}
+      style={{ background: g.cardBg, border: `1px solid ${g.cardBorder}` }}
     >
       {/* 🔴 РЕК-18.1. Замер живым прогоном: главная кнопка стояла на 766 px при сгибе 499 — на
           267 px ниже, страница в 2,1 экрана. Две шапки подряд (h1 страницы и эта, с описанием)

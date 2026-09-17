@@ -14,7 +14,6 @@ export interface DeviceTopupSheetProps {
   onDevicesToAddChange: (n: number) => void;
   /** Kept for callers while the owned flow becomes the monetary authority. */
   purchaseOptions: PurchaseOptions | undefined;
-  isDark: boolean;
 }
 
 /** Shared visual shell; DeviceAddonFlow owns every financial command. */
@@ -26,7 +25,6 @@ export function DeviceTopupSheet({
   subscriptionId,
   devicesToAdd,
   onDevicesToAddChange,
-  isDark,
 }: DeviceTopupSheetProps) {
   const { t } = useTranslation();
   if (!open) {
@@ -34,7 +32,7 @@ export function DeviceTopupSheet({
       <button
         type="button"
         onClick={onOpen}
-        className={`w-full rounded-xl border p-4 text-left transition-colors ${isDark ? 'border-dark-700/50 bg-dark-800/50 hover:border-dark-600' : 'border-champagne-300/60 bg-champagne-200/40 hover:border-champagne-400'}`}
+        className={`w-full rounded-xl border border-dark-700/50 bg-dark-800/50 p-4 text-left transition-colors hover:border-dark-600`}
       >
         <div className="flex items-center justify-between">
           <div>
@@ -58,9 +56,7 @@ export function DeviceTopupSheet({
     onClose();
   };
   return (
-    <div
-      className={`rounded-xl border p-5 ${isDark ? 'border-dark-700/50 bg-dark-800/50' : 'border-champagne-300/60 bg-champagne-200/40'}`}
-    >
+    <div className={`rounded-xl border border-dark-700/50 bg-dark-800/50 p-5`}>
       <div className="mb-4 flex items-center justify-between">
         <h3 className="font-medium text-dark-100">{t('subscription.buyDevices')}</h3>
         <button
