@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const animationConfig = vi.hoisted(() => ({
@@ -16,16 +16,6 @@ vi.mock('@tanstack/react-query', () => ({
   useQuery: () => ({ data: animationConfig }),
 }));
 
-vi.mock('@/api/themeColors', () => ({
-  themeColorsApi: {
-    getEnabledThemes: () => Promise.resolve({ dark: true, light: true }),
-  },
-}));
-
-vi.mock('@/hooks/useTelegramSDK', () => ({
-  getTelegramColorScheme: () => null,
-}));
-
 vi.mock('@/components/ui/backgrounds/registry', () => ({
   backgroundComponents: {
     aurora: () => <div data-testid="aurora-effect" />,
@@ -39,15 +29,10 @@ vi.mock('@/utils/backgroundConfig', () => ({
   setCachedConfig: vi.fn(),
 }));
 
-import { ThemeProvider, useTheme } from '@/hooks/useTheme';
+import { ThemeProvider } from '@/hooks/useTheme';
 import { BackgroundRenderer, StaticBackgroundRenderer } from './BackgroundRenderer';
 
-function ToggleTheme() {
-  const { toggleTheme } = useTheme();
-  return <button onClick={toggleTheme}>toggle theme</button>;
-}
-
-describe('BackgroundRenderer theme repaint', () => {
+describe('BackgroundRenderer backdrop', () => {
   beforeEach(() => {
     Object.assign(animationConfig, {
       enabled: true,
@@ -57,9 +42,8 @@ describe('BackgroundRenderer theme repaint', () => {
       reducedOnMobile: false,
       settings: {},
     });
-    window.localStorage.clear();
-    window.localStorage.setItem('cabinet-theme', 'dark');
     document.documentElement.className = '';
+    // jsdom has no matchMedia; BackgroundRenderer reads prefers-reduced-motion.
     window.matchMedia = vi.fn().mockReturnValue({
       matches: false,
       addEventListener: vi.fn(),
@@ -72,41 +56,30 @@ describe('BackgroundRenderer theme repaint', () => {
     vi.clearAllMocks();
   });
 
-  it('replaces the portal DOM subtree and its opaque backdrop on theme change', () => {
+  it('paints one opaque dark backdrop under the animated effect', () => {
     render(
       <ThemeProvider>
-        <ToggleTheme />
         <BackgroundRenderer />
       </ThemeProvider>,
     );
 
-    const darkLayer = document.body.querySelector<HTMLElement>(
-      '[data-app-background-theme="dark"]',
-    );
-    expect(darkLayer).not.toBeNull();
-    expect(darkLayer?.style.backgroundColor).toBe('var(--color-dark-bg)');
+    const layers = document.body.querySelectorAll<HTMLElement>('[data-app-background-theme]');
+    expect(layers).toHaveLength(1);
+    const layer = layers[0];
+    expect(layer.getAttribute('data-app-background-theme')).toBe('dark');
+    expect(layer.style.backgroundColor).toBe('var(--color-dark-bg)');
+    expect(layer.style.opacity).toBe('');
     expect(screen.getByTestId('aurora-effect')).toBeTruthy();
     expect(screen.getByTestId('aurora-effect').parentElement?.style.opacity).toBe('0.5');
-    expect(darkLayer?.style.opacity).toBe('');
-
-    fireEvent.click(screen.getByRole('button', { name: 'toggle theme' }));
-
-    const lightLayer = document.body.querySelector<HTMLElement>(
-      '[data-app-background-theme="light"]',
-    );
-    expect(lightLayer).not.toBeNull();
-    expect(lightLayer).not.toBe(darkLayer);
-    expect(darkLayer?.isConnected).toBe(false);
-    expect(lightLayer?.style.backgroundColor).toBe('var(--color-light-bg)');
-    expect(document.documentElement.classList.contains('light')).toBe(true);
+    expect(document.documentElement.classList.contains('dark')).toBe(true);
+    expect(document.documentElement.classList.contains('light')).toBe(false);
   });
 
-  it('keeps one opaque themed backdrop when animation is disabled', () => {
+  it('keeps the opaque dark backdrop when animation is disabled', () => {
     animationConfig.enabled = false;
 
     render(
       <ThemeProvider>
-        <ToggleTheme />
         <BackgroundRenderer />
       </ThemeProvider>,
     );
@@ -117,36 +90,17 @@ describe('BackgroundRenderer theme repaint', () => {
       document.body.querySelector<HTMLElement>('[data-app-background-theme]')?.style
         .backgroundColor,
     ).toBe('var(--color-dark-bg)');
-
-    fireEvent.click(screen.getByRole('button', { name: 'toggle theme' }));
-
-    expect(document.body.querySelectorAll('[data-app-background-theme]')).toHaveLength(1);
-    expect(
-      document.body.querySelector<HTMLElement>('[data-app-background-theme]')?.style
-        .backgroundColor,
-    ).toBe('var(--color-light-bg)');
   });
 
-  it('does not remount a static landing background when the application theme changes', () => {
+  it('does not paint a backdrop for a static landing background', () => {
     render(
       <ThemeProvider>
-        <ToggleTheme />
         <StaticBackgroundRenderer config={animationConfig} />
       </ThemeProvider>,
     );
 
-    const darkLayer = document.body.querySelector<HTMLElement>(
-      '[data-app-background-theme="dark"]',
-    );
-    expect(darkLayer).not.toBeNull();
-    expect(darkLayer?.style.backgroundColor).toBe('');
-
-    fireEvent.click(screen.getByRole('button', { name: 'toggle theme' }));
-
-    const lightLayer = document.body.querySelector<HTMLElement>(
-      '[data-app-background-theme="light"]',
-    );
-    expect(lightLayer).toBe(darkLayer);
-    expect(lightLayer?.style.backgroundColor).toBe('');
+    const layer = document.body.querySelector<HTMLElement>('[data-app-background-theme="dark"]');
+    expect(layer).not.toBeNull();
+    expect(layer?.style.backgroundColor).toBe('');
   });
 });

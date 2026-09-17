@@ -2222,7 +2222,6 @@
       "animatedBackgroundDesc": "Show animated background effects",
       "autoFullscreen": "Auto fullscreen",
       "autoFullscreenDesc": "Auto expand in Telegram",
-      "availableThemes": "Available themes",
       "colors": {
         "background": "Background",
         "error": "Error",
@@ -2233,7 +2232,7 @@
         "warning": "Warning"
       },
       "customColors": "Custom colors",
-      "darkTheme": "Dark theme",
+      "darkTheme": "Background & text",
       "emailAuth": "Email auth",
       "emailAuthDesc": "Allow login via email",
       "giftEnabled": "Gift subscription",
@@ -2241,7 +2240,6 @@
       "favoritesEmpty": "No favorites yet",
       "favoritesHint": "Star settings to add them here",
       "interfaceOptions": "Interface options",
-      "lightTheme": "Light theme",
       "logoAndName": "Logo & name",
       "notSpecified": "Not specified",
       "projectName": "Project name",
@@ -5037,9 +5035,7 @@
     "error": "Error",
     "preview": "Preview",
     "previewButton": "Primary Button",
-    "previewSecondary": "Secondary Button",
-    "light": "Light Theme",
-    "dark": "Dark Theme"
+    "previewSecondary": "Secondary Button"
   },
   "languages": {
     "ru": "Русский",

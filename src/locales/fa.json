@@ -1787,7 +1787,6 @@
       "animatedBackgroundDesc": "نمایش جلوه‌های پس‌زمینه متحرک",
       "autoFullscreen": "تمام صفحه خودکار",
       "autoFullscreenDesc": "باز شدن خودکار در تلگرام",
-      "availableThemes": "پوسته‌های موجود",
       "colors": {
         "background": "پس‌زمینه",
         "error": "خطا",
@@ -1798,7 +1797,7 @@
         "warning": "هشدار"
       },
       "customColors": "رنگ‌های سفارشی",
-      "darkTheme": "پوسته تیره",
+      "darkTheme": "پس‌زمینه و متن",
       "emailAuth": "احراز هویت ایمیل",
       "emailAuthDesc": "اجازه ورود با ایمیل",
       "giftEnabled": "اشتراک هدیه",
@@ -1806,7 +1805,6 @@
       "favoritesEmpty": "هنوز علاقه‌مندی ندارید",
       "favoritesHint": "ستاره بزنید تا تنظیمات اینجا اضافه شوند",
       "interfaceOptions": "گزینه‌های رابط کاربری",
-      "lightTheme": "پوسته روشن",
       "logoAndName": "لوگو و نام",
       "notSpecified": "مشخص نشده",
       "projectName": "نام پروژه",
@@ -4263,9 +4261,7 @@
     "error": "خطا",
     "preview": "پیش‌نمایش",
     "previewButton": "دکمه اصلی",
-    "previewSecondary": "دکمه ثانویه",
-    "light": "تم روشن",
-    "dark": "تم تیره"
+    "previewSecondary": "دکمه ثانویه"
   },
   "languages": {
     "ru": "Русский",
