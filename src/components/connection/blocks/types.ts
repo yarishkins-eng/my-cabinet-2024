@@ -12,7 +12,6 @@ export type RenderBlock = RemnawaveBlockClient & { customNode?: ReactNode };
 export interface BlockRendererProps {
   blocks: RenderBlock[];
   isMobile: boolean;
-  isLight: boolean;
   getLocalizedText: (text: LocalizedText | undefined) => string;
   getSvgHtml: (key: string | undefined) => string;
   renderBlockButtons: (

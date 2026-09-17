@@ -26,7 +26,6 @@ function isValidExternalUrl(url: string | undefined): boolean {
 interface BlockButtonsProps {
   buttons: RemnawaveButtonClient[] | undefined;
   variant: 'light' | 'subtle';
-  isLight?: boolean;
   subscriptionUrl: string | null;
   /** Reset-history accounts may not reuse panel-resolved cached bearer URLs. */
   strictLink?: boolean;
@@ -41,7 +40,6 @@ interface BlockButtonsProps {
 export function BlockButtons({
   buttons,
   variant,
-  isLight,
   subscriptionUrl,
   strictLink,
   hideLink,
@@ -62,7 +60,7 @@ export function BlockButtons({
 
   if (!buttons || buttons.length === 0) return null;
 
-  const baseClass = blockButtonClass(variant, isLight);
+  const baseClass = blockButtonClass(variant);
 
   return (
     <div className="mt-3 flex flex-wrap gap-2">
@@ -106,7 +104,7 @@ export function BlockButtons({
               onClick={() => handleCopy(url)}
               className={`flex items-center gap-2 ${
                 copied
-                  ? `rounded-xl border border-success-500 bg-success-500/10 px-4 py-2 text-sm font-medium ${isLight ? 'text-success-600' : 'text-success-400'}`
+                  ? 'rounded-xl border border-success-500 bg-success-500/10 px-4 py-2 text-sm font-medium text-success-400'
                   : baseClass
               }`}
             >

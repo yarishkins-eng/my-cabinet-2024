@@ -10,7 +10,6 @@ import type { BlockRendererProps } from './types';
 export function StepsBlock({
   blocks,
   isMobile,
-  isLight,
   getLocalizedText,
   renderBlockButtons,
 }: BlockRendererProps) {
@@ -43,9 +42,7 @@ export function StepsBlock({
               >
                 {index + 1}
               </div>
-              {!isLast && (
-                <div className={`w-0.5 flex-1 ${isLight ? 'bg-dark-700/40' : 'bg-dark-700'}`} />
-              )}
+              {!isLast && <div className={'w-0.5 flex-1 bg-dark-700'} />}
             </div>
             {/* Right column: content */}
             <div className={`min-w-0 flex-1 ${isLast ? '' : 'pb-6'}`}>
