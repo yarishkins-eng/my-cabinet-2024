@@ -7,7 +7,6 @@ import { useAuthStore } from '@/store/auth';
 import { useHaptic } from '@/platform';
 import { useTelegramSDK } from '@/hooks/useTelegramSDK';
 import { useHeaderHeight } from '@/hooks/useHeaderHeight';
-import { useTheme } from '@/hooks/useTheme';
 import { useBranding } from '@/hooks/useBranding';
 import { useFeatureFlags } from '@/hooks/useFeatureFlags';
 import { useScrollRestoration } from '@/hooks/useScrollRestoration';
@@ -30,8 +29,6 @@ import {
   ShieldIcon,
   InfoIcon,
   LogoutIcon,
-  SunIcon,
-  MoonIcon,
 } from '@/components/icons';
 
 import { MobileBottomNav } from './MobileBottomNav';
@@ -51,7 +48,6 @@ export function AppShell({ children }: AppShellProps) {
     useTelegramSDK();
   const { mobile: headerHeight } = useHeaderHeight();
   const haptic = useHaptic();
-  const { toggleTheme, isDark, canToggle } = useTheme();
 
   // Extracted hooks
   const { appName, logoLetter, hasCustomLogo, logoUrl } = useBranding();
@@ -229,22 +225,6 @@ export function AppShell({ children }: AppShellProps) {
 
           {/* Right side actions — правая колонка grid, прижата к краю, не сжимается */}
           <div className="flex shrink-0 items-center gap-2 justify-self-end">
-            <button
-              onClick={() => {
-                haptic.impact('light');
-                toggleTheme();
-              }}
-              className={cn(
-                'rounded-xl border border-dark-700/50 bg-dark-800/50 p-2 text-dark-400 transition-colors duration-200 hover:bg-dark-700 hover:text-accent-400',
-                !canToggle && 'hidden',
-              )}
-              aria-label={
-                isDark ? t('theme.light') || 'Light mode' : t('theme.dark') || 'Dark mode'
-              }
-              title={isDark ? t('theme.light') || 'Light mode' : t('theme.dark') || 'Dark mode'}
-            >
-              {isDark ? <MoonIcon className="h-5 w-5" /> : <SunIcon className="h-5 w-5" />}
-            </button>
             <TicketNotificationBell isAdmin={location.pathname.startsWith('/admin')} />
             <LanguageSwitcher />
             <button

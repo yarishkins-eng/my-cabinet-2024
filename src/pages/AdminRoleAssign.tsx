@@ -417,7 +417,7 @@ export default function AdminRoleAssign() {
                   type="datetime-local"
                   value={expiresAt}
                   onChange={(e) => setExpiresAt(e.target.value)}
-                  className="w-full rounded-lg border border-dark-600 bg-dark-900 px-3 py-2 text-dark-100 outline-none transition-colors [color-scheme:dark] focus:border-accent-500"
+                  className="w-full rounded-lg border border-dark-600 bg-dark-900 px-3 py-2 text-dark-100 outline-none transition-colors focus:border-accent-500"
                 />
                 <p className="mt-1 text-xs text-dark-500">{t('admin.roleAssign.expiresHint')}</p>
               </div>

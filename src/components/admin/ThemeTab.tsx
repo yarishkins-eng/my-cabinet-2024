@@ -5,9 +5,7 @@ import { themeColorsApi } from '../../api/themeColors';
 import { DEFAULT_THEME_COLORS, ThemeColors } from '../../types/theme';
 import { ColorPicker } from '../ColorPicker';
 import { applyThemeColors } from '../../hooks/useThemeColors';
-import { useTheme } from '../../hooks/useTheme';
-import { MoonIcon, SunIcon, ChevronDownIcon } from './icons';
-import { Toggle } from './Toggle';
+import { ChevronDownIcon } from './icons';
 import { THEME_PRESETS } from './constants';
 
 function colorsEqual(a: ThemeColors, b: ThemeColors): boolean {
@@ -17,10 +15,6 @@ function colorsEqual(a: ThemeColors, b: ThemeColors): boolean {
     a.darkSurface === b.darkSurface &&
     a.darkText === b.darkText &&
     a.darkTextSecondary === b.darkTextSecondary &&
-    a.lightBackground === b.lightBackground &&
-    a.lightSurface === b.lightSurface &&
-    a.lightText === b.lightText &&
-    a.lightTextSecondary === b.lightTextSecondary &&
     a.success === b.success &&
     a.warning === b.warning &&
     a.error === b.error
@@ -30,7 +24,6 @@ function colorsEqual(a: ThemeColors, b: ThemeColors): boolean {
 export function ThemeTab() {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
-  const { applyEnabledThemes } = useTheme();
 
   const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set(['presets']));
 
@@ -52,11 +45,6 @@ export function ThemeTab() {
     queryFn: themeColorsApi.getColors,
   });
 
-  const { data: enabledThemes } = useQuery({
-    queryKey: ['enabled-themes'],
-    queryFn: themeColorsApi.getEnabledThemes,
-  });
-
   // Local draft state
   const [draftColors, setDraftColors] = useState<ThemeColors>(DEFAULT_THEME_COLORS);
   const savedColorsRef = useRef<ThemeColors>(DEFAULT_THEME_COLORS);
@@ -72,10 +60,6 @@ export function ThemeTab() {
         darkSurface: serverColors.darkSurface,
         darkText: serverColors.darkText,
         darkTextSecondary: serverColors.darkTextSecondary,
-        lightBackground: serverColors.lightBackground,
-        lightSurface: serverColors.lightSurface,
-        lightText: serverColors.lightText,
-        lightTextSecondary: serverColors.lightTextSecondary,
         success: serverColors.success,
         warning: serverColors.warning,
         error: serverColors.error,
@@ -103,10 +87,6 @@ export function ThemeTab() {
         darkSurface: data.darkSurface,
         darkText: data.darkText,
         darkTextSecondary: data.darkTextSecondary,
-        lightBackground: data.lightBackground,
-        lightSurface: data.lightSurface,
-        lightText: data.lightText,
-        lightTextSecondary: data.lightTextSecondary,
         success: data.success,
         warning: data.warning,
         error: data.error,
@@ -127,10 +107,6 @@ export function ThemeTab() {
         darkSurface: data.darkSurface,
         darkText: data.darkText,
         darkTextSecondary: data.darkTextSecondary,
-        lightBackground: data.lightBackground,
-        lightSurface: data.lightSurface,
-        lightText: data.lightText,
-        lightTextSecondary: data.lightTextSecondary,
         success: data.success,
         warning: data.warning,
         error: data.error,
@@ -139,14 +115,6 @@ export function ThemeTab() {
       setDraftColors(colors);
       applyThemeColors(colors);
       queryClient.setQueryData(['theme-colors'], data);
-    },
-  });
-
-  const updateEnabledThemesMutation = useMutation({
-    mutationFn: themeColorsApi.updateEnabledThemes,
-    onSuccess: (data) => {
-      applyEnabledThemes(data);
-      queryClient.setQueryData(['enabled-themes'], data);
     },
   });
 
@@ -211,49 +179,6 @@ export function ThemeTab() {
 
   return (
     <div className="space-y-6">
-      {/* Theme toggles */}
-      <div className="rounded-2xl border border-dark-700/50 bg-dark-800/50 p-6">
-        <h3 className="mb-4 text-lg font-semibold text-dark-100">
-          {t('admin.settings.availableThemes')}
-        </h3>
-
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4">
-          <div className="flex items-center justify-between rounded-xl bg-dark-700/30 p-3 sm:p-4">
-            <div className="flex items-center gap-2 sm:gap-3">
-              <MoonIcon />
-              <span className="text-sm font-medium text-dark-200 sm:text-base">
-                {t('admin.settings.darkTheme')}
-              </span>
-            </div>
-            <Toggle
-              checked={enabledThemes?.dark ?? true}
-              onChange={() => {
-                if ((enabledThemes?.dark ?? true) && !(enabledThemes?.light ?? true)) return;
-                updateEnabledThemesMutation.mutate({ dark: !(enabledThemes?.dark ?? true) });
-              }}
-              disabled={updateEnabledThemesMutation.isPending}
-            />
-          </div>
-
-          <div className="flex items-center justify-between rounded-xl bg-dark-700/30 p-3 sm:p-4">
-            <div className="flex items-center gap-2 sm:gap-3">
-              <SunIcon />
-              <span className="text-sm font-medium text-dark-200 sm:text-base">
-                {t('admin.settings.lightTheme')}
-              </span>
-            </div>
-            <Toggle
-              checked={enabledThemes?.light ?? true}
-              onChange={() => {
-                if ((enabledThemes?.light ?? true) && !(enabledThemes?.dark ?? true)) return;
-                updateEnabledThemesMutation.mutate({ light: !(enabledThemes?.light ?? true) });
-              }}
-              disabled={updateEnabledThemesMutation.isPending}
-            />
-          </div>
-        </div>
-      </div>
-
       {/* Quick Presets */}
       <div className="rounded-2xl border border-dark-700/50 bg-dark-800/50 p-6">
         <button
@@ -338,10 +263,10 @@ export function ThemeTab() {
               />
             </div>
 
-            {/* Dark theme */}
+            {/* Background and text colors (the cabinet is dark-only) */}
             <div>
-              <h4 className="mb-3 flex items-center gap-2 text-sm font-medium text-dark-300">
-                <MoonIcon /> {t('admin.settings.darkTheme')}
+              <h4 className="mb-3 text-sm font-medium text-dark-300">
+                {t('admin.settings.darkTheme')}
               </h4>
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <ColorPicker
@@ -363,35 +288,6 @@ export function ThemeTab() {
                   label={t('admin.settings.colors.textSecondary')}
                   value={draftColors.darkTextSecondary}
                   onChange={(color) => updateDraftColor('darkTextSecondary', color)}
-                />
-              </div>
-            </div>
-
-            {/* Light theme */}
-            <div>
-              <h4 className="mb-3 flex items-center gap-2 text-sm font-medium text-dark-300">
-                <SunIcon /> {t('admin.settings.lightTheme')}
-              </h4>
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                <ColorPicker
-                  label={t('admin.settings.colors.background')}
-                  value={draftColors.lightBackground}
-                  onChange={(color) => updateDraftColor('lightBackground', color)}
-                />
-                <ColorPicker
-                  label={t('admin.settings.colors.surface')}
-                  value={draftColors.lightSurface}
-                  onChange={(color) => updateDraftColor('lightSurface', color)}
-                />
-                <ColorPicker
-                  label={t('admin.settings.colors.text')}
-                  value={draftColors.lightText}
-                  onChange={(color) => updateDraftColor('lightText', color)}
-                />
-                <ColorPicker
-                  label={t('admin.settings.colors.textSecondary')}
-                  value={draftColors.lightTextSecondary}
-                  onChange={(color) => updateDraftColor('lightTextSecondary', color)}
                 />
               </div>
             </div>

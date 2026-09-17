@@ -11,8 +11,6 @@ export {
   LockIcon,
   CheckIcon,
   CloseIcon,
-  SunIcon,
-  MoonIcon,
   MenuIcon,
   EditIcon,
 } from '../icons';

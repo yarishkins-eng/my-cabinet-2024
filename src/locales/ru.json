@@ -2256,9 +2256,7 @@
       "emailAuthDesc": "Регистрация и вход через email",
       "giftEnabled": "Подписка в подарок",
       "giftEnabledDesc": "Возможность отправить подписку в подарок другому пользователю",
-      "availableThemes": "Доступные темы",
-      "darkTheme": "Тёмная",
-      "lightTheme": "Светлая",
+      "darkTheme": "Фон и текст",
       "quickPresets": "Быстрые пресеты",
       "customColors": "Ручная настройка",
       "accentColor": "Акцентный цвет",
@@ -5603,9 +5601,7 @@
     "error": "Ошибка",
     "preview": "Предпросмотр",
     "previewButton": "Основная кнопка",
-    "previewSecondary": "Вторичная кнопка",
-    "light": "Светлая тема",
-    "dark": "Тёмная тема"
+    "previewSecondary": "Вторичная кнопка"
   },
   "languages": {
     "ru": "Русский",

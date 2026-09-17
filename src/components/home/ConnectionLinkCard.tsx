@@ -158,7 +158,7 @@ export default function ConnectionLinkCard({
         onClick={() => void copy()}
         className={`flex w-full items-center justify-center gap-2.5 rounded-2xl p-3.5 text-sm font-semibold transition-all active:scale-[0.99] ${
           copied
-            ? 'border border-success-700/20 bg-success-500/10 text-success-800 dark:border-success-300/15 dark:text-success-200'
+            ? 'border border-success-300/15 bg-success-500/10 text-success-200'
             : 'border border-accent-400/25 bg-accent-500/15 text-accent-300 hover:bg-accent-500/25'
         }`}
       >

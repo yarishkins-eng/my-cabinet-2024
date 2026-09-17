@@ -74,7 +74,7 @@ describe('ConnectionLinkCard', () => {
     expect(copyToClipboard).toHaveBeenCalledWith(TEST_CONNECTION_URL);
     const copiedButton = await screen.findByRole('button', { name: 'home.link.copied' });
     expect(copiedButton.className.split(/\s+/)).toEqual(
-      expect.arrayContaining(['bg-success-500/10', 'text-success-800', 'dark:text-success-200']),
+      expect.arrayContaining(['bg-success-500/10', 'text-success-200']),
     );
   });
 

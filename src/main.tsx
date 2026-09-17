@@ -7,6 +7,9 @@ import {
   retrieveRawInitData,
   mountMiniApp,
   miniAppReady,
+  setMiniAppHeaderColor,
+  setMiniAppBottomBarColor,
+  setMiniAppBackgroundColor,
   mountViewport,
   expandViewport,
   mountSwipeBehavior,
@@ -27,6 +30,7 @@ import { initLogoPreload } from './api/branding';
 import { checkBackendOnStartup } from './api/health';
 import { getCachedFullscreenEnabled, isTelegramMobile } from './hooks/useTelegramSDK';
 import { applyTelegramLanguage } from './i18n';
+import { DEFAULT_THEME_COLORS } from './types/theme';
 import './styles/globals.css';
 
 // Polyfill Object.hasOwn for older iOS/Android WebViews (Safari < 15.4, old Chrome).
@@ -64,7 +68,25 @@ if (isTelegramEnv && !alreadyInitialized) {
     // mountMiniApp() internally mounts themeParams in SDK v3,
     // so we don't call mountThemeParams() separately to avoid ConcurrentCallError.
     try {
-      mountMiniApp();
+      // mountMiniApp() в SDK 3.x асинхронный: до его завершения setMiniApp*()
+      // бросают «the component is unmounted». Поэтому — в .then().
+      // Кабинет всегда тёмный: до первого React-эффекта Telegram красит шапку,
+      // панель и подложку в цвет темы телефона — на светлом телефоне это белая
+      // вспышка. Подложка первой (самая заметная), каждый вызов в своём try:
+      // setBottomBarColor требует Mini Apps 7.10+, остальные — старше.
+      mountMiniApp()
+        .then(() => {
+          try {
+            setMiniAppBackgroundColor(DEFAULT_THEME_COLORS.darkBackground as `#${string}`);
+          } catch {}
+          try {
+            setMiniAppHeaderColor(DEFAULT_THEME_COLORS.darkSurface as `#${string}`);
+          } catch {}
+          try {
+            setMiniAppBottomBarColor(DEFAULT_THEME_COLORS.darkSurface as `#${string}`);
+          } catch {}
+        })
+        .catch(() => {});
     } catch {}
     try {
       bindThemeParamsCssVars();

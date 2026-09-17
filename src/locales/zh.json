@@ -1825,7 +1825,6 @@
       "animatedBackgroundDesc": "显示动画背景效果",
       "autoFullscreen": "自动全屏",
       "autoFullscreenDesc": "在Telegram中自动展开",
-      "availableThemes": "可用主题",
       "colors": {
         "background": "背景",
         "error": "错误",
@@ -1836,7 +1835,7 @@
         "warning": "警告"
       },
       "customColors": "自定义颜色",
-      "darkTheme": "暗色主题",
+      "darkTheme": "背景与文字",
       "emailAuth": "邮箱认证",
       "emailAuthDesc": "允许通过邮箱登录",
       "giftEnabled": "赠送订阅",
@@ -1844,7 +1843,6 @@
       "favoritesEmpty": "暂无收藏",
       "favoritesHint": "点击星标将设置添加到这里",
       "interfaceOptions": "界面选项",
-      "lightTheme": "亮色主题",
       "logoAndName": "标志和名称",
       "notSpecified": "未指定",
       "projectName": "项目名称",
@@ -4253,9 +4251,7 @@
     "error": "错误",
     "preview": "预览",
     "previewButton": "主要按钮",
-    "previewSecondary": "次要按钮",
-    "light": "浅色主题",
-    "dark": "深色主题"
+    "previewSecondary": "次要按钮"
   },
   "languages": {
     "ru": "Русский",

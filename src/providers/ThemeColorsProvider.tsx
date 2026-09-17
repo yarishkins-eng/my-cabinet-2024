@@ -4,7 +4,6 @@ import { themeColorsApi } from '../api/themeColors';
 import { DEFAULT_THEME_COLORS } from '../types/theme';
 import { applyThemeColors } from '../hooks/useThemeColors';
 import { usePlatform } from '@/platform';
-import { useTheme } from '../hooks/useTheme';
 
 interface ThemeColorsProviderProps {
   children: React.ReactNode;
@@ -20,26 +19,28 @@ export function ThemeColorsProvider({ children }: ThemeColorsProviderProps) {
   });
 
   const { theme: platformTheme, capabilities } = usePlatform();
-  const { isDark } = useTheme();
 
   // Apply colors on mount and when they change
   useEffect(() => {
     applyThemeColors(colors || DEFAULT_THEME_COLORS);
   }, [colors]);
 
-  // Sync Telegram header and bottom bar colors with theme
+  // Шапка, нижняя панель и подложка Telegram — в цвет страницы. Кабинет всегда
+  // тёмный, поэтому цвета берутся только из тёмной палитры.
   const syncTelegramColors = useCallback(() => {
     if (!capabilities.hasThemeSync) return;
 
     const themeColors = colors || DEFAULT_THEME_COLORS;
     // Use surface color for header/bottom bar to match app UI
-    const headerColor = isDark ? themeColors.darkSurface : themeColors.lightSurface;
+    platformTheme.setHeaderColor(themeColors.darkSurface);
+    platformTheme.setBottomBarColor(themeColors.darkSurface);
+    // Фон клиента под страницей — тот же, что у самой страницы. Иначе на
+    // Android всё, что WebView не успел отрисовать, просвечивает цветом
+    // клиента, а на iOS при оттягивании страницы видна подложка телефона.
+    platformTheme.setBackgroundColor(themeColors.darkBackground);
+  }, [capabilities.hasThemeSync, colors, platformTheme]);
 
-    platformTheme.setHeaderColor(headerColor);
-    platformTheme.setBottomBarColor(headerColor);
-  }, [capabilities.hasThemeSync, colors, isDark, platformTheme]);
-
-  // Apply Telegram colors when theme or colors change
+  // Apply Telegram colors when colors change
   useEffect(() => {
     syncTelegramColors();
   }, [syncTelegramColors]);

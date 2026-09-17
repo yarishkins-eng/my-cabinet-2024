@@ -31,20 +31,6 @@ export default {
           900: withOpacity('--color-dark-900'),
           950: withOpacity('--color-dark-950'),
         },
-        // Champagne light theme palette
-        champagne: {
-          50: withOpacity('--color-champagne-50'),
-          100: withOpacity('--color-champagne-100'),
-          200: withOpacity('--color-champagne-200'),
-          300: withOpacity('--color-champagne-300'),
-          400: withOpacity('--color-champagne-400'),
-          500: withOpacity('--color-champagne-500'),
-          600: withOpacity('--color-champagne-600'),
-          700: withOpacity('--color-champagne-700'),
-          800: withOpacity('--color-champagne-800'),
-          900: withOpacity('--color-champagne-900'),
-          950: withOpacity('--color-champagne-950'),
-        },
         // Accent - dynamic color scheme
         accent: {
           50: withOpacity('--color-accent-50'),
@@ -293,9 +279,5 @@ export default {
       },
     },
   },
-  plugins: [
-    function ({ addVariant }) {
-      addVariant('light', '.light &');
-    },
-  ],
+  plugins: [],
 };
