@@ -14,7 +14,6 @@ import {
 } from '@/components/primitives/Command';
 import { usePlatform } from '@/platform';
 import { useAuthStore } from '@/store/auth';
-import { useTheme } from '@/hooks/useTheme';
 import { cn } from '@/lib/utils';
 import {
   backdrop,
@@ -37,8 +36,6 @@ import {
   WheelIcon,
   PlusIcon,
   DownloadIcon,
-  SunIcon,
-  MoonIcon,
 } from '@/components/layout/AppShell/icons';
 
 interface CommandPaletteProps {
@@ -62,7 +59,6 @@ export function CommandPalette({
   const navigate = useNavigate();
   const { haptic } = usePlatform();
   const isAdmin = useAuthStore((state) => state.isAdmin);
-  const { toggleTheme, isDark, canToggle } = useTheme();
   const [search, setSearch] = useState('');
 
   const runCommand = useCallback(
@@ -101,15 +97,6 @@ export function CommandPalette({
       icon: DownloadIcon,
       action: () => navigate('/subscriptions'),
     },
-    ...(canToggle
-      ? [
-          {
-            label: isDark ? t('theme.light') || 'Light mode' : t('theme.dark') || 'Dark mode',
-            icon: isDark ? SunIcon : MoonIcon,
-            action: toggleTheme,
-          },
-        ]
-      : []),
     {
       label: t('support.create_ticket') || 'Create support ticket',
       icon: ChatIcon,

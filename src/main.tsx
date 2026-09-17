@@ -7,6 +7,9 @@ import {
   retrieveRawInitData,
   mountMiniApp,
   miniAppReady,
+  setMiniAppHeaderColor,
+  setMiniAppBottomBarColor,
+  setMiniAppBackgroundColor,
   mountViewport,
   expandViewport,
   mountSwipeBehavior,
@@ -65,6 +68,12 @@ if (isTelegramEnv && !alreadyInitialized) {
     // so we don't call mountThemeParams() separately to avoid ConcurrentCallError.
     try {
       mountMiniApp();
+      // Кабинет всегда тёмный. Без этого Telegram до первого React-эффекта
+      // красит шапку, панель и подложку в цвет темы телефона — на светлом
+      // телефоне это белая вспышка. Значения те же, что в index.html.
+      setMiniAppHeaderColor('#0f172a');
+      setMiniAppBottomBarColor('#0f172a');
+      setMiniAppBackgroundColor('#0a0f1a');
     } catch {}
     try {
       bindThemeParamsCssVars();

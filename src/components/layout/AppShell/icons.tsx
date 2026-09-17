@@ -7,8 +7,6 @@ export {
   ChatIcon,
   UserIcon,
   LogoutIcon,
-  SunIcon,
-  MoonIcon,
   MenuIcon,
   CloseIcon,
   GamepadIcon,
