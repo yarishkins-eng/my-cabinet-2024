@@ -310,7 +310,7 @@ export default function Subscription() {
   const shouldHideConnectionLink =
     subscription?.hide_subscription_link || connectionLink?.hide_link;
 
-  // Traffic zone (theme-aware) — called unconditionally at top level
+  // Traffic zone (colour from the palette) — called unconditionally at top level
   const usedPercent = trafficData?.traffic_used_percent ?? subscription?.traffic_used_percent ?? 0;
   const zone = useTrafficZone(usedPercent);
 
