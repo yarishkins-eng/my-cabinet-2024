@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next';
 import { referralApi } from '../api/referral';
 import { usePlatform } from '../platform';
 import { copyToClipboard } from '../utils/clipboard';
+import { buildReferralShareText } from '../utils/referralShare';
 import { brandingApi } from '../api/branding';
 import { partnerApi } from '../api/partners';
 import { withdrawalApi } from '../api/withdrawals';
@@ -186,19 +187,14 @@ export default function Referral() {
     const shareUrl = botReferralLink || referralLink;
     if (!shareUrl) return;
     const botName = branding?.name || import.meta.env.VITE_APP_NAME || 'Cabinet';
-    // Текст другу — как в боте: акцент на бонус новичку. Если бонус выключен (0) — запасной
-    // текст про кешбэк/комиссию (как было раньше).
-    const hasBonus = (terms?.first_topup_bonus_kopeks ?? 0) > 0;
-    const shareText = hasBonus
-      ? t('referral.shareMessage', {
-          botName,
-          minimum: `${formatAmount(terms?.minimum_topup_rubles ?? 0)} ${currencySymbol}`,
-          bonus: `${formatAmount(terms?.first_topup_bonus_rubles ?? 0)} ${currencySymbol}`,
-        })
-      : t('referral.shareMessageCashback', {
-          botName,
-          percent: info?.commission_percent || 0,
-        });
+    // Текст другу — общий с «Профилем», см. utils/referralShare.ts.
+    const shareText = buildReferralShareText(t, {
+      botName,
+      firstTopupBonusKopeks: terms?.first_topup_bonus_kopeks ?? 0,
+      minimum: `${formatAmount(terms?.minimum_topup_rubles ?? 0)} ${currencySymbol}`,
+      bonus: `${formatAmount(terms?.first_topup_bonus_rubles ?? 0)} ${currencySymbol}`,
+      percent: info?.commission_percent || 0,
+    });
 
     if (navigator.share) {
       navigator

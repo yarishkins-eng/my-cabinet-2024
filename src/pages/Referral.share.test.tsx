@@ -7,6 +7,8 @@
  * Правильная ссылка приходит с сервера как `bot_referral_link`; если её нет — уходит
  * кабинетная, как раньше.
  */
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -56,8 +58,27 @@ vi.mock('../hooks/useCurrency', () => ({
   }),
 }));
 vi.mock('react-i18next', () => ({
-  useTranslation: () => ({ t: (key: string) => key }),
+  useTranslation: () => ({
+    // Настоящий шаблон из ru.json с настоящей подстановкой — иначе сырые {{…}} не видны.
+    t: (key: string, vars?: Record<string, unknown>) => {
+      const template = key
+        .split('.')
+        .reduce<unknown>(
+          (node, part) => (node as Record<string, unknown> | undefined)?.[part],
+          ruLocale,
+        );
+      if (typeof template !== 'string') return key;
+      return template.replace(/\{\{(\w+)\}\}/g, (whole: string, v: string) =>
+        vars && v in vars ? String(vars[v]) : whole,
+      );
+    },
+    i18n: { language: 'ru' },
+  }),
 }));
+
+const ruLocale = JSON.parse(
+  readFileSync(join(process.cwd(), 'src', 'locales', 'ru.json'), 'utf8'),
+) as Record<string, unknown>;
 
 const BOT_LINK = 'https://t.me/teplo_VPN_bot?start=refjivETKNC';
 const CABINET_LINK = `${window.location.origin}/login?ref=refjivETKNC`;
@@ -83,7 +104,7 @@ async function renderAndShare() {
       </MemoryRouter>
     </QueryClientProvider>,
   );
-  const button = await screen.findByText('referral.shareButton');
+  const button = await screen.findByText((ruLocale.referral as Record<string, string>).shareButton);
   await waitFor(() => expect((button.closest('button') as HTMLButtonElement).disabled).toBe(false));
   fireEvent.click(button.closest('button') as HTMLButtonElement);
 }
@@ -106,6 +127,7 @@ describe('«Поделиться» на экране «Заработок»', ()
 
     expect(share).toHaveBeenCalledTimes(1);
     expect(share.mock.calls[0][0].url).toBe(BOT_LINK);
+    expect(share.mock.calls[0][0].text).not.toContain('{{');
     expect(openTelegramLink).not.toHaveBeenCalled();
   });
 
@@ -118,6 +140,8 @@ describe('«Поделиться» на экране «Заработок»', ()
     const sent = new URL(openTelegramLink.mock.calls[0][0] as string);
     expect(sent.origin + sent.pathname).toBe('https://t.me/share/url');
     expect(sent.searchParams.get('url')).toBe(BOT_LINK);
+    expect(openTelegramLink.mock.calls[0][0]).toContain(`url=${encodeURIComponent(BOT_LINK)}&`);
+    expect(decodeURIComponent(sent.searchParams.get('text') ?? '')).not.toContain('{{');
   });
 
   it('если сервер не отдал ссылку на бота — уходит кабинетная, как раньше', async () => {
