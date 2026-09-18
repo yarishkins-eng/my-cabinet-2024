@@ -179,7 +179,12 @@ export default function Referral() {
   const { openTelegramLink } = usePlatform();
 
   const shareLink = () => {
-    if (!referralLink) return;
+    // По кнопке уходит ссылка НА БОТА, а не на кабинет (решение владельца 19.09.2026):
+    // получатель попадает в ступенчатый онбординг бота (приветствие → «Подключить VPN» →
+    // добор через 10 минут), а не на веб-вход. Кабинетная — запасной путь, если сервер
+    // ссылку на бота не отдал. Обе ссылки на экране остаются как были.
+    const shareUrl = botReferralLink || referralLink;
+    if (!shareUrl) return;
     const botName = branding?.name || import.meta.env.VITE_APP_NAME || 'Cabinet';
     // Текст другу — как в боте: акцент на бонус новичку. Если бонус выключен (0) — запасной
     // текст про кешбэк/комиссию (как было раньше).
@@ -200,14 +205,14 @@ export default function Referral() {
         .share({
           title: t('referral.title'),
           text: shareText,
-          url: referralLink,
+          url: shareUrl,
         })
         .catch(() => {});
       return;
     }
 
     const telegramUrl = `https://t.me/share/url?url=${encodeURIComponent(
-      referralLink,
+      shareUrl,
     )}&text=${encodeURIComponent(shareText)}`;
     openTelegramLink(telegramUrl);
   };

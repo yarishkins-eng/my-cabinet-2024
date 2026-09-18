@@ -83,8 +83,12 @@ export default function Profile() {
     }
   };
 
+  // Та же логика, что на экране «Заработок»: по кнопке уходит ссылка на бота.
+  const botReferralLink = referralInfo?.bot_referral_link || '';
+
   const shareReferralLink = () => {
-    if (!referralLink) return;
+    const shareUrl = botReferralLink || referralLink;
+    if (!shareUrl) return;
     const shareText = t('referral.shareMessage', {
       percent: referralInfo?.commission_percent || 0,
       botName: branding?.name || import.meta.env.VITE_APP_NAME || 'Cabinet',
@@ -95,13 +99,13 @@ export default function Profile() {
         .share({
           title: t('referral.title'),
           text: shareText,
-          url: referralLink,
+          url: shareUrl,
         })
         .catch(() => {});
       return;
     }
 
-    const telegramUrl = `https://t.me/share/url?url=${encodeURIComponent(referralLink)}&text=${encodeURIComponent(shareText)}`;
+    const telegramUrl = `https://t.me/share/url?url=${encodeURIComponent(shareUrl)}&text=${encodeURIComponent(shareText)}`;
     openTelegramLink(telegramUrl);
   };
 
