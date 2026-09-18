@@ -178,3 +178,80 @@ describe('МД-1: доплата за остаток объяснена, под�
     expect(resumed).toContain('deviceFirst.upgradeProrateNote:608 ₽:365');
   });
 });
+
+describe('МД-1: правки по ревью (шаг выбора, скидки, сводка без доплаты)', () => {
+  it('строка про остаток стоит уже на шаге выбора, когда выбрана ячейка с доплатой', () => {
+    // По умолчанию выбран первый вариант устройств — ставим ячейку с ростом первой.
+    const html = render(
+      optionsWith([
+        cell(3, 85700, { prorate: 60800, days: 365, from: 2 }),
+        cell(2, 19900, { prorate: 0, days: 365, from: 2 }),
+      ]),
+    );
+    expect(html).toContain('deviceFirst.upgradeProrateNote:608 ₽:365');
+  });
+
+  it('на шаге выбора без доплаты строки нет', () => {
+    const html = render(optionsWith([cell(2, 19900, { prorate: 0, days: 365, from: 2 })]));
+    expect(html).not.toContain('deviceFirst.upgradeProrateNote');
+  });
+
+  it('возобновлённое подтверждение без доплаты строку не рисует', () => {
+    const html = render(withUpgrade, {
+      id: 'checkout-2',
+      tariff_id: 3,
+      target_subscription_id: 30,
+      period_days: 30,
+      selected_device_limit: 2,
+      price_breakdown: withUpgrade.price_matrix![0].prices[0].breakdown,
+      quoted_price_kopeks: 19900,
+      max_price_kopeks: 19900,
+      settlement_mode: 'direct_purchase_v2',
+      tariff_total_kopeks: 19900,
+      wallet_applied_kopeks: 0,
+      external_payable_kopeks: 0,
+      funding_mode: null,
+      lifecycle_state: 'confirmed',
+      funding_state: 'funded',
+      provisioning_state: 'not_started',
+      terminal_reason: null,
+      ui_state: 'confirmation',
+      created_subscription_id: null,
+      current_device_limit: 2,
+      current_subscription_is_trial: false,
+      estimated_end_at: '2027-09-14T12:00:00Z',
+      expires_at: '2026-09-14T12:15:00Z',
+      balance_kopeks: 100000,
+      shortage_kopeks: 0,
+      top_up_surplus_kopeks: 0,
+    } as DeviceFirstCheckout);
+    expect(html).toContain('2 → 2');
+    expect(html).not.toContain('deviceFirst.upgradeProrateNote');
+  });
+
+  it('при скидке подпись вычитает доплату в той же доле, что скидка уменьшила итог', () => {
+    // 857 ₽ со скидкой 50 % = 428,50 ₽; доплата в breakdown сырая (608). Честно: (249 × 0,5) / 3 ≈ 42.
+    const discounted: DeviceFirstPrice = {
+      device_limit: 3,
+      price_kopeks: 42850,
+      breakdown: {
+        base_price_kopeks: 7450,
+        devices_price_kopeks: 35400,
+        promo_group_discount_kopeks: 42850,
+        promo_offer_discount_kopeks: 0,
+        upgrade_from_device_limit: 2,
+        upgrade_remaining_days: 365,
+        upgrade_prorate_kopeks: 60800,
+      },
+    };
+    const html = render(optionsWith([discounted]));
+    expect(html).toContain('deviceFirst.perDeviceMonth:42');
+    expect(html).not.toContain('deviceFirst.perDeviceMonth:-');
+  });
+
+  it('если доплата съедает всю цену (битые данные) — подписи нет, а не отрицательное число', () => {
+    const broken = cell(3, 10000, { prorate: 60800, days: 365, from: 2 });
+    const html = render(optionsWith([broken]));
+    expect(html).not.toContain('deviceFirst.perDeviceMonth');
+  });
+});

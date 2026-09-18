@@ -5543,7 +5543,7 @@
     "deviceCount_many": "{{count}} devices",
     "deviceCount_other": "{{count}} devices",
     "perDeviceMonth": "{{amount}} ₽/mo per device",
-    "upgradeProrateNote": "incl. {{amount}} for the added devices until the current term ends ({{days}} d.)",
+    "upgradeProrateNote": "includes {{amount}} for the added devices until the current term ends ({{days}} days)",
     "periodQuestion": "For how long?",
     "periodDays": "{{count}} days",
     "periodDays_one": "{{count}} day",
