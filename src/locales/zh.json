@@ -4855,6 +4855,7 @@
     "deviceCount_many": "{{count}} 台设备",
     "deviceCount_other": "{{count}} 台设备",
     "perDeviceMonth": "{{amount}} ₽/月/台设备",
+    "upgradeProrateNote": "含 {{amount}}：新增设备在当前有效期剩余时间内的费用（{{days}} 天）",
     "periodQuestion": "使用多长时间？",
     "periodDays": "{{count}} 天",
     "periodDays_one": "{{count}} 天",

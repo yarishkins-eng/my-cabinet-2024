@@ -4866,6 +4866,7 @@
     "deviceCount_many": "{{count}} دستگاه",
     "deviceCount_other": "{{count}} دستگاه",
     "perDeviceMonth": "{{amount}} ₽/ماه برای هر دستگاه",
+    "upgradeProrateNote": "شامل {{amount}} برای دستگاه‌های افزوده‌شده تا پایان دوره فعلی ({{days}}\u00a0روز)",
     "periodQuestion": "برای چه مدتی؟",
     "periodDays": "{{count}} روز",
     "periodDays_one": "{{count}} روز",

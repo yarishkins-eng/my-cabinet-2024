@@ -15,6 +15,7 @@ import { balanceApi } from '@/api/balance';
 import {
   deviceFirstApi,
   type DeviceFirstCheckout,
+  type DeviceFirstPrice,
   type DeviceFirstCommitResponse,
   type DeviceFirstOptions,
   type DeviceFirstPaymentAttempt,
@@ -1222,13 +1223,29 @@ export function DeviceFirstConfigurator({
     // буквально, без нормализации пробелов. Цена правки выше выигрыша; оставлено как есть.
     return `${sign}${rubles}${remainder ? `,${String(remainder).padStart(2, '0')}` : ''} ₽`;
   };
-  const pricePerDeviceMonth = (kopeks: number, deviceLimit: number, periodDays: number) => {
+  const pricePerDeviceMonth = (
+    kopeks: number,
+    deviceLimit: number,
+    periodDays: number,
+    breakdown?: DeviceFirstPrice['breakdown'],
+  ) => {
     // This is a compact comparison aid only. The full server-provided matrix
     // price above remains the amount used for confirmation and payment.
+    // МД-1: доплата за добавленные устройства на остаток ТЕКУЩЕГО срока (ДУ-2) — не часть
+    // месячной цены нового периода; без вычитания подпись у ячейки с ростом при большом
+    // остатке росла (100 → 286 → 379 ₽/мес) и читалась как поломка.
+    // Бот кладёт доплату в цену ДО скидок, а в breakdown — сырую сумму: вычитаем её в той же
+    // доле, в какой скидки уменьшили итог, иначе при скидке подпись занижена (или < 0).
     const months = periodDays === 365 ? 12 : periodDays / 30;
     if (!Number.isFinite(months) || months <= 0 || deviceLimit <= 0) return null;
+    const prorate = breakdown?.upgrade_prorate_kopeks ?? 0;
+    const discounts =
+      (breakdown?.promo_group_discount_kopeks ?? 0) + (breakdown?.promo_offer_discount_kopeks ?? 0);
+    const ratio = kopeks + discounts > 0 ? kopeks / (kopeks + discounts) : 1;
+    const net = kopeks - prorate * ratio;
+    if (net <= 0) return null;
 
-    return Math.round(kopeks / 100 / deviceLimit / months);
+    return Math.round(net / 100 / deviceLimit / months);
   };
   const periodLabel = (days: number) =>
     days === 365
@@ -1793,7 +1810,12 @@ export function DeviceFirstConfigurator({
                 (() => {
                   const optionPrice = priceFor(period, value);
                   const deviceMonthlyRate = optionPrice
-                    ? pricePerDeviceMonth(optionPrice.price_kopeks, value, period)
+                    ? pricePerDeviceMonth(
+                        optionPrice.price_kopeks,
+                        value,
+                        period,
+                        optionPrice.breakdown,
+                      )
                     : null;
                   const isSelected = devices === value;
                   return (
@@ -1853,6 +1875,16 @@ export function DeviceFirstConfigurator({
                 {t('deviceFirst.deviceShort', { count: devices })} · {periodLabel(period)}
               </div>
             </div>
+            {/* МД-1. Решение принимается ЗДЕСЬ, на шаге выбора: 857 ₽ над «83 ₽/мес» без этой
+                строки спорит сам с собой, а объяснение приходило бы шагом позже. */}
+            {(price?.breakdown?.upgrade_prorate_kopeks ?? 0) > 0 && (
+              <div className="mt-2 text-end text-xs text-dark-300">
+                {t('deviceFirst.upgradeProrateNote', {
+                  amount: formatPrice(price?.breakdown?.upgrade_prorate_kopeks ?? 0),
+                  days: price?.breakdown?.upgrade_remaining_days ?? 0,
+                })}
+              </div>
+            )}
           </div>
           <button
             type="button"
@@ -1965,6 +1997,16 @@ export function DeviceFirstConfigurator({
                     : options.current_subscription && !options.current_subscription.is_trial
                       ? options.current_subscription.device_limit
                       : null
+                }
+                upgradeProrateKopeks={
+                  resumedConfirmation?.price_breakdown?.upgrade_prorate_kopeks ??
+                  price?.breakdown?.upgrade_prorate_kopeks ??
+                  null
+                }
+                upgradeRemainingDays={
+                  resumedConfirmation?.price_breakdown?.upgrade_remaining_days ??
+                  price?.breakdown?.upgrade_remaining_days ??
+                  null
                 }
                 formatPrice={formatPrice}
               />
@@ -2820,14 +2862,26 @@ function Summary({
     : rawEndDate;
   return (
     <div className="space-y-3 rounded-2xl border border-dark-700 bg-dark-900/35 p-4">
-      <div className="flex justify-between text-sm text-dark-300">
-        <span>{t('deviceFirst.devices')}</span>
-        <strong>
-          {checkout.current_device_limit !== null &&
-          checkout.current_subscription_is_trial === false
-            ? `${checkout.current_device_limit} → ${checkout.selected_device_limit}`
-            : checkout.selected_device_limit}
-        </strong>
+      <div>
+        <div className="flex justify-between text-sm text-dark-300">
+          <span>{t('deviceFirst.devices')}</span>
+          <strong>
+            {checkout.current_device_limit !== null &&
+            checkout.current_subscription_is_trial === false
+              ? `${checkout.current_device_limit} → ${checkout.selected_device_limit}`
+              : checkout.selected_device_limit}
+          </strong>
+        </div>
+        {/* МД-1: та же строка про доплату за остаток, что и в сводке подтверждения; в одном
+            узле со строкой устройств, иначе `space-y-3` перебивает отступ. */}
+        {(checkout.price_breakdown?.upgrade_prorate_kopeks ?? 0) > 0 && (
+          <div className="mt-0.5 text-end text-xs text-dark-300">
+            {t('deviceFirst.upgradeProrateNote', {
+              amount: formatPrice(checkout.price_breakdown.upgrade_prorate_kopeks ?? 0),
+              days: checkout.price_breakdown.upgrade_remaining_days ?? 0,
+            })}
+          </div>
+        )}
       </div>
       <div className="flex justify-between text-sm text-dark-300">
         <span>{t('deviceFirst.period')}</span>
@@ -2883,6 +2937,8 @@ function SelectionSummary({
   currentDeviceLimit,
   formatPrice,
   topUpJustPaidKopeks = null,
+  upgradeProrateKopeks = null,
+  upgradeRemainingDays = null,
 }: {
   periodDays: number;
   deviceLimit: number;
@@ -2891,6 +2947,8 @@ function SelectionSummary({
   currentDeviceLimit: number | null;
   formatPrice: (value: number) => string;
   topUpJustPaidKopeks?: number | null;
+  upgradeProrateKopeks?: number | null;
+  upgradeRemainingDays?: number | null;
 }) {
   const { t } = useTranslation();
   const periodText =
@@ -2904,24 +2962,41 @@ function SelectionSummary({
       {/* 🔴 РЕК-18: две строки сведены в одну — 26 px. Оба факта сохранены дословно, включая
           переход «было → станет» при продлении и точный срок: это единственное место на кассе,
           где сказано, ЧТО покупается. Денежные строки ниже не трогаем. */}
-      <div className="flex justify-between text-sm text-dark-300">
-        {/* ⚠️ Подпись называет ОБЕ величины: после слияния строк одна «Устройства» описывала
-            только первую половину, а вторую оставляла без имени. */}
-        <span>
-          {t('deviceFirst.devices')}
-          {' · '}
-          {t('deviceFirst.period')}
-        </span>
-        {/* ⚠️ Обе величины — ОТДЕЛЬНЫЕ узлы, хотя стоят в одной строке. Три сторожа берут их
-            как улику «приземление несёт ЕГО выбор, а не умолчание» и ищут каждую по тексту;
-            склей их в один узел — и сторожа падают, а защита исчезает вместе с ними. */}
-        <strong>
+      {/* МД-1: строка «Устройства · срок» и подстрочник про доплату — ОДИН узел, как у баланса
+          ниже: `.space-y-1.5 > * ~ *` перебивает `mt-0.5` у соседа (замерено линзой: 6 px
+          вместо 2), внутри узла отступ настоящий. */}
+      <div>
+        <div className="flex justify-between text-sm text-dark-300">
+          {/* ⚠️ Подпись называет ОБЕ величины: после слияния строк одна «Устройства» описывала
+              только первую половину, а вторую оставляла без имени. */}
           <span>
-            {currentDeviceLimit !== null ? `${currentDeviceLimit} → ${deviceLimit}` : deviceLimit}
+            {t('deviceFirst.devices')}
+            {' · '}
+            {t('deviceFirst.period')}
           </span>
-          {' · '}
-          <span>{periodText}</span>
-        </strong>
+          {/* ⚠️ Обе величины — ОТДЕЛЬНЫЕ узлы, хотя стоят в одной строке. Три сторожа берут их
+              как улику «приземление несёт ЕГО выбор, а не умолчание» и ищут каждую по тексту;
+              склей их в один узел — и сторожа падают, а защита исчезает вместе с ними. */}
+          <strong>
+            <span>
+              {currentDeviceLimit !== null ? `${currentDeviceLimit} → ${deviceLimit}` : deviceLimit}
+            </span>
+            {' · '}
+            <span>{periodText}</span>
+          </strong>
+        </div>
+        {/* МД-1. За ЧТО 857 вместо 249: добавленные устройства включаются сразу и действуют на
+            остаток текущего срока, за него взята доплата (ДУ-2). Подстрочник по образцу
+            `balanceIncludesTopUp` — тот же класс, `text-end` ради RTL fa; не отдельный ряд
+            (РЕК-18 ужал сводку ради главной кнопки на 375×600). */}
+        {upgradeProrateKopeks !== null && upgradeProrateKopeks > 0 && (
+          <div className="mt-0.5 text-end text-xs text-dark-300">
+            {t('deviceFirst.upgradeProrateNote', {
+              amount: formatPrice(upgradeProrateKopeks),
+              days: upgradeRemainingDays ?? 0,
+            })}
+          </div>
+        )}
       </div>
       {balanceKopeks !== null && (
         <div>
