@@ -3,6 +3,8 @@ import { Link, useNavigate } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { usePlatform } from '@/platform';
 import { copyToClipboard } from '@/utils/clipboard';
+import { buildReferralShareText } from '@/utils/referralShare';
+import { useCurrency } from '@/hooks/useCurrency';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuthStore } from '../store/auth';
@@ -27,6 +29,7 @@ export default function Profile() {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const user = useAuthStore((state) => state.user);
+  const { formatAmount, currencySymbol } = useCurrency();
   const setUser = useAuthStore((state) => state.setUser);
   const queryClient = useQueryClient();
 
@@ -83,11 +86,20 @@ export default function Profile() {
     }
   };
 
+  // Та же логика, что на экране «Заработок»: по кнопке уходит ссылка на бота.
+  const botReferralLink = referralInfo?.bot_referral_link || '';
+
   const shareReferralLink = () => {
-    if (!referralLink) return;
-    const shareText = t('referral.shareMessage', {
-      percent: referralInfo?.commission_percent || 0,
+    const shareUrl = botReferralLink || referralLink;
+    if (!shareUrl) return;
+    // Текст другу — общий с «Заработком». Раньше тут подставлялся `percent` в шаблон,
+    // который ждёт `minimum` и `bonus`: друзьям уходили сырые {{minimum}} и {{bonus}}.
+    const shareText = buildReferralShareText(t, {
       botName: branding?.name || import.meta.env.VITE_APP_NAME || 'Cabinet',
+      firstTopupBonusKopeks: referralTerms?.first_topup_bonus_kopeks ?? 0,
+      minimum: `${formatAmount(referralTerms?.minimum_topup_rubles ?? 0)} ${currencySymbol}`,
+      bonus: `${formatAmount(referralTerms?.first_topup_bonus_rubles ?? 0)} ${currencySymbol}`,
+      percent: referralInfo?.commission_percent || 0,
     });
 
     if (navigator.share) {
@@ -95,13 +107,13 @@ export default function Profile() {
         .share({
           title: t('referral.title'),
           text: shareText,
-          url: referralLink,
+          url: shareUrl,
         })
         .catch(() => {});
       return;
     }
 
-    const telegramUrl = `https://t.me/share/url?url=${encodeURIComponent(referralLink)}&text=${encodeURIComponent(shareText)}`;
+    const telegramUrl = `https://t.me/share/url?url=${encodeURIComponent(shareUrl)}&text=${encodeURIComponent(shareText)}`;
     openTelegramLink(telegramUrl);
   };
 
