@@ -1222,13 +1222,21 @@ export function DeviceFirstConfigurator({
     // буквально, без нормализации пробелов. Цена правки выше выигрыша; оставлено как есть.
     return `${sign}${rubles}${remainder ? `,${String(remainder).padStart(2, '0')}` : ''} ₽`;
   };
-  const pricePerDeviceMonth = (kopeks: number, deviceLimit: number, periodDays: number) => {
+  const pricePerDeviceMonth = (
+    kopeks: number,
+    deviceLimit: number,
+    periodDays: number,
+    upgradeProrateKopeks = 0,
+  ) => {
     // This is a compact comparison aid only. The full server-provided matrix
     // price above remains the amount used for confirmation and payment.
+    // МД-1: доплата за добавленные устройства на остаток ТЕКУЩЕГО срока (ДУ-2) — не часть
+    // месячной цены нового периода; без вычитания подпись у ячейки с ростом при большом
+    // остатке росла (100 → 286 → 379 ₽/мес) и читалась как поломка.
     const months = periodDays === 365 ? 12 : periodDays / 30;
     if (!Number.isFinite(months) || months <= 0 || deviceLimit <= 0) return null;
 
-    return Math.round(kopeks / 100 / deviceLimit / months);
+    return Math.round((kopeks - upgradeProrateKopeks) / 100 / deviceLimit / months);
   };
   const periodLabel = (days: number) =>
     days === 365
@@ -1793,7 +1801,12 @@ export function DeviceFirstConfigurator({
                 (() => {
                   const optionPrice = priceFor(period, value);
                   const deviceMonthlyRate = optionPrice
-                    ? pricePerDeviceMonth(optionPrice.price_kopeks, value, period)
+                    ? pricePerDeviceMonth(
+                        optionPrice.price_kopeks,
+                        value,
+                        period,
+                        optionPrice.breakdown?.upgrade_prorate_kopeks ?? 0,
+                      )
                     : null;
                   const isSelected = devices === value;
                   return (
@@ -1965,6 +1978,16 @@ export function DeviceFirstConfigurator({
                     : options.current_subscription && !options.current_subscription.is_trial
                       ? options.current_subscription.device_limit
                       : null
+                }
+                upgradeProrateKopeks={
+                  resumedConfirmation?.price_breakdown?.upgrade_prorate_kopeks ??
+                  price?.breakdown?.upgrade_prorate_kopeks ??
+                  null
+                }
+                upgradeRemainingDays={
+                  resumedConfirmation?.price_breakdown?.upgrade_remaining_days ??
+                  price?.breakdown?.upgrade_remaining_days ??
+                  null
                 }
                 formatPrice={formatPrice}
               />
@@ -2829,6 +2852,15 @@ function Summary({
             : checkout.selected_device_limit}
         </strong>
       </div>
+      {/* МД-1: та же строка про доплату за остаток, что и в сводке подтверждения. */}
+      {(checkout.price_breakdown?.upgrade_prorate_kopeks ?? 0) > 0 && (
+        <div className="mt-0.5 text-end text-xs text-dark-300">
+          {t('deviceFirst.upgradeProrateNote', {
+            amount: formatPrice(checkout.price_breakdown.upgrade_prorate_kopeks ?? 0),
+            days: checkout.price_breakdown.upgrade_remaining_days ?? 0,
+          })}
+        </div>
+      )}
       <div className="flex justify-between text-sm text-dark-300">
         <span>{t('deviceFirst.period')}</span>
         <strong>{periodText}</strong>
@@ -2883,6 +2915,8 @@ function SelectionSummary({
   currentDeviceLimit,
   formatPrice,
   topUpJustPaidKopeks = null,
+  upgradeProrateKopeks = null,
+  upgradeRemainingDays = null,
 }: {
   periodDays: number;
   deviceLimit: number;
@@ -2891,6 +2925,8 @@ function SelectionSummary({
   currentDeviceLimit: number | null;
   formatPrice: (value: number) => string;
   topUpJustPaidKopeks?: number | null;
+  upgradeProrateKopeks?: number | null;
+  upgradeRemainingDays?: number | null;
 }) {
   const { t } = useTranslation();
   const periodText =
@@ -2923,6 +2959,18 @@ function SelectionSummary({
           <span>{periodText}</span>
         </strong>
       </div>
+      {/* МД-1. Единственное место, где сказано, ЗА ЧТО 857 вместо 249: добавленные устройства
+          включаются сразу и действуют на остаток текущего срока, за него взята доплата (ДУ-2).
+          Подстрочник по образцу `balanceIncludesTopUp` — тот же класс, `text-end` ради RTL fa;
+          не отдельный ряд (РЕК-18 ужал сводку ради главной кнопки на 375×600). */}
+      {upgradeProrateKopeks !== null && upgradeProrateKopeks > 0 && (
+        <div className="mt-0.5 text-end text-xs text-dark-300">
+          {t('deviceFirst.upgradeProrateNote', {
+            amount: formatPrice(upgradeProrateKopeks),
+            days: upgradeRemainingDays ?? 0,
+          })}
+        </div>
+      )}
       {balanceKopeks !== null && (
         <div>
           <div className="flex justify-between text-sm text-dark-300">

@@ -28,6 +28,12 @@ export interface DeviceFirstPrice {
     devices_price_kopeks: number;
     promo_group_discount_kopeks: number;
     promo_offer_discount_kopeks: number;
+    // МД-1: доплата за добавленные устройства на остаток текущего срока (бот с 14.09.2026,
+    // ДУ-2). Старый бот ключей не шлёт — отсутствие означает «доплаты нет».
+    // ⚠️ `devices_price_kopeks` уже ВКЛЮЧАЕТ эту доплату — помесячную цену из него не выводить.
+    upgrade_from_device_limit?: number | null;
+    upgrade_remaining_days?: number;
+    upgrade_prorate_kopeks?: number;
   };
 }
 
