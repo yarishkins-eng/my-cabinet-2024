@@ -10,7 +10,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MemoryRouter } from 'react-router';
 import Referral from './Referral';
@@ -152,5 +152,60 @@ describe('«Поделиться» на экране «Заработок»', ()
     await renderAndShare();
 
     expect(share.mock.calls[0][0].url).toBe(CABINET_LINK);
+  });
+
+  // Решение владельца 19.09.2026 (мина MT): кнопка стоит под той ссылкой, которую отправляет.
+  it('«Поделиться» стоит в ряду ссылки на бота, а не кабинета', async () => {
+    getReferralInfo.mockResolvedValue(info(BOT_LINK));
+    render(
+      <QueryClientProvider
+        client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
+      >
+        <MemoryRouter>
+          <Referral />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+    const shareLabel = (ruLocale.referral as Record<string, string>).shareButton;
+    const botRow = (await screen.findByDisplayValue(BOT_LINK)).parentElement as HTMLElement;
+    const cabinetRow = screen.getByDisplayValue(CABINET_LINK).parentElement as HTMLElement;
+
+    expect(within(botRow).getByText(shareLabel)).toBeTruthy();
+    expect(within(cabinetRow).queryByText(shareLabel)).toBeNull();
+    expect(screen.getAllByText(shareLabel)).toHaveLength(1);
+
+    // Порядок в ряду бота: «Копировать», потом «Поделиться» — как в ряду кабинета.
+    const copyLabel = (ruLocale.referral as Record<string, string>).copyLink;
+    const botButtons = within(botRow).getAllByRole('button');
+    expect(botButtons.map((b) => b.textContent)).toEqual([copyLabel, shareLabel]);
+
+    // Ширина на телефоне (jsdom пикселей не меряет — сторожим классы отрендеренных кнопок):
+    // px-3 и sm:px-4 у всех кнопок обоих рядов, у подписей нет лишнего ml-2, ряд с gap-2.
+    for (const button of [...botButtons, ...within(cabinetRow).getAllByRole('button')]) {
+      expect(button.className).toMatch(/\bpx-3\b/);
+      expect(button.className).toMatch(/\bsm:px-4\b/);
+      for (const span of Array.from(button.querySelectorAll('span'))) {
+        expect(span.className).not.toMatch(/\bml-2\b/);
+      }
+    }
+    expect((botButtons[0].parentElement as HTMLElement).className).toMatch(/\bgap-2\b/);
+  });
+
+  it('без ссылки на бота ряд бота не рисуется, а «Поделиться» остаётся у кабинетной', async () => {
+    getReferralInfo.mockResolvedValue(info(undefined));
+    render(
+      <QueryClientProvider
+        client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
+      >
+        <MemoryRouter>
+          <Referral />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+    const shareLabel = (ruLocale.referral as Record<string, string>).shareButton;
+    const cabinetRow = (await screen.findByDisplayValue(CABINET_LINK)).parentElement as HTMLElement;
+
+    expect(screen.queryByText((ruLocale.referral as Record<string, string>).botLink)).toBeNull();
+    expect(within(cabinetRow).getByText(shareLabel)).toBeTruthy();
   });
 });

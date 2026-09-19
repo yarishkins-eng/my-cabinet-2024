@@ -21,6 +21,7 @@ import { brandingApi, type EmailAuthEnabled } from '../api/branding';
 import { UI } from '../config/constants';
 import { Card } from '@/components/data-display/Card';
 import { Button } from '@/components/primitives/Button';
+import { cn } from '@/lib/utils';
 import { Switch } from '@/components/primitives/Switch';
 import { staggerContainer, staggerItem } from '@/components/motion/transitions';
 import { CopyIcon, CheckIcon, ShareIcon, ArrowRightIcon, PencilIcon } from '@/components/icons';
@@ -78,17 +79,22 @@ export default function Profile() {
     ? `${window.location.origin}/login?ref=${referralInfo.referral_code}`
     : '';
 
-  const copyReferralLink = () => {
-    if (referralLink) {
-      void copyToClipboard(referralLink);
+  const botReferralLink = referralInfo?.bot_referral_link || '';
+
+  const copyReferralLink = async () => {
+    const link = botReferralLink || referralLink;
+    if (!link) return;
+    try {
+      // Как на «Заработке»: «Скопировано!» только после того, как буфер принял ссылку.
+      await copyToClipboard(link);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // буфер отказал — молчим, кнопка остаётся «Копировать»
     }
   };
 
   // Та же логика, что на экране «Заработок»: по кнопке уходит ссылка на бота.
-  const botReferralLink = referralInfo?.bot_referral_link || '';
-
   const shareReferralLink = () => {
     const shareUrl = botReferralLink || referralLink;
     if (!shareUrl) return;
@@ -341,7 +347,9 @@ export default function Profile() {
         <motion.div variants={staggerItem}>
           <Card>
             <div className="mb-4 flex items-center justify-between">
-              <h2 className="text-lg font-semibold text-dark-100">{t('referral.yourLink')}</h2>
+              <h2 className="text-lg font-semibold text-dark-100">
+                {t('referral.yourLinkSingle')}
+              </h2>
               <Link
                 to="/referral"
                 className="flex items-center gap-1 text-accent-400 transition-colors hover:text-accent-300"
@@ -352,22 +360,25 @@ export default function Profile() {
             </div>
             <div className="flex flex-col gap-3 sm:flex-row">
               <div className="flex-1">
-                <input type="text" readOnly value={referralLink} className="input w-full text-sm" />
+                <input
+                  type="text"
+                  readOnly
+                  value={botReferralLink || referralLink}
+                  className="input w-full text-sm"
+                />
               </div>
               <div className="flex gap-2">
                 <Button
                   onClick={copyReferralLink}
-                  variant={copied ? 'primary' : 'primary'}
-                  className={copied ? 'bg-success-500 hover:bg-success-500' : ''}
+                  variant="primary"
+                  className={cn('px-3 sm:px-4', copied && 'bg-success-500 hover:bg-success-500')}
                 >
                   {copied ? <CheckIcon /> : <CopyIcon />}
-                  <span className="ml-2">
-                    {copied ? t('referral.copied') : t('referral.copyLink')}
-                  </span>
+                  <span>{copied ? t('referral.copied') : t('referral.copyLink')}</span>
                 </Button>
-                <Button onClick={shareReferralLink} variant="secondary">
+                <Button onClick={shareReferralLink} variant="secondary" className="px-3 sm:px-4">
                   <ShareIcon className="h-4 w-4" />
-                  <span className="ml-2 hidden sm:inline">{t('referral.shareButton')}</span>
+                  <span>{t('referral.shareButton')}</span>
                 </Button>
               </div>
             </div>

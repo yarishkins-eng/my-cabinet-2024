@@ -994,6 +994,7 @@
   "referral": {
     "title": "Referral Program",
     "yourLink": "Your Referral Links",
+    "yourLinkSingle": "Your referral link",
     "botLink": "Bot link",
     "cabinetLink": "Cabinet link",
     "copyLink": "Copy",
