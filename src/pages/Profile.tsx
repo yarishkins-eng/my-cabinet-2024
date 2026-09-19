@@ -21,6 +21,7 @@ import { brandingApi, type EmailAuthEnabled } from '../api/branding';
 import { UI } from '../config/constants';
 import { Card } from '@/components/data-display/Card';
 import { Button } from '@/components/primitives/Button';
+import { cn } from '@/lib/utils';
 import { Switch } from '@/components/primitives/Switch';
 import { staggerContainer, staggerItem } from '@/components/motion/transitions';
 import { CopyIcon, CheckIcon, ShareIcon, ArrowRightIcon, PencilIcon } from '@/components/icons';
@@ -80,12 +81,16 @@ export default function Profile() {
 
   const botReferralLink = referralInfo?.bot_referral_link || '';
 
-  const copyReferralLink = () => {
+  const copyReferralLink = async () => {
     const link = botReferralLink || referralLink;
-    if (link) {
-      void copyToClipboard(link);
+    if (!link) return;
+    try {
+      // Как на «Заработке»: «Скопировано!» только после того, как буфер принял ссылку.
+      await copyToClipboard(link);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // буфер отказал — молчим, кнопка остаётся «Копировать»
     }
   };
 
@@ -342,7 +347,9 @@ export default function Profile() {
         <motion.div variants={staggerItem}>
           <Card>
             <div className="mb-4 flex items-center justify-between">
-              <h2 className="text-lg font-semibold text-dark-100">{t('referral.yourLink')}</h2>
+              <h2 className="text-lg font-semibold text-dark-100">
+                {t('referral.yourLinkSingle')}
+              </h2>
               <Link
                 to="/referral"
                 className="flex items-center gap-1 text-accent-400 transition-colors hover:text-accent-300"
@@ -363,17 +370,15 @@ export default function Profile() {
               <div className="flex gap-2">
                 <Button
                   onClick={copyReferralLink}
-                  variant={copied ? 'primary' : 'primary'}
-                  className={copied ? 'bg-success-500 hover:bg-success-500' : ''}
+                  variant="primary"
+                  className={cn('px-3 sm:px-4', copied && 'bg-success-500 hover:bg-success-500')}
                 >
                   {copied ? <CheckIcon /> : <CopyIcon />}
-                  <span className="ml-2">
-                    {copied ? t('referral.copied') : t('referral.copyLink')}
-                  </span>
+                  <span>{copied ? t('referral.copied') : t('referral.copyLink')}</span>
                 </Button>
-                <Button onClick={shareReferralLink} variant="secondary">
+                <Button onClick={shareReferralLink} variant="secondary" className="px-3 sm:px-4">
                   <ShareIcon className="h-4 w-4" />
-                  <span className="ml-2">{t('referral.shareButton')}</span>
+                  <span>{t('referral.shareButton')}</span>
                 </Button>
               </div>
             </div>

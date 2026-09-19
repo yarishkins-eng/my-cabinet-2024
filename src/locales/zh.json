@@ -768,6 +768,7 @@
   "referral": {
     "title": "推荐计划",
     "yourLink": "您的推荐链接",
+    "yourLinkSingle": "您的推荐链接",
     "botLink": "机器人链接",
     "cabinetLink": "面板链接",
     "copyLink": "复制",

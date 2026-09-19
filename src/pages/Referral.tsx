@@ -288,21 +288,21 @@ export default function Referral() {
                 <div className="flex gap-2">
                   <button
                     onClick={() => copyLink(botReferralLink, 'bot')}
-                    className={`btn-primary shrink-0 px-4 ${
+                    className={`btn-primary shrink-0 px-3 sm:px-4 ${
                       copiedLink === 'bot' ? 'bg-success-500 hover:bg-success-500' : ''
                     }`}
                   >
                     {copiedLink === 'bot' ? <CheckIcon /> : <CopyIcon />}
-                    <span className="ml-2">
+                    <span>
                       {copiedLink === 'bot' ? t('referral.copied') : t('referral.copyLink')}
                     </span>
                   </button>
                   <button
                     onClick={shareLink}
-                    className="btn-secondary flex shrink-0 items-center px-4"
+                    className="btn-secondary flex shrink-0 items-center px-3 sm:px-4"
                   >
                     <ShareIcon className="h-4 w-4" />
-                    <span className="ml-2">{t('referral.shareButton')}</span>
+                    <span>{t('referral.shareButton')}</span>
                   </button>
                 </div>
               </div>
@@ -320,12 +320,12 @@ export default function Referral() {
                 <button
                   onClick={() => copyLink(referralLink, 'cabinet')}
                   disabled={!referralLink}
-                  className={`btn-primary shrink-0 px-4 ${
+                  className={`btn-primary shrink-0 px-3 sm:px-4 ${
                     copiedLink === 'cabinet' ? 'bg-success-500 hover:bg-success-500' : ''
                   } ${!referralLink ? 'cursor-not-allowed opacity-50' : ''}`}
                 >
                   {copiedLink === 'cabinet' ? <CheckIcon /> : <CopyIcon />}
-                  <span className="ml-2">
+                  <span>
                     {copiedLink === 'cabinet' ? t('referral.copied') : t('referral.copyLink')}
                   </span>
                 </button>
@@ -333,12 +333,12 @@ export default function Referral() {
                   <button
                     onClick={shareLink}
                     disabled={!referralLink}
-                    className={`btn-secondary flex shrink-0 items-center px-4 ${
+                    className={`btn-secondary flex shrink-0 items-center px-3 sm:px-4 ${
                       !referralLink ? 'cursor-not-allowed opacity-50' : ''
                     }`}
                   >
                     <ShareIcon className="h-4 w-4" />
-                    <span className="ml-2">{t('referral.shareButton')}</span>
+                    <span>{t('referral.shareButton')}</span>
                   </button>
                 )}
               </div>

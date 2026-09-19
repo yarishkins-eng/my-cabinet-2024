@@ -189,7 +189,7 @@ describe('«Поделиться» на экране «Заработок»', ()
     const shareLabel = (ruLocale.referral as Record<string, string>).shareButton;
     const cabinetRow = (await screen.findByDisplayValue(CABINET_LINK)).parentElement as HTMLElement;
 
-    expect(screen.queryByDisplayValue(BOT_LINK)).toBeNull();
+    expect(screen.queryByText((ruLocale.referral as Record<string, string>).botLink)).toBeNull();
     expect(within(cabinetRow).getByText(shareLabel)).toBeTruthy();
   });
 });
