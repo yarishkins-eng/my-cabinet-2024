@@ -78,17 +78,18 @@ export default function Profile() {
     ? `${window.location.origin}/login?ref=${referralInfo.referral_code}`
     : '';
 
+  const botReferralLink = referralInfo?.bot_referral_link || '';
+
   const copyReferralLink = () => {
-    if (referralLink) {
-      void copyToClipboard(referralLink);
+    const link = botReferralLink || referralLink;
+    if (link) {
+      void copyToClipboard(link);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     }
   };
 
   // Та же логика, что на экране «Заработок»: по кнопке уходит ссылка на бота.
-  const botReferralLink = referralInfo?.bot_referral_link || '';
-
   const shareReferralLink = () => {
     const shareUrl = botReferralLink || referralLink;
     if (!shareUrl) return;
@@ -352,7 +353,12 @@ export default function Profile() {
             </div>
             <div className="flex flex-col gap-3 sm:flex-row">
               <div className="flex-1">
-                <input type="text" readOnly value={referralLink} className="input w-full text-sm" />
+                <input
+                  type="text"
+                  readOnly
+                  value={botReferralLink || referralLink}
+                  className="input w-full text-sm"
+                />
               </div>
               <div className="flex gap-2">
                 <Button
@@ -367,7 +373,7 @@ export default function Profile() {
                 </Button>
                 <Button onClick={shareReferralLink} variant="secondary">
                   <ShareIcon className="h-4 w-4" />
-                  <span className="ml-2 hidden sm:inline">{t('referral.shareButton')}</span>
+                  <span className="ml-2">{t('referral.shareButton')}</span>
                 </Button>
               </div>
             </div>

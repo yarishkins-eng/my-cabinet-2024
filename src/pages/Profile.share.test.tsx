@@ -12,10 +12,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MemoryRouter } from 'react-router';
 import Profile from './Profile';
 
-const { getReferralInfo, openTelegramLink } = vi.hoisted(() => ({
+const { getReferralInfo, openTelegramLink, copyToClipboard } = vi.hoisted(() => ({
   getReferralInfo: vi.fn(),
   openTelegramLink: vi.fn(),
+  copyToClipboard: vi.fn().mockResolvedValue(undefined),
 }));
+
+vi.mock('../utils/clipboard', () => ({ copyToClipboard }));
 
 vi.mock('../api/referral', () => ({
   referralApi: {
@@ -169,5 +172,64 @@ describe('«Поделиться» на экране «Профиль»', () => 
     await renderAndShare(undefined);
 
     expect(share.mock.calls[0][0].url).toBe(CABINET_LINK);
+  });
+
+  // Решение владельца 19.09.2026 (мина MT): в поле — та же ссылка, которую отправляет «Поделиться»,
+  // и «Копировать» копирует её же; у «Поделиться» на телефоне видна подпись.
+  it('в поле — ссылка на бота, «Копировать» копирует её, подпись «Поделиться» не спрятана', async () => {
+    copyToClipboard.mockClear();
+    getReferralInfo.mockResolvedValue({
+      referral_code: 'refjivETKNC',
+      referral_link: CABINET_LINK,
+      bot_referral_link: BOT_LINK,
+      referrals_count: 0,
+      total_earned_kopeks: 0,
+      commission_percent: 25,
+    });
+    render(
+      <QueryClientProvider
+        client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
+      >
+        <MemoryRouter>
+          <Profile />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+    const locale = ruLocale.referral as Record<string, string>;
+
+    expect(await screen.findByDisplayValue(BOT_LINK)).toBeTruthy();
+    expect(screen.queryByDisplayValue(CABINET_LINK)).toBeNull();
+
+    fireEvent.click(screen.getByText(locale.copyLink).closest('button') as HTMLButtonElement);
+    expect(copyToClipboard).toHaveBeenCalledWith(BOT_LINK);
+
+    const shareLabel = screen.getByText(locale.shareButton);
+    expect(shareLabel.className).not.toMatch(/\bhidden\b/);
+  });
+
+  it('без ссылки на бота в поле — кабинетная, и копируется она', async () => {
+    copyToClipboard.mockClear();
+    getReferralInfo.mockResolvedValue({
+      referral_code: 'refjivETKNC',
+      referral_link: CABINET_LINK,
+      bot_referral_link: undefined,
+      referrals_count: 0,
+      total_earned_kopeks: 0,
+      commission_percent: 25,
+    });
+    render(
+      <QueryClientProvider
+        client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
+      >
+        <MemoryRouter>
+          <Profile />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+    const locale = ruLocale.referral as Record<string, string>;
+
+    expect(await screen.findByDisplayValue(CABINET_LINK)).toBeTruthy();
+    fireEvent.click(screen.getByText(locale.copyLink).closest('button') as HTMLButtonElement);
+    expect(copyToClipboard).toHaveBeenCalledWith(CABINET_LINK);
   });
 });
