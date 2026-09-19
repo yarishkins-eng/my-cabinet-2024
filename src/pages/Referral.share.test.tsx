@@ -173,6 +173,22 @@ describe('«Поделиться» на экране «Заработок»', ()
     expect(within(botRow).getByText(shareLabel)).toBeTruthy();
     expect(within(cabinetRow).queryByText(shareLabel)).toBeNull();
     expect(screen.getAllByText(shareLabel)).toHaveLength(1);
+
+    // Порядок в ряду бота: «Копировать», потом «Поделиться» — как в ряду кабинета.
+    const copyLabel = (ruLocale.referral as Record<string, string>).copyLink;
+    const botButtons = within(botRow).getAllByRole('button');
+    expect(botButtons.map((b) => b.textContent)).toEqual([copyLabel, shareLabel]);
+
+    // Ширина на телефоне (jsdom пикселей не меряет — сторожим классы отрендеренных кнопок):
+    // px-3 и sm:px-4 у всех кнопок обоих рядов, у подписей нет лишнего ml-2, ряд с gap-2.
+    for (const button of [...botButtons, ...within(cabinetRow).getAllByRole('button')]) {
+      expect(button.className).toMatch(/\bpx-3\b/);
+      expect(button.className).toMatch(/\bsm:px-4\b/);
+      for (const span of Array.from(button.querySelectorAll('span'))) {
+        expect(span.className).not.toMatch(/\bml-2\b/);
+      }
+    }
+    expect((botButtons[0].parentElement as HTMLElement).className).toMatch(/\bgap-2\b/);
   });
 
   it('без ссылки на бота ряд бота не рисуется, а «Поделиться» остаётся у кабинетной', async () => {

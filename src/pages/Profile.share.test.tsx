@@ -205,6 +205,53 @@ describe('«Поделиться» на экране «Профиль»', () => 
 
     const shareLabel = screen.getByText(locale.shareButton);
     expect(shareLabel.className).not.toMatch(/\bhidden\b/);
+
+    // Над одной ссылкой — заголовок в единственном числе (мутация «вернуть yourLink» должна краснеть).
+    expect(screen.getByText(locale.yourLinkSingle)).toBeTruthy();
+    expect(screen.queryByText(locale.yourLink)).toBeNull();
+
+    // Ширина на телефоне: у кнопок px-3 (sm:px-4), у подписей нет лишнего ml-2 — jsdom пикселей
+    // не меряет, поэтому сторожим классы на отрендеренных элементах, а не на исходнике.
+    const copyButton = screen.getByText(locale.copyLink).closest('button') as HTMLButtonElement;
+    const shareButton = shareLabel.closest('button') as HTMLButtonElement;
+    for (const button of [copyButton, shareButton]) {
+      expect(button.className).toMatch(/\bpx-3\b/);
+      expect(button.className).toMatch(/\bsm:px-4\b/);
+    }
+    expect(screen.getByText(locale.copyLink).className).not.toMatch(/\bml-2\b/);
+    expect(shareLabel.className).not.toMatch(/\bml-2\b/);
+  });
+
+  it('буфер отказал — «Скопировано!» не показывается', async () => {
+    copyToClipboard.mockReset();
+    copyToClipboard.mockRejectedValueOnce(new Error('clipboard denied'));
+    getReferralInfo.mockResolvedValue({
+      referral_code: 'refjivETKNC',
+      referral_link: CABINET_LINK,
+      bot_referral_link: BOT_LINK,
+      referrals_count: 0,
+      total_earned_kopeks: 0,
+      commission_percent: 25,
+    });
+    render(
+      <QueryClientProvider
+        client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
+      >
+        <MemoryRouter>
+          <Profile />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+    const locale = ruLocale.referral as Record<string, string>;
+    await screen.findByDisplayValue(BOT_LINK);
+
+    fireEvent.click(screen.getByText(locale.copyLink).closest('button') as HTMLButtonElement);
+    await waitFor(() => expect(copyToClipboard).toHaveBeenCalledTimes(1));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(screen.queryByText(locale.copied)).toBeNull();
+    expect(screen.getByText(locale.copyLink)).toBeTruthy();
+    copyToClipboard.mockResolvedValue(undefined);
   });
 
   it('без ссылки на бота в поле — кабинетная, и копируется она', async () => {
