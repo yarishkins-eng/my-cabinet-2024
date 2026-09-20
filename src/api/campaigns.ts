@@ -164,49 +164,6 @@ export interface CampaignsOverview {
   total_tariff_issued: number;
 }
 
-export interface AdminDailyStatItem {
-  date: string;
-  referrals_count: number;
-  earnings_kopeks: number;
-}
-
-export interface AdminPeriodStats {
-  days: number;
-  referrals_count: number;
-  earnings_kopeks: number;
-}
-
-export interface AdminPeriodChange {
-  absolute: number;
-  percent: number;
-  trend: 'up' | 'down' | 'stable';
-}
-
-export interface AdminPeriodComparison {
-  current: AdminPeriodStats;
-  previous: AdminPeriodStats;
-  referrals_change: AdminPeriodChange;
-  earnings_change: AdminPeriodChange;
-}
-
-export interface AdminTopRegistrationItem {
-  id: number;
-  full_name: string;
-  created_at: string;
-  has_paid: boolean;
-  is_active: boolean;
-  total_earnings_kopeks: number;
-}
-
-export interface AdminCampaignChartData {
-  campaign_id: number;
-  total_deposits_kopeks: number;
-  total_spending_kopeks: number;
-  daily_stats: AdminDailyStatItem[];
-  period_comparison: AdminPeriodComparison;
-  top_registrations: AdminTopRegistrationItem[];
-}
-
 export interface CampaignDataQuality {
   status: 'complete' | 'partial';
 }
@@ -375,12 +332,6 @@ export const campaignsApi = {
   // Get available partners for campaign assignment
   getAvailablePartners: async (): Promise<AvailablePartner[]> => {
     const response = await apiClient.get('/cabinet/admin/campaigns/available-partners');
-    return response.data;
-  },
-
-  // Get campaign chart data for analytics
-  getChartData: async (campaignId: number): Promise<AdminCampaignChartData> => {
-    const response = await apiClient.get(`/cabinet/admin/campaigns/${campaignId}/chart-data`);
     return response.data;
   },
 };
