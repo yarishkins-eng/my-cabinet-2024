@@ -3,11 +3,12 @@ import { useParams, useNavigate, Link } from 'react-router';
 import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { campaignsApi, CampaignBonusType } from '../api/campaigns';
-import type { AdminCampaignChartData } from '../api/campaigns';
 import { AdminBackButton } from '../components/admin';
-import { DailyChart, PeriodComparison, StatCard } from '../components/stats';
+import {
+  CampaignAnalyticsServiceInfo,
+  CampaignAnalyticsV2Panel,
+} from '../components/admin/CampaignAnalyticsV2Panel';
 import { PARTNER_STATS } from '../constants/partner';
-import { useCurrency } from '../hooks/useCurrency';
 import { copyToClipboard } from '../utils/clipboard';
 import { useHaptic } from '../platform';
 import { ChartIcon, ChevronDownIcon, CopyIcon, LinkIcon, UsersIcon } from '@/components/icons';
@@ -46,7 +47,6 @@ export default function AdminCampaignStats() {
   const isValidId = numericId !== null && !isNaN(numericId);
   const navigate = useNavigate();
   const haptic = useHaptic();
-  const { formatWithCurrency } = useCurrency();
   const [copiedBot, setCopiedBot] = useState(false);
   const [copiedWeb, setCopiedWeb] = useState(false);
   const [showUsers, setShowUsers] = useState(false);
@@ -71,10 +71,6 @@ export default function AdminCampaignStats() {
     enabled: isValidId,
     staleTime: PARTNER_STATS.STATS_STALE_TIME,
   });
-  const formattedPaymentConversion = new Intl.NumberFormat(i18n.language, {
-    maximumFractionDigits: 1,
-  }).format(stats?.payment_conversion_rate ?? 0);
-
   // Fetch registrations when users section is open
   const { data: registrationsData, isLoading: usersLoading } = useQuery({
     queryKey: ['campaign-registrations', id],
@@ -82,10 +78,14 @@ export default function AdminCampaignStats() {
     enabled: isValidId && showUsers,
   });
 
-  // Fetch chart data
-  const { data: chartData, isLoading: chartLoading } = useQuery<AdminCampaignChartData>({
-    queryKey: ['campaign-chart-data', id],
-    queryFn: () => campaignsApi.getChartData(numericId!),
+  // Fetch the cohort-based campaign funnel without changing legacy analytics endpoints.
+  const {
+    data: analytics,
+    isLoading: analyticsLoading,
+    error: analyticsError,
+  } = useQuery({
+    queryKey: ['campaign-analytics-v2', id],
+    queryFn: () => campaignsApi.getCampaignAnalyticsV2(numericId!),
     enabled: isValidId,
     staleTime: PARTNER_STATS.STATS_STALE_TIME,
   });
@@ -247,204 +247,18 @@ export default function AdminCampaignStats() {
           </div>
         )}
 
-        {/* Main Stats */}
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-          <div className="rounded-xl border border-dark-700 bg-dark-800 p-4 text-center">
-            <div className="text-xl font-bold text-dark-100 sm:text-2xl">{stats.leads}</div>
-            <div className="text-xs text-dark-500">{t('admin.campaigns.stats.leads')}</div>
+        {analyticsLoading ? (
+          <div className="space-y-3">
+            <div className="h-32 animate-pulse rounded-xl bg-dark-800/30" />
+            <div className="h-64 animate-pulse rounded-xl bg-dark-800/30" />
           </div>
-          <div className="rounded-xl border border-dark-700 bg-dark-800 p-4 text-center">
-            <div className="truncate text-xl font-bold text-success-400 sm:text-2xl">
-              {formatWithCurrency(stats.confirmed_receipts_kopeks / PARTNER_STATS.KOPEKS_DIVISOR)}
-            </div>
-            <div className="text-xs text-dark-500">
-              {t('admin.campaigns.stats.confirmedReceipts')}
-            </div>
+        ) : analyticsError || !analytics ? (
+          <div className="rounded-xl border border-error-500/30 bg-error-500/10 p-4 text-sm text-error-300">
+            {t('admin.campaigns.statsV2.loadError')}
           </div>
-          <div className="rounded-xl border border-dark-700 bg-dark-800 p-4 text-center">
-            <div className="text-xl font-bold text-accent-400 sm:text-2xl">
-              {stats.paying_leads}
-            </div>
-            <div className="text-xs text-dark-500">{t('admin.campaigns.stats.paidUsers')}</div>
-          </div>
-          <div className="rounded-xl border border-dark-700 bg-dark-800 p-4 text-center">
-            <div className="text-xl font-bold text-accent-400 sm:text-2xl">
-              {formattedPaymentConversion}%
-            </div>
-            <div className="text-xs text-dark-500">{t('admin.campaigns.stats.conversion')}</div>
-          </div>
-        </div>
-
-        {/* Detailed Stats */}
-        <div className="rounded-xl border border-dark-700 bg-dark-800 p-4">
-          <h3 className="mb-4 font-medium text-dark-200">
-            {t('admin.campaigns.stats.detailedStats')}
-          </h3>
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-            <div className="rounded-lg bg-dark-700/50 p-3">
-              <div className="mb-1 text-sm text-dark-400">
-                {t('admin.campaigns.stats.bonusesIssued')}
-              </div>
-              {stats.bonus_type === 'balance' && (
-                <div className="text-lg font-medium text-success-400">
-                  {formatWithCurrency(stats.balance_issued_kopeks / PARTNER_STATS.KOPEKS_DIVISOR)}
-                </div>
-              )}
-              {stats.bonus_type === 'subscription' && (
-                <div className="text-lg font-medium text-accent-400">
-                  {t('admin.campaigns.stats.subscriptionsIssued', {
-                    count: stats.subscription_issued,
-                  })}
-                </div>
-              )}
-              {stats.bonus_type === 'tariff' && (
-                <div className="text-lg font-medium text-accent-400">
-                  {t('admin.campaigns.stats.tariffsIssued', { count: stats.subscription_issued })}
-                </div>
-              )}
-              {stats.bonus_type === 'none' && (
-                <div className="text-lg font-medium text-dark-400">-</div>
-              )}
-            </div>
-            <div className="rounded-lg bg-dark-700/50 p-3">
-              <div className="mb-1 text-sm text-dark-400">
-                {t('admin.campaigns.stats.avgConfirmedReceiptsPerLead')}
-              </div>
-              <div className="text-lg font-medium text-dark-200">
-                {formatWithCurrency(
-                  stats.avg_confirmed_receipts_per_lead_kopeks / PARTNER_STATS.KOPEKS_DIVISOR,
-                )}
-              </div>
-            </div>
-            <div className="rounded-lg bg-dark-700/50 p-3">
-              <div className="mb-1 text-sm text-dark-400">
-                {t('admin.campaigns.stats.avgFirstPayment')}
-              </div>
-              <div className="text-lg font-medium text-dark-200">
-                {formatWithCurrency(stats.avg_first_payment_kopeks / PARTNER_STATS.KOPEKS_DIVISOR)}
-              </div>
-            </div>
-            <div className="rounded-lg bg-dark-700/50 p-3">
-              <div className="mb-1 text-sm text-dark-400">
-                {t('admin.campaigns.stats.trialSubscriptions')}
-              </div>
-              <div className="text-lg font-medium text-dark-200">
-                {t('admin.campaigns.stats.trialCount', {
-                  total: stats.trial_users_count,
-                  active: stats.active_trials_count,
-                })}
-              </div>
-            </div>
-            <div className="rounded-lg bg-dark-700/50 p-3">
-              <div className="mb-1 text-sm text-dark-400">
-                {t('admin.campaigns.stats.trialConversion')}
-              </div>
-              <div className="text-lg font-medium text-dark-200">
-                {stats.trial_conversion_rate}%
-              </div>
-            </div>
-            <div className="rounded-lg bg-dark-700/50 p-3">
-              <div className="mb-1 text-sm text-dark-400">
-                {t('admin.campaigns.stats.lastRegistration')}
-              </div>
-              <div className="text-sm font-medium text-dark-200">
-                {formatDate(stats.last_registration)}
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Analytics Charts */}
-        <div className="space-y-4">
-          {chartLoading ? (
-            <div className="space-y-3">
-              <div className="h-52 animate-pulse rounded-xl bg-dark-800/30" />
-              <div className="grid grid-cols-2 gap-3">
-                <div className="h-24 animate-pulse rounded-xl bg-dark-800/30" />
-                <div className="h-24 animate-pulse rounded-xl bg-dark-800/30" />
-              </div>
-            </div>
-          ) : chartData ? (
-            <>
-              {/* Deposits vs Spending */}
-              <div className="grid grid-cols-2 gap-3">
-                <StatCard
-                  label={t('admin.campaigns.stats.totalDeposits')}
-                  value={formatWithCurrency(
-                    chartData.total_deposits_kopeks / PARTNER_STATS.KOPEKS_DIVISOR,
-                  )}
-                  valueClassName="text-success-400"
-                />
-                <StatCard
-                  label={t('admin.campaigns.stats.totalSpending')}
-                  value={formatWithCurrency(
-                    chartData.total_spending_kopeks / PARTNER_STATS.KOPEKS_DIVISOR,
-                  )}
-                  valueClassName="text-accent-400"
-                />
-              </div>
-              <DailyChart
-                data={chartData.daily_stats}
-                chartId={`admin-${id}`}
-                title={t('admin.campaigns.stats.dailyChart')}
-                earningsLabel={t('admin.campaigns.stats.chartRevenue')}
-                countLabel={t('admin.campaigns.stats.chartRegistrations')}
-              />
-              <PeriodComparison
-                data={chartData.period_comparison}
-                title={t('admin.campaigns.stats.periodComparison')}
-                countLabel={t('admin.campaigns.stats.chartRegistrations')}
-                earningsLabel={t('admin.campaigns.stats.chartRevenue')}
-                comparisonLabel={t('admin.campaigns.stats.vsLastWeek')}
-              />
-              {/* Top Registrations */}
-              {chartData.top_registrations.some(
-                (registration) => registration.total_earnings_kopeks > 0,
-              ) && (
-                <div className="bento-card">
-                  <h4 className="mb-3 text-sm font-semibold text-dark-200">
-                    {t('admin.campaigns.stats.topWalletDeposits')}
-                  </h4>
-                  <div className="space-y-2">
-                    {chartData.top_registrations.map((reg) => (
-                      <Link
-                        key={reg.id}
-                        to={`/admin/users/${reg.id}`}
-                        className="flex items-center justify-between rounded-xl border border-dark-700/30 bg-dark-800/30 p-3 transition-colors hover:bg-dark-700/50"
-                      >
-                        <div className="min-w-0 flex-1">
-                          <div className="flex min-w-0 items-center gap-2">
-                            <span className="min-w-0 truncate text-sm font-medium text-dark-100">
-                              {reg.full_name}
-                            </span>
-                            {reg.is_active && (
-                              <span className="badge-success">
-                                {t('admin.campaigns.stats.active')}
-                              </span>
-                            )}
-                            {reg.has_paid && !reg.is_active && (
-                              <span className="badge-info">
-                                {t('admin.campaigns.stats.paidLifetime')}
-                              </span>
-                            )}
-                          </div>
-                          <div className="mt-0.5 text-xs text-dark-500">
-                            {new Date(reg.created_at).toLocaleDateString(i18n.language)}
-                          </div>
-                        </div>
-                        <div className="text-sm font-semibold text-success-400">
-                          {formatWithCurrency(
-                            reg.total_earnings_kopeks / PARTNER_STATS.KOPEKS_DIVISOR,
-                          )}
-                        </div>
-                      </Link>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </>
-          ) : null}
-        </div>
+        ) : (
+          <CampaignAnalyticsV2Panel analytics={analytics} />
+        )}
 
         {/* Users Section */}
         <div className="rounded-xl border border-dark-700 bg-dark-800">
@@ -512,6 +326,10 @@ export default function AdminCampaignStats() {
             </div>
           )}
         </div>
+
+        {!analyticsLoading && !analyticsError && analytics && (
+          <CampaignAnalyticsServiceInfo analytics={analytics} />
+        )}
       </div>
     </div>
   );
