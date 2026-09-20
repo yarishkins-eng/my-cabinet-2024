@@ -217,6 +217,7 @@ export default function AdminCampaignEdit() {
 
   // Balance bonus
   const [balanceBonusRubles, setBalanceBonusRubles] = useState<number | ''>(0);
+  const [adSpendRubles, setAdSpendRubles] = useState<number | ''>('');
 
   // Subscription bonus
   const [subscriptionDays, setSubscriptionDays] = useState<number | ''>(7);
@@ -240,6 +241,7 @@ export default function AdminCampaignEdit() {
       setBonusType(campaign.bonus_type || 'balance');
       setIsActive(campaign.is_active ?? true);
       setBalanceBonusRubles((campaign.balance_bonus_kopeks || 0) / 100);
+      setAdSpendRubles(campaign.ad_spend_kopeks == null ? '' : campaign.ad_spend_kopeks / 100);
       setSubscriptionDays(campaign.subscription_duration_days || 7);
       setSubscriptionTraffic(campaign.subscription_traffic_gb || 10);
       setSubscriptionDevices(campaign.subscription_device_limit || 1);
@@ -257,6 +259,8 @@ export default function AdminCampaignEdit() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['admin-campaigns'] });
       queryClient.invalidateQueries({ queryKey: ['admin-campaign', campaignId] });
+      queryClient.invalidateQueries({ queryKey: ['campaign-analytics-v2'] });
+      queryClient.invalidateQueries({ queryKey: ['campaign-stats'] });
       navigate('/admin/campaigns');
     },
   });
@@ -273,6 +277,7 @@ export default function AdminCampaignEdit() {
       start_parameter: startParameter,
       bonus_type: bonusType,
       is_active: isActive,
+      ad_spend_kopeks: adSpendRubles === '' ? null : Math.round(toNumber(adSpendRubles) * 100),
     };
 
     // Only send partner_user_id when it was actually changed
@@ -402,6 +407,26 @@ export default function AdminCampaignEdit() {
           <p className="mt-1 text-xs text-warning-400">
             {t('admin.campaigns.form.startParameterChangeWarning')}
           </p>
+        </div>
+
+        <div>
+          <label
+            htmlFor="campaign-edit-ad-spend"
+            className="mb-2 block text-sm font-medium text-dark-300"
+          >
+            {t('admin.campaigns.form.adSpend')}
+          </label>
+          <input
+            id="campaign-edit-ad-spend"
+            type="number"
+            min="0"
+            step="0.01"
+            value={adSpendRubles}
+            onChange={createNumberInputHandler(setAdSpendRubles, 0)}
+            className="input"
+            placeholder={t('admin.campaigns.form.adSpendPlaceholder')}
+          />
+          <p className="mt-1 text-xs text-dark-500">{t('admin.campaigns.form.adSpendHint')}</p>
         </div>
 
         {/* Active toggle */}

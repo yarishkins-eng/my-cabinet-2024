@@ -39,6 +39,8 @@ export interface CampaignDetail {
   is_active: boolean;
   balance_bonus_kopeks: number;
   balance_bonus_rubles: number;
+  ad_spend_kopeks: number | null;
+  ad_spend_rubles: number | null;
   subscription_duration_days: number | null;
   subscription_traffic_gb: number | null;
   subscription_device_limit: number | null;
@@ -61,6 +63,7 @@ export interface CampaignCreateRequest {
   bonus_type: CampaignBonusType;
   is_active?: boolean;
   balance_bonus_kopeks?: number;
+  ad_spend_kopeks?: number | null;
   subscription_duration_days?: number;
   subscription_traffic_gb?: number;
   subscription_device_limit?: number;
@@ -76,6 +79,7 @@ export interface CampaignUpdateRequest {
   bonus_type?: CampaignBonusType;
   is_active?: boolean;
   balance_bonus_kopeks?: number;
+  ad_spend_kopeks?: number | null;
   subscription_duration_days?: number;
   subscription_traffic_gb?: number;
   subscription_device_limit?: number;
@@ -203,6 +207,62 @@ export interface AdminCampaignChartData {
   top_registrations: AdminTopRegistrationItem[];
 }
 
+export interface CampaignDataQuality {
+  status: 'complete' | 'partial';
+}
+
+export interface CampaignDailyCohort {
+  date: string;
+  leads: number;
+  trial_users: number;
+  paid_subscription_users: number;
+  mature_7d: boolean;
+}
+
+export interface CampaignDelayPoint {
+  hours: number;
+  eligible_leads: number;
+  converted_leads: number;
+  conversion_rate: number | null;
+}
+
+export interface CampaignCumulativeReceiptPoint {
+  date: string;
+  confirmed_receipts_kopeks: number;
+  ad_spend_kopeks: number | null;
+}
+
+export interface CampaignAnalyticsV2 {
+  campaign_id: number;
+  generated_at: string;
+  timezone: string;
+  leads: number;
+  historical_trial_users_count: number;
+  active_trials_count: number;
+  lead_to_trial_rate: number;
+  paid_subscription_users_count: number;
+  lead_to_paid_subscription_rate: number;
+  paid_after_trial_count: number;
+  paid_without_trial_count: number;
+  trial_to_paid_rate: number;
+  confirmed_receipts_kopeks: number;
+  ad_spend_kopeks: number | null;
+  cost_per_lead_kopeks: number | null;
+  cost_per_trial_kopeks: number | null;
+  customer_acquisition_cost_kopeks: number | null;
+  gross_roas_percent: number | null;
+  receipts_minus_ad_spend_kopeks: number | null;
+  maturity_horizon_days: number;
+  immature_leads_count: number;
+  last_lead_at: string | null;
+  last_trial_at: string | null;
+  last_paid_subscription_at: string | null;
+  data_quality: CampaignDataQuality;
+  daily_cohorts: CampaignDailyCohort[];
+  delay_curve: CampaignDelayPoint[];
+  cumulative_receipts: CampaignCumulativeReceiptPoint[];
+}
+
 export interface ServerSquadInfo {
   id: number;
   squad_uuid: string;
@@ -253,6 +313,11 @@ export const campaignsApi = {
   // Get campaign statistics
   getCampaignStats: async (campaignId: number): Promise<CampaignStatistics> => {
     const response = await apiClient.get(`/cabinet/admin/campaigns/${campaignId}/stats`);
+    return response.data;
+  },
+
+  getCampaignAnalyticsV2: async (campaignId: number): Promise<CampaignAnalyticsV2> => {
+    const response = await apiClient.get(`/cabinet/admin/campaigns/${campaignId}/analytics-v2`);
     return response.data;
   },
 

@@ -175,6 +175,7 @@ export default function AdminCampaignCreate() {
 
   // Balance bonus
   const [balanceBonusRubles, setBalanceBonusRubles] = useState<number | ''>(0);
+  const [adSpendRubles, setAdSpendRubles] = useState<number | ''>('');
 
   // Subscription bonus
   const [subscriptionDays, setSubscriptionDays] = useState<number | ''>(7);
@@ -225,6 +226,7 @@ export default function AdminCampaignCreate() {
       start_parameter: startParameter,
       bonus_type: bonusType,
       is_active: isActive,
+      ad_spend_kopeks: adSpendRubles === '' ? null : Math.round(toNumber(adSpendRubles) * 100),
     };
 
     if (bonusType === 'balance') {
@@ -328,6 +330,26 @@ export default function AdminCampaignCreate() {
           <p className="mt-1 text-xs text-dark-500">
             {t('admin.campaigns.form.startParameterHint')}
           </p>
+        </div>
+
+        <div>
+          <label
+            htmlFor="campaign-ad-spend"
+            className="mb-2 block text-sm font-medium text-dark-300"
+          >
+            {t('admin.campaigns.form.adSpend')}
+          </label>
+          <input
+            id="campaign-ad-spend"
+            type="number"
+            min="0"
+            step="0.01"
+            value={adSpendRubles}
+            onChange={createNumberInputHandler(setAdSpendRubles, 0)}
+            className="input"
+            placeholder={t('admin.campaigns.form.adSpendPlaceholder')}
+          />
+          <p className="mt-1 text-xs text-dark-500">{t('admin.campaigns.form.adSpendHint')}</p>
         </div>
 
         {/* Active toggle */}
