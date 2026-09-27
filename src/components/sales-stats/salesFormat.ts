@@ -6,9 +6,10 @@ import { useCurrency } from '../../hooks/useCurrency';
 const MSK = 'Europe/Moscow';
 /** Неразрывный пробел: «1 155 ₽» и «12 %» не рвутся на две строки на узком телефоне (ревью C4-13). */
 const NBSP = ' ';
-/** Меньше 1 000 ₽ в прошлом окне — процент не показываем: 1 октября в 10:00 «↑ 700 %» от 100 ₽ ничего не значит
- * (ревью C4-10). Сама сумма прошлого окна остаётся на экране. */
-const MIN_PERCENT_BASE_KOPEKS = 100_000;
+/** Окно короче суток (утро 1-го числа, «Свой период» за сегодня) — процент к прошлому окну не показываем: «↑ 700 %»
+ * за несколько часов ничего не значит (ревью C4-10). Порог по сумме «меньше 1 000 ₽» прятал процент у «Вчера» в 12 днях
+ * из 18 денежных дней сентября — это ежедневная сверка владельца (ревью S3-2). Сама сумма прошлого окна видна всегда. */
+const MIN_PERCENT_WINDOW_MS = 24 * 60 * 60 * 1000;
 export const DASH = '—';
 /** Пока числа грузятся — многоточие: прочерк значит «не посчиталось» (ревью C4-11). */
 export const LOADING = '…';
@@ -129,14 +130,16 @@ export function formatMskDateTime(iso: string, locale: string): string {
   }).format(new Date(iso));
 }
 
-/** Процент к прошлому окну — только когда он честен: там были деньги, окно не раньше первых денег (сервер) и база
- * не крошечная. */
+/** Процент к прошлому окну — только когда он честен: там были деньги, окно не раньше первых денег (сервер) и окно не
+ * короче суток. */
 export function percentChange(
   current: number,
   previous: number | null,
   comparable: boolean,
+  windowMs: number,
 ): number | null {
-  if (!comparable || previous === null || previous < MIN_PERCENT_BASE_KOPEKS) return null;
+  if (!comparable || previous === null || previous <= 0 || windowMs < MIN_PERCENT_WINDOW_MS)
+    return null;
   const value = Math.round(((current - previous) / previous) * 100);
   // падение меньше 0,5 % округляется в «−0»: это ровный ноль без стрелки, а не «↑ 0 %» (ревью C1-11)
   return value === 0 ? 0 : value;

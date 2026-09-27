@@ -396,6 +396,37 @@ describe('AdminSalesStats — экран продаж по правилам вл
     expect(api.getOverview).toHaveBeenCalledWith({ period: 'yesterday' });
   });
 
+  it('shows the percent of «Вчера» on everyday small sums, but not for a few hours of the 1st', async () => {
+    api.getOverview.mockResolvedValue({
+      ...overview,
+      window: {
+        start: '2026-09-25T21:00:00Z',
+        end: '2026-09-26T21:00:00Z',
+        previous_start: '2026-09-24T21:00:00Z',
+        previous_end: '2026-09-25T21:00:00Z',
+      },
+      money: { ...overview.money, received_kopeks: 90000, previous_received_kopeks: 60000 },
+    });
+    await renderPage('/admin/sales-stats?period=yesterday');
+    expect(await screen.findByText('↑ 50 %')).toBeTruthy();
+    cleanup();
+
+    api.getOverview.mockResolvedValue({
+      ...overview,
+      generated_at: '2026-10-01T07:00:00Z',
+      window: {
+        start: '2026-09-30T21:00:00Z',
+        end: '2026-10-01T07:00:00Z',
+        previous_start: '2026-08-31T21:00:00Z',
+        previous_end: '2026-09-01T07:00:00Z',
+      },
+      money: { ...overview.money, received_kopeks: 80000, previous_received_kopeks: 10000 },
+    });
+    await renderPage();
+    expect(await screen.findByText(/1 сентября до 10:00: 100 ₽/)).toBeTruthy();
+    expect(screen.queryByText(/↑|↓/)).toBeNull();
+  });
+
   it('says nobody took the trial rather than «still running»', async () => {
     api.getOverview.mockResolvedValue({
       ...overview,

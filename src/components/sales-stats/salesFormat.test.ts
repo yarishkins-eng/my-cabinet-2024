@@ -68,30 +68,36 @@ describe('formatMskRange — окно в сутках по Москве', () => 
   });
 });
 
+const DAY = 24 * 60 * 60 * 1000;
+
 describe('percentChange — процент только там, где он честен', () => {
   it('compares with a real previous amount', () => {
-    expect(percentChange(1000000, 800000, true)).toBe(25);
-    expect(percentChange(400000, 800000, true)).toBe(-50);
+    expect(percentChange(1000000, 800000, true, 27 * DAY)).toBe(25);
+    expect(percentChange(400000, 800000, true, 7 * DAY)).toBe(-50);
   });
 
   it('gives no percent without money before or when the previous window started before the first money', () => {
-    expect(percentChange(164700, 0, false)).toBeNull();
-    expect(percentChange(164700, 0, true)).toBeNull();
-    expect(percentChange(164700, 763399, false)).toBeNull();
-    expect(percentChange(164700, null, true)).toBeNull();
+    expect(percentChange(164700, 0, false, DAY)).toBeNull();
+    expect(percentChange(164700, 0, true, DAY)).toBeNull();
+    expect(percentChange(164700, 763399, false, DAY)).toBeNull();
+    expect(percentChange(164700, null, true, DAY)).toBeNull();
   });
 
-  it('gives no percent on a tiny base: 1 October morning is not «↑ 700 %»', () => {
-    expect(percentChange(80000, 10000, true)).toBeNull();
-    expect(percentChange(80000, 99999, true)).toBeNull();
-    expect(percentChange(200000, 100000, true)).toBe(100);
+  it('keeps the percent of «Вчера» on everyday small sums (S3-2)', () => {
+    expect(percentChange(90000, 60000, true, DAY)).toBe(50);
+    expect(percentChange(30000, 10000, true, DAY)).toBe(200);
+  });
+
+  it('gives no percent for a window shorter than a day: 1 October morning is not «↑ 700 %»', () => {
+    expect(percentChange(80000, 10000, true, 10 * 60 * 60 * 1000)).toBeNull();
+    expect(percentChange(80000, 10000, true, DAY - 1)).toBeNull();
   });
 
   it('prints a fall of less than half a percent as a plain zero', () => {
-    const change = percentChange(1000000 - 4000, 1000000, true);
+    const change = percentChange(1000000 - 4000, 1000000, true, 27 * DAY);
     expect(Object.is(change, 0)).toBe(true);
-    expect(formatChange(change as number, 'ru-RU')).toBe('0 %');
-    expect(formatChange(25, 'ru-RU')).toBe('↑ 25 %');
-    expect(formatChange(-5, 'ru-RU')).toBe('↓ 5 %');
+    expect(formatChange(change as number, 'ru-RU')).toBe('0\u00a0%');
+    expect(formatChange(25, 'ru-RU')).toBe('↑\u00a025\u00a0%');
+    expect(formatChange(-5, 'ru-RU')).toBe('↓\u00a05\u00a0%');
   });
 });

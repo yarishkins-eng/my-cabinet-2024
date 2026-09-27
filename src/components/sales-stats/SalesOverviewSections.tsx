@@ -236,9 +236,15 @@ export function MoneyBlock({
     overview && hasPrevious
       ? formatMskRange(w!.previous_start!, w!.previous_end!, locale, overview.generated_at, until)
       : '';
-  const change = m
-    ? percentChange(m.received_kopeks, m.previous_received_kopeks, m.previous_comparable)
-    : null;
+  const change =
+    m && w
+      ? percentChange(
+          m.received_kopeks,
+          m.previous_received_kopeks,
+          m.previous_comparable,
+          new Date(w.end).getTime() - new Date(w.start).getTime(),
+        )
+      : null;
   return (
     <section className="space-y-2">
       <h2 className="text-sm font-medium text-dark-400">
