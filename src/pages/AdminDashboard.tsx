@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { useQuery } from '@tanstack/react-query';
 import { statsApi, type NodeStatus } from '../api/admin';
 import { CampaignResultsCard } from '../components/admin/CampaignResultsCard';
+import { DashboardMoney } from '../components/admin/DashboardMoney';
 import { formatUptime } from '../utils/format';
 
 const CABINET_VERSION = __APP_VERSION__;
@@ -219,6 +220,12 @@ export default function AdminDashboard() {
     },
     refetchInterval: 30_000,
   });
+  // СП-1б: деньги на «Статистике» — отдельным запросом, раз в минуту (суммы меняются редко, экран опрашивает каждые 30 с)
+  const moneyQuery = useQuery({
+    queryKey: ['admin-dashboard-money'] as const,
+    queryFn: () => statsApi.getDashboardMoney(),
+    refetchInterval: 60_000,
+  });
   const referrers = extendedQuery.data?.topReferrers ?? null;
   const campaigns = extendedQuery.data?.topCampaigns ?? null;
   const payments = extendedQuery.data?.recentPayments ?? null;
@@ -288,7 +295,10 @@ export default function AdminDashboard() {
           </div>
         </div>
         <button
-          onClick={() => statsQuery.refetch()}
+          onClick={() => {
+            statsQuery.refetch();
+            moneyQuery.refetch();
+          }}
           disabled={loading}
           className="flex items-center gap-2 rounded-lg bg-dark-800 px-4 py-2 text-dark-300 transition-colors hover:bg-dark-700 hover:text-dark-100 disabled:opacity-50"
         >
@@ -297,25 +307,31 @@ export default function AdminDashboard() {
         </button>
       </div>
 
-      {/* СП-1: деньги и подписки — на «Статистике продаж»; здесь онлайн и сервера (ревью C4-2) */}
-      <div className="space-y-2">
-        <StatCard
-          title={t('adminDashboard.stats.usersOnline')}
-          value={stats?.nodes.total_users_online || 0}
-          icon={<UsersOnlineIcon />}
-          color="success"
-        />
-        {canOpenSalesStats && (
-          <button
-            type="button"
-            onClick={() => navigate('/admin/sales-stats')}
-            className="flex min-h-[44px] w-full items-center justify-between gap-2 rounded-xl border border-dark-700 bg-dark-800/30 px-4 py-2 text-left text-sm font-medium text-accent-400 transition-colors hover:bg-dark-800/50"
-          >
-            {t('adminDashboard.salesLink')}
-            <span aria-hidden="true">→</span>
-          </button>
-        )}
-      </div>
+      {/* СП-1б: деньги вернулись по решению владельца 27.09 — те же, что на экране продаж и в утреннем письме */}
+      <DashboardMoney
+        money={moneyQuery.data}
+        loading={moneyQuery.isLoading}
+        isError={moneyQuery.isError}
+        people={stats?.subscriptions}
+      />
+      {canOpenSalesStats && (
+        <button
+          type="button"
+          onClick={() => navigate('/admin/sales-stats')}
+          className="flex min-h-[44px] w-full items-center justify-between gap-2 rounded-xl border border-dark-700 bg-dark-800/30 px-4 py-2 text-left text-sm font-medium text-accent-400 transition-colors hover:bg-dark-800/50"
+        >
+          {t('adminDashboard.salesLink')}
+          <span aria-hidden="true">→</span>
+        </button>
+      )}
+
+      {/* Онлайн */}
+      <StatCard
+        title={t('adminDashboard.stats.usersOnline')}
+        value={stats?.nodes.total_users_online || 0}
+        icon={<UsersOnlineIcon />}
+        color="success"
+      />
 
       {/* Nodes Section */}
       <div className="rounded-xl border border-dark-700 bg-dark-800/30 p-5">

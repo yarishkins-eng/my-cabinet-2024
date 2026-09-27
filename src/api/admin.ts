@@ -334,6 +334,17 @@ export interface RecentPaymentsResponse {
   total_week_kopeks: number;
 }
 
+/** СП-1б: «Пришло денег» для экрана «Статистика» — правило экрана продаж и утреннего письма, сутки по Москве. */
+export interface DashboardMoney {
+  today_kopeks: number;
+  month_kopeks: number;
+  total_kopeks: number;
+  /** 30 последних суток по Москве, 'YYYY-MM-DD', по возрастанию. */
+  days: { date: string; kopeks: number }[];
+  /** Месяцы с первых денег до текущего, 'YYYY-MM', по возрастанию; месяц без денег — ноль. */
+  months: { month: string; kopeks: number }[];
+}
+
 export interface SystemInfo {
   bot_version: string;
   python_version: string;
@@ -388,6 +399,12 @@ export const statsApi = {
     const response = await apiClient.get('/cabinet/admin/stats/campaigns/top', {
       params: { limit },
     });
+    return response.data;
+  },
+
+  // Money for the Statistics screen (СП-1б)
+  getDashboardMoney: async (): Promise<DashboardMoney> => {
+    const response = await apiClient.get('/cabinet/admin/stats/money');
     return response.data;
   },
 

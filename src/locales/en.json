@@ -4582,7 +4582,20 @@
     "subtitle": "Real-time system overview",
     "refresh": "Refresh",
     "loadError": "Failed to load statistics",
-    "salesLink": "Money and buyers are in Sales Statistics",
+    "salesLink": "Sales details are in Sales Statistics",
+    "money": {
+      "title": "Money · as in the Platega statement",
+      "today": "Today",
+      "month": "This month",
+      "total": "All time",
+      "byDays": "By day, 30 days",
+      "byMonths": "By month",
+      "people": "People",
+      "paying": "Paying",
+      "onTrial": "On trial",
+      "newToday": "+{{count}} today",
+      "loadError": "Failed to load money"
+    },
     "stats": {
       "usersOnline": "Users Online",
       "activeSubscriptions": "Active Subscriptions",

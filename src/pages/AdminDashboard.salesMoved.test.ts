@@ -12,6 +12,11 @@ describe('AdminDashboard — деньги и подписки уехали на 
     expect(dashboardSource).not.toContain('recentPayments.week');
   });
 
+  it('shows the money again — the same as the sales screen (СП-1б)', () => {
+    expect(dashboardSource).toContain('<DashboardMoney');
+    expect(dashboardSource).toContain('statsApi.getDashboardMoney()');
+  });
+
   it('points to the sales screen', () => {
     expect(dashboardSource).toContain("navigate('/admin/sales-stats')");
     expect(dashboardSource).toContain("t('adminDashboard.salesLink')");
