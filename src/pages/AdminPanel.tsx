@@ -375,11 +375,19 @@ interface StatsBarProps {
 const StatsBar = memo(function StatsBar({ systemInfo, dashboardStats, loading }: StatsBarProps) {
   const { t } = useTranslation();
 
-  const stats = useMemo(() => {
+  const stats = useMemo((): {
+    icon: React.ReactNode;
+    label: string;
+    colorClass: string;
+    value?: string;
+    numericValue?: number;
+    delta?: string;
+  }[] => {
     const uptime = systemInfo?.uptime_seconds ?? 0;
-    const trial = dashboardStats?.subscriptions.trial ?? 0;
-    const paid = dashboardStats?.subscriptions.paid ?? 0;
-    const purchasedToday = dashboardStats?.subscriptions.purchased_today ?? 0;
+    // СП-1: те же числа, что экран «Пользователи»; не посчиталось — прочерк, а не ноль и не старые «триалы / платные»
+    const onTrial = dashboardStats?.subscriptions.people_on_trial ?? null;
+    const paying = dashboardStats?.subscriptions.people_paying ?? null;
+    const newBuyersToday = dashboardStats?.subscriptions.new_buyers_today ?? 0;
 
     return [
       {
@@ -403,14 +411,15 @@ const StatsBar = memo(function StatsBar({ systemInfo, dashboardStats, loading }:
       {
         icon: <StatTrialIcon className="h-3.5 w-3.5" />,
         label: t('admin.panel.statsTrials'),
-        numericValue: trial,
+        ...(onTrial === null ? { value: '—' } : { numericValue: onTrial }),
         colorClass: 'text-warning-400 bg-warning-400/10 border-warning-400/20',
       },
       {
         icon: <StatPaidIcon className="h-3.5 w-3.5" />,
         label: t('admin.panel.statsPaid'),
-        numericValue: paid,
-        delta: purchasedToday > 0 ? `+${purchasedToday}` : undefined,
+        ...(paying === null ? { value: '—' } : { numericValue: paying }),
+        // «+2 сегодня» в значке, подпись просто «Платят»: «68 Платят · сегодня» читалось как «сегодня заплатили 68» (C4-6)
+        delta: newBuyersToday > 0 ? `+${newBuyersToday} ${t('admin.panel.statsToday')}` : undefined,
         colorClass: 'text-success-400 bg-success-400/10 border-success-400/20',
       },
     ];
@@ -448,10 +457,7 @@ const StatsBar = memo(function StatsBar({ systemInfo, dashboardStats, loading }:
                 </span>
               )}
             </span>
-            <span className="truncate text-2xs text-dark-500">
-              {s.label}
-              {s.delta && ` · ${t('admin.panel.statsToday')}`}
-            </span>
+            <span className="truncate text-2xs text-dark-500">{s.label}</span>
           </div>
         </div>
       ))}
@@ -649,16 +655,17 @@ export default function AdminPanel() {
             {
               icon: <StatTrialIcon className="h-3.5 w-3.5" />,
               label: t('admin.panel.statsTrials'),
-              value: dashboardStats?.subscriptions.trial?.toLocaleString() ?? '--',
+              value: dashboardStats?.subscriptions.people_on_trial?.toLocaleString() ?? '—',
               cls: 'text-warning-400',
             },
             {
               icon: <StatPaidIcon className="h-3.5 w-3.5" />,
               label: t('admin.panel.statsPaid'),
-              value: dashboardStats?.subscriptions.paid?.toLocaleString() ?? '--',
+              value: dashboardStats?.subscriptions.people_paying?.toLocaleString() ?? '—',
+              // на телефоне у бейджа тоже пишем «сегодня»: без слова «+2» читалось как прирост вообще (L3-13)
               delta:
-                (dashboardStats?.subscriptions.purchased_today ?? 0) > 0
-                  ? `+${dashboardStats?.subscriptions.purchased_today}`
+                (dashboardStats?.subscriptions.new_buyers_today ?? 0) > 0
+                  ? `+${dashboardStats?.subscriptions.new_buyers_today} ${t('admin.panel.statsToday')}`
                   : undefined,
               cls: 'text-success-400',
             },

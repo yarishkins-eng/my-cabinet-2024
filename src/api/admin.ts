@@ -207,6 +207,10 @@ export interface SubscriptionStats {
   purchased_week: number;
   purchased_month: number;
   trial_to_paid_conversion: number;
+  /** СП-1: верх панели по правилам владельца (как «Пользователи»). `null`/нет поля — не посчиталось, рисуем «—». */
+  people_on_trial?: number | null;
+  people_paying?: number | null;
+  new_buyers_today?: number | null;
 }
 
 export interface FinancialStats {
