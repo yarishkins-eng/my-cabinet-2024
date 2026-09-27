@@ -200,7 +200,8 @@ export function NowStrip({
       <Tile
         label={t('admin.salesStats.overview.endingSoon')}
         value={value(overview?.now.ending_soon)}
-        onClick={canSeePeople && overview ? () => onToggle('ending_soon') : undefined}
+        // список «Кончится» от периода не зависит — сворачивается и без чисел периода (после «Назад» в «Свой»; K-6)
+        onClick={canSeePeople ? () => onToggle('ending_soon') : undefined}
         open={openKind === 'ending_soon'}
       />
       {canSeePeople && openKind === 'ending_soon' && <PeopleList kind="ending_soon" />}

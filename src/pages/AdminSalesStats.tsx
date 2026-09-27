@@ -194,6 +194,8 @@ export default function AdminSalesStats() {
           <h2 className="text-sm font-medium text-dark-400">
             {t('admin.salesStats.overview.paymentsTitle')}
           </h2>
+          {/* блок раньше жил на отдельной вкладке; на главном экране красные 66 % читаются как поломка кассы (R-3) */}
+          <p className="text-xs text-dark-400">{t('admin.salesStats.overview.paymentsHint')}</p>
           <PaymentHealthTab params={queryParams} />
         </section>
       )}

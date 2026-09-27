@@ -1551,6 +1551,7 @@
         "adsNoSpend": "Fill in the ad spend for campaigns — the cost per buyer will appear here",
         "adsOpen": "Campaigns",
         "paymentsTitle": "Payments · for the selected period",
+        "paymentsHint": "Share of invoices that were paid. An unpaid invoice is usually a repeated attempt by someone who paid later, not a payment failure.",
         "peopleEmpty": "Nobody",
         "peopleError": "Couldn’t load the list",
         "retry": "Retry",

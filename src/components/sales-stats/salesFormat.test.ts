@@ -83,14 +83,15 @@ describe('percentChange — процент только там, где он че
     expect(percentChange(164700, null, true, DAY)).toBeNull();
   });
 
-  it('keeps the percent of «Вчера» on everyday small sums (S3-2)', () => {
-    expect(percentChange(90000, 60000, true, DAY)).toBe(50);
-    expect(percentChange(30000, 10000, true, DAY)).toBe(200);
+  it('keeps the percent of a week on small sums (S3-2)', () => {
+    expect(percentChange(90000, 60000, true, 6.5 * DAY)).toBe(50);
+    expect(percentChange(30000, 10000, true, 3 * DAY)).toBe(200);
   });
 
-  it('gives no percent for a window shorter than a day: 1 October morning is not «↑ 700 %»', () => {
+  it('gives no percent for a window shorter than three days: «Вчера» and the 1st of the month (R-4, C4-10)', () => {
+    expect(percentChange(90000, 60000, true, DAY)).toBeNull();
     expect(percentChange(80000, 10000, true, 10 * 60 * 60 * 1000)).toBeNull();
-    expect(percentChange(80000, 10000, true, DAY - 1)).toBeNull();
+    expect(percentChange(80000, 10000, true, 3 * DAY - 1)).toBeNull();
   });
 
   it('prints a fall of less than half a percent as a plain zero', () => {

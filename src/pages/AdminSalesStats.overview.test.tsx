@@ -208,6 +208,7 @@ describe('AdminSalesStats — экран продаж по правилам вл
     expect(screen.getByText('57')).toBeTruthy();
     expect(screen.getByText('23')).toBeTruthy();
     expect(screen.getByText('Оплаты · за выбранный период')).toBeTruthy();
+    expect(screen.getByText(/не сбой кассы/)).toBeTruthy(); // красные 66 % — не поломка (R-3)
     expect(api.getOverview).toHaveBeenCalledWith({ period: 'this_month' });
   });
 
@@ -366,6 +367,10 @@ describe('AdminSalesStats — экран продаж по правилам вл
     await waitFor(() => expect(api.getPeople).toHaveBeenCalledWith('ending_soon', undefined));
     expect(await screen.findByText('Иван Тестов')).toBeTruthy();
     expect(api.getOverview).not.toHaveBeenCalled();
+
+    // и сворачивается без чисел периода (K-6)
+    fireEvent.click(screen.getByRole('button', { name: /Кончится в ближайшие 7 дней/ }));
+    await waitFor(() => expect(lastSearch()).toBe('?period=custom'));
   });
 
   it('refresh reloads everything on the screen, the open list and payments included', async () => {
@@ -396,7 +401,7 @@ describe('AdminSalesStats — экран продаж по правилам вл
     expect(api.getOverview).toHaveBeenCalledWith({ period: 'yesterday' });
   });
 
-  it('shows the percent of «Вчера» on everyday small sums, but not for a few hours of the 1st', async () => {
+  it('shows «Вчера» as two sums without a jumping percent, and the percent of a week', async () => {
     api.getOverview.mockResolvedValue({
       ...overview,
       window: {
@@ -408,9 +413,25 @@ describe('AdminSalesStats — экран продаж по правилам вл
       money: { ...overview.money, received_kopeks: 90000, previous_received_kopeks: 60000 },
     });
     await renderPage('/admin/sales-stats?period=yesterday');
-    expect(await screen.findByText('↑ 50 %')).toBeTruthy();
+    expect(await screen.findByText(/25 сентября: 600 ₽/)).toBeTruthy();
+    expect(screen.queryByText(/↑|↓/)).toBeNull();
     cleanup();
 
+    api.getOverview.mockResolvedValue({
+      ...overview,
+      window: {
+        start: '2026-09-20T21:00:00Z',
+        end: '2026-09-27T08:52:45.537536Z',
+        previous_start: '2026-09-13T21:00:00Z',
+        previous_end: '2026-09-20T08:52:45.537536Z',
+      },
+      money: { ...overview.money, received_kopeks: 90000, previous_received_kopeks: 60000 },
+    });
+    await renderPage('/admin/sales-stats?period=7d');
+    expect(await screen.findByText('↑ 50 %')).toBeTruthy();
+  });
+
+  it('gives no percent for the few hours of the 1st of the month', async () => {
     api.getOverview.mockResolvedValue({
       ...overview,
       generated_at: '2026-10-01T07:00:00Z',

@@ -1312,6 +1312,7 @@
         "adsNoSpend": "为活动填写广告支出后，这里会显示每位买家的成本",
         "adsOpen": "广告活动",
         "paymentsTitle": "支付 · 所选周期",
+        "paymentsHint": "已支付账单的比例。未支付的账单通常是之后完成支付的人重复发起的尝试，而不是收款故障。",
         "peopleEmpty": "无",
         "peopleError": "无法加载列表",
         "retry": "重试",
