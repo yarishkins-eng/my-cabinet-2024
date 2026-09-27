@@ -1,171 +1,113 @@
 import apiClient from './client';
 
-// ============ Period Params ============
+// ============ Period ============
 
-export interface SalesStatsParams {
-  days?: number;
+/** Кнопка периода. Окно считает сервер в сутках по Москве, а не кабинет по часам телефона (СП-1). */
+export type SalesPeriodName =
+  | 'yesterday'
+  | 'this_month'
+  | 'last_month'
+  | '7d'
+  | '30d'
+  | '90d'
+  | 'all'
+  | 'custom';
+
+export interface SalesPeriodParams {
+  period: SalesPeriodName;
+  /** Для `custom`: первый и последний день включительно, `YYYY-MM-DD`, сутки МСК. */
   start_date?: string;
   end_date?: string;
 }
 
-// ============ Summary ============
+// ============ Overview (договор — `admin_sales_stats.py`, сторож `test_response_contracts_with_the_cabinet`) ============
 
-export interface SalesSummary {
-  total_revenue_kopeks: number;
-  manual_topup_kopeks: number;
-  active_subscriptions: number;
-  active_trials: number;
-  new_trials: number;
-  new_paid_subscriptions: number;
-  expired_subscriptions: number;
-  trial_to_paid_conversion: number;
-  renewals_count: number;
-  addon_revenue_kopeks: number;
+export interface SalesWindow {
+  start: string;
+  end: string;
+  previous_start: string | null;
+  previous_end: string | null;
 }
 
-// ============ Trials ============
-
-export interface ProviderBreakdownItem {
-  provider: string;
-  count: number;
+export interface SalesOverview {
+  generated_at: string;
+  window: SalesWindow;
+  now: {
+    paying: number;
+    on_trial: number;
+    ending_soon: number;
+  };
+  money: {
+    received_kopeks: number;
+    deposits_count: number;
+    receipts_count: number;
+    previous_received_kopeks: number | null;
+    previous_comparable: boolean;
+  };
+  purchases: {
+    count: number;
+    amount_kopeks: number;
+    first_count: number;
+    first_amount_kopeks: number;
+    first_after_trial: number;
+    first_direct: number;
+    renewal_count: number;
+    renewal_amount_kopeks: number;
+    addon_count: number;
+    addon_amount_kopeks: number;
+    previous_first_count: number | null;
+    not_renewed: number;
+  };
+  trial: {
+    came: number;
+    took_trial: number;
+    trial_finished: number;
+    bought_after_trial: number;
+  };
 }
 
-export interface DailyTrialItem {
-  date: string;
-  registrations: number;
-  trials: number;
+export type SalesPeopleKind = 'not_renewed' | 'ending_soon';
+
+export interface SalesPerson {
+  user_id: number;
+  name: string | null;
+  username: string | null;
+  telegram_id: number | null;
+  tariff_name: string | null;
+  end_date: string;
+  autopay_enabled: boolean;
+  balance_kopeks: number;
 }
 
-export interface TrialsStats {
-  total_trials: number;
-  total_registrations: number;
-  conversion_rate: number;
-  avg_trial_duration_days: number;
-  by_provider: ProviderBreakdownItem[];
-  daily: DailyTrialItem[];
+export interface SalesPeople {
+  kind: SalesPeopleKind;
+  total: number;
+  items: SalesPerson[];
 }
 
-// ============ Sales ============
-
-export interface SalesByTariffItem {
-  tariff_id: number;
-  tariff_name: string;
-  count: number;
+export interface SalesAdCampaign {
+  campaign_id: number;
+  name: string;
+  ad_spend_kopeks: number;
+  buyers: number;
+  cost_per_buyer_kopeks: number | null;
+  receipts_kopeks: number;
+  fresh: boolean;
 }
 
-export interface SalesByPeriodItem {
-  period_days: number;
-  count: number;
+export interface SalesAds {
+  campaigns_total: number;
+  campaigns_with_spend: number;
+  mature_spend_kopeks: number;
+  mature_buyers: number;
+  mature_cost_per_buyer_kopeks: number | null;
+  mature_receipts_kopeks: number;
+  fresh_spend_kopeks: number;
+  fresh_buyers: number;
+  campaigns: SalesAdCampaign[];
 }
 
-export interface DailySalesItem {
-  date: string;
-  count: number;
-  revenue_kopeks: number;
-}
-
-export interface DailyTariffSalesItem {
-  date: string;
-  tariff_name: string;
-  count: number;
-}
-
-export interface SalesStats {
-  total_sales: number;
-  total_revenue_kopeks: number;
-  avg_order_kopeks: number;
-  top_tariff_name: string;
-  by_tariff: SalesByTariffItem[];
-  by_period: SalesByPeriodItem[];
-  daily: DailySalesItem[];
-  daily_by_tariff: DailyTariffSalesItem[];
-}
-
-// ============ Renewals ============
-
-export interface RenewalPeriodStats {
-  count: number;
-  revenue_kopeks: number;
-}
-
-export interface RenewalChange {
-  absolute: number;
-  percent: number;
-  trend: 'up' | 'down' | 'stable';
-}
-
-export interface DailyRenewalItem {
-  date: string;
-  count: number;
-}
-
-export interface RenewalsStats {
-  total_renewals: number;
-  total_revenue_kopeks: number;
-  renewal_rate: number;
-  current_period: RenewalPeriodStats;
-  previous_period: RenewalPeriodStats;
-  change: RenewalChange;
-  daily: DailyRenewalItem[];
-}
-
-// ============ Add-ons ============
-
-export interface AddonByPackageItem {
-  traffic_gb: number;
-  count: number;
-}
-
-export interface DailyAddonItem {
-  date: string;
-  count: number;
-  total_gb: number;
-}
-
-export interface DailyDeviceItem {
-  date: string;
-  count: number;
-}
-
-export interface AddonsStats {
-  total_purchases: number;
-  total_gb_purchased: number;
-  addon_revenue_kopeks: number;
-  device_purchases: number;
-  device_revenue_kopeks: number;
-  by_package: AddonByPackageItem[];
-  daily: DailyAddonItem[];
-  daily_devices: DailyDeviceItem[];
-}
-
-// ============ Deposits ============
-
-export interface DepositByMethodItem {
-  method: string;
-  count: number;
-  amount_kopeks: number;
-}
-
-export interface DailyDepositItem {
-  date: string;
-  count: number;
-  amount_kopeks: number;
-}
-
-export interface DailyDepositByMethodItem {
-  date: string;
-  method: string;
-  amount_kopeks: number;
-}
-
-export interface DepositsStats {
-  total_deposits: number;
-  total_amount_kopeks: number;
-  avg_deposit_kopeks: number;
-  by_method: DepositByMethodItem[];
-  daily: DailyDepositItem[];
-  daily_by_method: DailyDepositByMethodItem[];
-}
+// ============ Payments ============
 
 export interface GatewaySuccessItem {
   method: string;
@@ -185,37 +127,25 @@ export interface PaymentHealth {
 // ============ API ============
 
 export const salesStatsApi = {
-  getSummary: async (params: SalesStatsParams = {}): Promise<SalesSummary> => {
-    const response = await apiClient.get('/cabinet/admin/stats/sales/summary', { params });
+  getOverview: async (params: SalesPeriodParams): Promise<SalesOverview> => {
+    const response = await apiClient.get('/cabinet/admin/stats/sales/overview', { params });
     return response.data;
   },
 
-  getTrials: async (params: SalesStatsParams = {}): Promise<TrialsStats> => {
-    const response = await apiClient.get('/cabinet/admin/stats/sales/trials', { params });
+  /** Без `params` — список «Кончится»: он считается от «сейчас» и периода не требует. */
+  getPeople: async (kind: SalesPeopleKind, params?: SalesPeriodParams): Promise<SalesPeople> => {
+    const response = await apiClient.get('/cabinet/admin/stats/sales/people', {
+      params: { kind, ...params },
+    });
     return response.data;
   },
 
-  getSales: async (params: SalesStatsParams = {}): Promise<SalesStats> => {
-    const response = await apiClient.get('/cabinet/admin/stats/sales/subscriptions', { params });
+  getAds: async (): Promise<SalesAds> => {
+    const response = await apiClient.get('/cabinet/admin/stats/sales/ads');
     return response.data;
   },
 
-  getRenewals: async (params: SalesStatsParams = {}): Promise<RenewalsStats> => {
-    const response = await apiClient.get('/cabinet/admin/stats/sales/renewals', { params });
-    return response.data;
-  },
-
-  getAddons: async (params: SalesStatsParams = {}): Promise<AddonsStats> => {
-    const response = await apiClient.get('/cabinet/admin/stats/sales/addons', { params });
-    return response.data;
-  },
-
-  getDeposits: async (params: SalesStatsParams = {}): Promise<DepositsStats> => {
-    const response = await apiClient.get('/cabinet/admin/stats/sales/deposits', { params });
-    return response.data;
-  },
-
-  getPaymentHealth: async (params: SalesStatsParams = {}): Promise<PaymentHealth> => {
+  getPaymentHealth: async (params: SalesPeriodParams): Promise<PaymentHealth> => {
     const response = await apiClient.get('/cabinet/admin/stats/sales/payment-health', { params });
     return response.data;
   },

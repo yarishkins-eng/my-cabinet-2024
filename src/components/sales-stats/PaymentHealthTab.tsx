@@ -1,7 +1,7 @@
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 
-import type { SalesStatsParams } from '../../api/adminSalesStats';
+import type { SalesPeriodParams } from '../../api/adminSalesStats';
 import { salesStatsApi } from '../../api/adminSalesStats';
 import { METHOD_LABELS } from '../../constants/paymentMethods';
 import { SALES_STATS } from '../../constants/salesStats';
@@ -10,7 +10,7 @@ import PaymentMethodIcon from '../PaymentMethodIcon';
 import { StatCard } from '../stats';
 
 interface PaymentHealthTabProps {
-  params: SalesStatsParams;
+  params: SalesPeriodParams;
 }
 
 /** Green when healthy, amber when shaky, red when most attempts fail. */

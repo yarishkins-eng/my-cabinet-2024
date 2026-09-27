@@ -1,290 +1,201 @@
-import { useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
-import { keepPreviousData, useQuery } from '@tanstack/react-query';
+import { keepPreviousData, useIsFetching, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useSearchParams } from 'react-router';
 
-import type { SalesStatsParams } from '../api/adminSalesStats';
+import type { SalesPeopleKind, SalesPeriodName, SalesPeriodParams } from '../api/adminSalesStats';
 import { salesStatsApi } from '../api/adminSalesStats';
-import { SALES_STATS } from '../constants/salesStats';
-import { useCurrency } from '../hooks/useCurrency';
-import { getMonthToDateRange } from '../utils/period';
 import { AdminBackButton } from '../components/admin/AdminBackButton';
+import { RefreshIcon } from '../components/icons';
+import { PaymentHealthTab, PeriodSelector } from '../components/sales-stats';
 import {
-  BanknotesIcon,
-  GiftIcon,
-  PercentIcon,
-  PlusIcon,
-  RepeatIcon,
-  RocketIcon,
-  SparklesIcon,
-  TicketIcon,
-  WalletIcon,
-} from '../components/icons';
-import { StatCard } from '../components/stats';
+  AdsCard,
+  MoneyBlock,
+  NowStrip,
+  TrialBlock,
+} from '../components/sales-stats/SalesOverviewSections';
 import {
-  AddonsTab,
-  DepositsTab,
-  PaymentHealthTab,
-  PeriodSelector,
-  RenewalsTab,
-  SalesTab,
-  TrialsTab,
-} from '../components/sales-stats';
+  LOADING,
+  formatMskRange,
+  formatMskTime,
+  useLocaleTag,
+} from '../components/sales-stats/salesFormat';
+import { SALES_STATS } from '../constants/salesStats';
+import { usePermissionStore } from '../store/permissions';
 
-type TabId = 'trials' | 'sales' | 'renewals' | 'addons' | 'deposits' | 'payment';
+const PERIODS: SalesPeriodName[] = [
+  'yesterday',
+  'this_month',
+  'last_month',
+  '7d',
+  '30d',
+  '90d',
+  'all',
+  'custom',
+];
 
-type Delta = { percent: number; trend: 'up' | 'down' | 'stable' };
+/** Период и открытый список живут в адресе: «Назад» из карточки клиента возвращает туда же (ревью L3-9).
+ * Замена, а не новая запись истории — иначе «Назад» Телеграма листал бы периоды (W2-12). */
+function useSalesState() {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const raw = searchParams.get('period') as SalesPeriodName | null;
+  const period: SalesPeriodName = raw && PERIODS.includes(raw) ? raw : 'this_month';
+  const params: SalesPeriodParams =
+    period === 'custom'
+      ? {
+          period,
+          start_date: searchParams.get('from') || undefined,
+          end_date: searchParams.get('to') || undefined,
+        }
+      : { period };
+  const open = searchParams.get('open');
+  const openKind: SalesPeopleKind | null =
+    open === 'not_renewed' || open === 'ending_soon' ? open : null;
 
-/** Same-length window immediately before the selected one, for period-over-period
- * deltas. Returns null for "all time" — nothing meaningful to compare against. */
-function getPreviousPeriodParams(period: {
-  days?: number;
-  startDate?: string;
-  endDate?: string;
-}): SalesStatsParams | null {
-  if (period.startDate && period.endDate) {
-    const start = new Date(period.startDate).getTime();
-    const length = new Date(period.endDate).getTime() - start;
-    return {
-      start_date: new Date(start - length).toISOString(),
-      end_date: new Date(start).toISOString(),
-    };
-  }
-  if (period.days !== undefined && period.days > 0) {
-    const dayMs = 86_400_000;
-    const now = Date.now();
-    return {
-      start_date: new Date(now - 2 * period.days * dayMs).toISOString(),
-      end_date: new Date(now - period.days * dayMs).toISOString(),
-    };
-  }
-  return null;
-}
-
-function computeDelta(current: number, previous: number): Delta | null {
-  if (previous === 0) return current === 0 ? null : { percent: 100, trend: 'up' };
-  const percent = Math.round(((current - previous) / previous) * 1000) / 10;
-  return { percent, trend: percent > 0 ? 'up' : percent < 0 ? 'down' : 'stable' };
+  const update = (next: { params?: SalesPeriodParams; openKind?: SalesPeopleKind | null }) => {
+    const nextParams = next.params ?? params;
+    const nextOpen = next.openKind === undefined ? openKind : next.openKind;
+    const query = new URLSearchParams({ period: nextParams.period });
+    if (nextParams.period === 'custom') {
+      if (nextParams.start_date) query.set('from', nextParams.start_date);
+      if (nextParams.end_date) query.set('to', nextParams.end_date);
+    }
+    if (nextOpen) query.set('open', nextOpen);
+    setSearchParams(query, { replace: true });
+  };
+  return { params, openKind, update };
 }
 
 export default function AdminSalesStats() {
   const { t } = useTranslation();
-  const { formatWithCurrency } = useCurrency();
+  const locale = useLocaleTag();
+  const queryClient = useQueryClient();
+  const canSeePeople = usePermissionStore((state) => state.hasAllPermissions('users:read'));
+  const canSeeAds = usePermissionStore((state) => state.hasAllPermissions('campaigns:stats'));
+  const canOpenCampaigns = usePermissionStore((state) => state.hasAllPermissions('campaigns:read'));
+  const { params, openKind, update } = useSalesState();
+  const isValid = params.period !== 'custom' || Boolean(params.start_date && params.end_date);
+  const queryParams = useMemo(() => params, [params.period, params.start_date, params.end_date]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const [activeTab, setActiveTab] = useState<TabId>('trials');
-  const [period, setPeriod] = useState<{
-    days?: number;
-    startDate?: string;
-    endDate?: string;
-  }>(() => getMonthToDateRange());
-
-  const params: SalesStatsParams = useMemo(
-    () => ({
-      days: period.days,
-      start_date: period.startDate,
-      end_date: period.endDate,
-    }),
-    [period.days, period.startDate, period.endDate],
-  );
-
-  const isValidPeriod = period.days !== undefined || (!!period.startDate && !!period.endDate);
-
-  const {
-    data: summary,
-    isLoading: summaryLoading,
-    isError: summaryError,
-  } = useQuery({
-    queryKey: ['sales-stats', 'summary', params],
-    queryFn: () => salesStatsApi.getSummary(params),
+  const overviewQuery = useQuery({
+    queryKey: ['sales-stats', 'overview', queryParams],
+    queryFn: () => salesStatsApi.getOverview(queryParams),
     staleTime: SALES_STATS.STALE_TIME,
-    enabled: isValidPeriod,
+    enabled: isValid,
     placeholderData: keepPreviousData,
   });
-
-  const prevParams = useMemo(() => getPreviousPeriodParams(period), [period]);
-  const { data: prevSummary } = useQuery({
-    queryKey: ['sales-stats', 'summary', prevParams],
-    queryFn: () => salesStatsApi.getSummary(prevParams as SalesStatsParams),
+  const adsQuery = useQuery({
+    queryKey: ['sales-stats', 'ads'],
+    queryFn: () => salesStatsApi.getAds(),
     staleTime: SALES_STATS.STALE_TIME,
-    enabled: isValidPeriod && prevParams !== null,
-    placeholderData: keepPreviousData,
+    enabled: canSeeAds,
   });
+  const refreshing = useIsFetching({ queryKey: ['sales-stats'] }) > 0;
 
-  const deltas = useMemo(() => {
-    if (!summary || !prevSummary) return null;
-    return {
-      revenue: computeDelta(summary.total_revenue_kopeks, prevSummary.total_revenue_kopeks),
-      newTrials: computeDelta(summary.new_trials, prevSummary.new_trials),
-      newPaid: computeDelta(summary.new_paid_subscriptions, prevSummary.new_paid_subscriptions),
-      renewals: computeDelta(summary.renewals_count, prevSummary.renewals_count),
-      addonRevenue: computeDelta(summary.addon_revenue_kopeks, prevSummary.addon_revenue_kopeks),
-      manualTopup: computeDelta(summary.manual_topup_kopeks, prevSummary.manual_topup_kopeks),
-    };
-  }, [summary, prevSummary]);
+  // при ошибке — прочерки, а не нули; при смене периода старые числа приглушены, пока грузятся новые (L3-10)
+  const overview = overviewQuery.isError ? undefined : overviewQuery.data;
+  // «Свой» без дат: чисел периода нет вовсе — ни старых, ни нулей; «Сейчас» от периода не зависит (ревью C4-1)
+  const periodOverview = isValid ? overview : undefined;
+  const loading = overviewQuery.isLoading;
+  const stale = overviewQuery.isPlaceholderData && overviewQuery.isFetching;
+  const toggle = (kind: SalesPeopleKind) => update({ openKind: openKind === kind ? null : kind });
 
-  // Active-subscriptions trend = net change over the period (new paid − expired),
-  // shown relative to the count at the start of the period. The active count
-  // itself is a "right now" snapshot, so a plain period-over-period delta would
-  // always be zero — this shows real growth/shrinkage instead.
-  const activeDelta = useMemo<Delta | null>(() => {
-    if (!summary) return null;
-    const net = summary.new_paid_subscriptions - summary.expired_subscriptions;
-    if (net === 0) return null;
-    const base = summary.active_subscriptions - net;
-    const percent = base > 0 ? Math.round((Math.abs(net) / base) * 1000) / 10 : 100;
-    return { percent, trend: net > 0 ? 'up' : 'down' };
-  }, [summary]);
-
-  const tabs: { id: TabId; label: string }[] = [
-    { id: 'trials', label: t('admin.salesStats.tabs.trials') },
-    { id: 'sales', label: t('admin.salesStats.tabs.sales') },
-    { id: 'renewals', label: t('admin.salesStats.tabs.renewals') },
-    { id: 'addons', label: t('admin.salesStats.tabs.addons') },
-    { id: 'deposits', label: t('admin.salesStats.tabs.deposits') },
-    { id: 'payment', label: t('admin.salesStats.tabs.payment') },
-  ];
+  // подпись окна — только у чисел ЭТОГО периода: у подставленных старых она сказала бы неправду про кнопку
+  const windowLabel = !overview
+    ? null
+    : overviewQuery.isPlaceholderData
+      ? LOADING
+      : params.period === 'all'
+        ? t('admin.salesStats.overview.windowAll', {
+            time: formatMskTime(overview.generated_at, locale),
+          })
+        : t('admin.salesStats.overview.window', {
+            range: formatMskRange(
+              overview.window.start,
+              overview.window.end,
+              locale,
+              overview.generated_at,
+            ),
+            time: formatMskTime(overview.generated_at, locale),
+          });
 
   return (
-    <div className="animate-fade-in space-y-4 overflow-hidden">
-      {/* Header */}
+    <div className="animate-fade-in space-y-5 overflow-hidden">
       <div className="flex items-center gap-3">
         <AdminBackButton />
-        <div>
+        <div className="min-w-0 flex-1">
           <h1 className="text-xl font-bold text-dark-100 sm:text-2xl">
             {t('admin.salesStats.title')}
           </h1>
           <p className="text-sm text-dark-400">{t('admin.salesStats.subtitle')}</p>
         </div>
+        {/* обновляет всё на экране — и открытый список, и «Оплаты» (ревью C1-5, C4-7) */}
+        <button
+          type="button"
+          onClick={() => queryClient.invalidateQueries({ queryKey: ['sales-stats'] })}
+          disabled={refreshing}
+          aria-label={t('admin.salesStats.overview.refresh')}
+          className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-lg bg-dark-800/50 text-dark-300 disabled:opacity-60"
+        >
+          <RefreshIcon className={`h-5 w-5 ${refreshing ? 'animate-spin' : ''}`} />
+        </button>
       </div>
 
-      {/* Period selector */}
-      <PeriodSelector value={period} onChange={setPeriod} />
+      <NowStrip
+        overview={overview}
+        loading={loading}
+        canSeePeople={canSeePeople}
+        openKind={openKind}
+        onToggle={toggle}
+      />
 
-      {/* Summary cards */}
-      {summaryError && (
-        <div className="rounded-xl bg-error-500/10 px-4 py-3 text-sm text-error-400">
+      <PeriodSelector value={params} onChange={(next) => update({ params: next })} />
+
+      {!isValid ? (
+        <p className="text-sm text-warning-400">{t('admin.salesStats.overview.pickDates')}</p>
+      ) : (
+        windowLabel && <p className="text-xs text-dark-400">{windowLabel}</p>
+      )}
+      {overviewQuery.isError && (
+        <div className="flex items-center justify-between gap-2 rounded-xl bg-error-500/10 px-4 py-1 text-sm text-error-400">
           {t('admin.salesStats.loadError')}
+          <button
+            type="button"
+            onClick={() => overviewQuery.refetch()}
+            className="min-h-[44px] shrink-0 px-3 text-accent-400"
+          >
+            {t('admin.salesStats.overview.retry')}
+          </button>
         </div>
       )}
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 max-sm:[&>*:last-child:nth-child(odd)]:col-span-2">
-        <StatCard
-          label={t('admin.salesStats.summary.revenue')}
-          value={
-            summaryLoading
-              ? '...'
-              : formatWithCurrency(
-                  (summary?.total_revenue_kopeks ?? 0) / SALES_STATS.KOPEKS_DIVISOR,
-                  0,
-                )
-          }
-          icon={<BanknotesIcon className="h-5 w-5" />}
-          tone="success"
-          delta={deltas?.revenue}
+
+      <div className={stale ? 'space-y-5 opacity-60' : 'space-y-5'}>
+        <MoneyBlock
+          overview={periodOverview}
+          loading={loading}
+          canSeePeople={canSeePeople}
+          openKind={openKind}
+          onToggle={toggle}
+          params={queryParams}
         />
-        <StatCard
-          label={t('admin.salesStats.summary.activeSubs')}
-          value={summaryLoading ? '...' : (summary?.active_subscriptions ?? 0)}
-          icon={<TicketIcon className="h-5 w-5" />}
-          tone="accent"
-          delta={activeDelta}
-        />
-        <StatCard
-          label={t('admin.salesStats.summary.newPaid')}
-          value={summaryLoading ? '...' : (summary?.new_paid_subscriptions ?? 0)}
-          icon={<RocketIcon className="h-5 w-5" />}
-          tone="success"
-          delta={deltas?.newPaid}
-        />
-        <StatCard
-          label={t('admin.salesStats.summary.activeTrials')}
-          value={summaryLoading ? '...' : (summary?.active_trials ?? 0)}
-          icon={<GiftIcon className="h-5 w-5" />}
-          tone="neutral"
-        />
-        <StatCard
-          label={t('admin.salesStats.summary.newTrials')}
-          value={summaryLoading ? '...' : (summary?.new_trials ?? 0)}
-          icon={<SparklesIcon className="h-5 w-5" />}
-          tone="accent"
-          delta={deltas?.newTrials}
-        />
-        <StatCard
-          label={t('admin.salesStats.summary.conversion')}
-          value={summaryLoading ? '...' : `${summary?.trial_to_paid_conversion ?? 0}%`}
-          icon={<PercentIcon className="h-5 w-5" />}
-          tone="warning"
-        />
-        <StatCard
-          label={t('admin.salesStats.summary.renewals')}
-          value={summaryLoading ? '...' : (summary?.renewals_count ?? 0)}
-          icon={<RepeatIcon className="h-5 w-5" />}
-          tone="success"
-          delta={deltas?.renewals}
-        />
-        <StatCard
-          label={t('admin.salesStats.summary.addonRevenue')}
-          value={
-            summaryLoading
-              ? '...'
-              : formatWithCurrency(
-                  (summary?.addon_revenue_kopeks ?? 0) / SALES_STATS.KOPEKS_DIVISOR,
-                  0,
-                )
-          }
-          icon={<PlusIcon className="h-5 w-5" />}
-          tone="accent"
-          delta={deltas?.addonRevenue}
-        />
-        <StatCard
-          label={t('admin.salesStats.summary.manualTopup')}
-          value={
-            summaryLoading
-              ? '...'
-              : formatWithCurrency(
-                  (summary?.manual_topup_kopeks ?? 0) / SALES_STATS.KOPEKS_DIVISOR,
-                  0,
-                )
-          }
-          icon={<WalletIcon className="h-5 w-5" />}
-          tone="warning"
-          delta={deltas?.manualTopup}
-        />
+        <TrialBlock overview={periodOverview} loading={loading} />
       </div>
 
-      {/* Tabs */}
-      <div
-        className="scrollbar-hide flex gap-1 overflow-x-auto rounded-xl bg-dark-800/30 p-1"
-        role="tablist"
-      >
-        {tabs.map((tab) => (
-          <button
-            key={tab.id}
-            id={`tab-${tab.id}`}
-            type="button"
-            role="tab"
-            aria-selected={activeTab === tab.id}
-            aria-controls={`panel-${tab.id}`}
-            onClick={() => setActiveTab(tab.id)}
-            className={`shrink-0 whitespace-nowrap rounded-lg px-3 py-2.5 text-xs font-medium transition-colors sm:text-sm ${
-              activeTab === tab.id
-                ? 'bg-dark-700/60 text-dark-100'
-                : 'text-dark-400 hover:text-dark-300'
-            }`}
-          >
-            {tab.label}
-          </button>
-        ))}
-      </div>
+      {canSeeAds && (
+        <AdsCard
+          ads={adsQuery.data}
+          isError={adsQuery.isError}
+          canOpenCampaigns={canOpenCampaigns}
+        />
+      )}
 
-      {/* Tab content */}
-      {isValidPeriod && (
-        <div role="tabpanel" id={`panel-${activeTab}`} aria-labelledby={`tab-${activeTab}`}>
-          {activeTab === 'trials' && <TrialsTab params={params} />}
-          {activeTab === 'sales' && <SalesTab params={params} />}
-          {activeTab === 'renewals' && <RenewalsTab params={params} />}
-          {activeTab === 'addons' && <AddonsTab params={params} />}
-          {activeTab === 'deposits' && <DepositsTab params={params} />}
-          {activeTab === 'payment' && <PaymentHealthTab params={params} />}
-        </div>
+      {isValid && (
+        <section className="space-y-2">
+          <h2 className="text-sm font-medium text-dark-400">
+            {t('admin.salesStats.overview.paymentsTitle')}
+          </h2>
+          <PaymentHealthTab params={queryParams} />
+        </section>
       )}
     </div>
   );
