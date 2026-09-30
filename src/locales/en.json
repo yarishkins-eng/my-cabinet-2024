@@ -4596,6 +4596,26 @@
       "newToday": "+{{count}} today",
       "loadError": "Failed to load money"
     },
+    "referrals": {
+      "title": "Invitations · via a friend's link",
+      "hint": "Team and test accounts are not counted",
+      "monthCaption": "{{month}}, month to date",
+      "came": "Came via a friend's link",
+      "cameShare": "{{percent}}% of all new people, ads included",
+      "paidFirst": "Paid for the first time",
+      "money": "Money from invited people (all payments)",
+      "moneyShare": "{{percent}}% of all money",
+      "rewards": "Credited to inviters",
+      "rewardsNote": "excluding bonuses to invited people",
+      "byMonths": "By month",
+      "byMonthsHint": "Each event counts in its own month: someone who came earlier may have paid.",
+      "rowMoney": "money: {{amount}}",
+      "rowCame": "came: {{count}}",
+      "rowTrial": "took a trial: {{count}}",
+      "rowPaidFirst": "paid for the first time: {{count}}",
+      "rowRewards": "credited: {{amount}}",
+      "loadError": "Could not load invitations"
+    },
     "stats": {
       "usersOnline": "Users Online",
       "activeSubscriptions": "Active Subscriptions",
@@ -4621,6 +4641,8 @@
       "showMore": "Show more"
     },
     "topReferrers": {
+      "paid": "paid {{count}}",
+      "periodCaption": "Credited to all inviters",
       "title": "Top referrers",
       "stats": "ref., {{count}} invites",
       "byEarnings": "By earnings",
@@ -4630,8 +4652,8 @@
     },
     "period": {
       "today": "Today",
-      "week": "Week",
-      "month": "Month"
+      "week": "7 days",
+      "month": "This month"
     },
     "topCampaigns": {
       "title": "Advertising campaign results",

@@ -5,6 +5,8 @@ import { useQuery } from '@tanstack/react-query';
 import { statsApi, type NodeStatus } from '../api/admin';
 import { CampaignResultsCard } from '../components/admin/CampaignResultsCard';
 import { DashboardMoney } from '../components/admin/DashboardMoney';
+import { DashboardReferrals } from '../components/admin/DashboardReferrals';
+import { useMoney } from '../components/sales-stats/salesFormat';
 import { formatUptime } from '../utils/format';
 
 const CABINET_VERSION = __APP_VERSION__;
@@ -184,6 +186,7 @@ export default function AdminDashboard() {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const { formatAmount, currencySymbol } = useCurrency();
+  const money = useMoney();
   const { capabilities } = usePlatform();
   const canOpenCampaignDetails = usePermissionStore((state) =>
     state.hasAllPermissions('campaigns:read', 'campaigns:stats'),
@@ -225,6 +228,13 @@ export default function AdminDashboard() {
     queryKey: ['admin-dashboard-money'] as const,
     queryFn: () => statsApi.getDashboardMoney(),
     refetchInterval: 60_000,
+  });
+  // РЕФ-2: приглашения — СВОИМ запросом, а не в общем Promise.all: до выкладки бота ручки нет (404), и сбой в общей
+  // пачке снял бы с экрана ещё три блока; числа меняются редко — раз в 5 минут и по кнопке «Обновить»
+  const referralsQuery = useQuery({
+    queryKey: ['admin-dashboard-referrals'] as const,
+    queryFn: () => statsApi.getDashboardReferrals(),
+    refetchInterval: 300_000,
   });
   const referrers = extendedQuery.data?.topReferrers ?? null;
   const campaigns = extendedQuery.data?.topCampaigns ?? null;
@@ -298,6 +308,8 @@ export default function AdminDashboard() {
           onClick={() => {
             statsQuery.refetch();
             moneyQuery.refetch();
+            referralsQuery.refetch();
+            extendedQuery.refetch();
           }}
           disabled={loading}
           className="flex items-center gap-2 rounded-lg bg-dark-800 px-4 py-2 text-dark-300 transition-colors hover:bg-dark-700 hover:text-dark-100 disabled:opacity-50"
@@ -324,6 +336,13 @@ export default function AdminDashboard() {
           <span aria-hidden="true">→</span>
         </button>
       )}
+
+      {/* РЕФ-2: рефералка по месяцам — решения владельца 29.09 (под «Деньгами», после кнопки на продажи) */}
+      <DashboardReferrals
+        data={referralsQuery.data}
+        loading={referralsQuery.isLoading}
+        isError={referralsQuery.isError}
+      />
 
       {/* Онлайн */}
       <StatCard
@@ -476,19 +495,31 @@ export default function AdminDashboard() {
                       {referrersTab === 'earnings' ? (
                         <>
                           <div className="text-xs font-semibold text-success-400 sm:text-sm">
-                            {formatAmount(ref.earnings_total_kopeks / 100)} {currencySymbol}
+                            {money(ref.earnings_total_kopeks)}
                           </div>
-                          <div className="text-[10px] text-dark-500 sm:text-xs">
+                          <div className="text-xs text-dark-400">
                             {ref.invited_count} {t('adminDashboard.topReferrers.invites')}
                           </div>
+                          {/* «заплатили N» — своей строкой: в одной строке с «N пригл.» столбец чисел отнимал у
+                              имени 70–90 px на телефоне 360 px (ревью C4-1) */}
+                          {typeof ref.paid_count === 'number' && (
+                            <div className="text-xs text-dark-400">
+                              {t('adminDashboard.topReferrers.paid', { count: ref.paid_count })}
+                            </div>
+                          )}
                         </>
                       ) : (
                         <>
                           <div className="text-xs font-semibold text-accent-400 sm:text-sm">
                             {ref.invited_count} {t('adminDashboard.topReferrers.people')}
                           </div>
-                          <div className="text-[10px] text-dark-500 sm:text-xs">
-                            {formatAmount(ref.earnings_total_kopeks / 100)} {currencySymbol}
+                          {typeof ref.paid_count === 'number' && (
+                            <div className="text-xs text-dark-400">
+                              {t('adminDashboard.topReferrers.paid', { count: ref.paid_count })}
+                            </div>
+                          )}
+                          <div className="text-xs text-dark-400">
+                            {money(ref.earnings_total_kopeks)}
                           </div>
                         </>
                       )}
@@ -497,49 +528,29 @@ export default function AdminDashboard() {
                 ))}
             </div>
 
-            {/* Period Stats */}
-            <div className="mt-4 grid grid-cols-3 gap-2 border-t border-dark-700 pt-4 sm:gap-3">
-              <div className="text-center">
-                <div className="mb-1 text-[10px] text-dark-500 sm:text-xs">
-                  {t('adminDashboard.period.today')}
-                </div>
-                <div className="truncate text-xs font-semibold text-dark-200 sm:text-base">
-                  {formatAmount(
-                    (referrersTab === 'earnings'
-                      ? referrers.by_earnings
-                      : referrers.by_invited
-                    ).reduce((sum, r) => sum + r.earnings_today_kopeks, 0) / 100,
-                  )}{' '}
-                  {currencySymbol}
-                </div>
+            {/* Period Stats — РЕФ-2.5б: начислено ВСЕМ пригласившим по суткам Москвы, тем же счётчиком, что плитка
+                блока «Приглашения»; старый бот итогов не шлёт — тогда «—», а не сумма десяти строк вкладки (D-3) */}
+            <div className="mt-4 border-t border-dark-700 pt-4">
+              <div className="mb-2 text-xs text-dark-400">
+                {t('adminDashboard.topReferrers.periodCaption')}
               </div>
-              <div className="text-center">
-                <div className="mb-1 text-[10px] text-dark-500 sm:text-xs">
-                  {t('adminDashboard.period.week')}
-                </div>
-                <div className="truncate text-xs font-semibold text-dark-200 sm:text-base">
-                  {formatAmount(
-                    (referrersTab === 'earnings'
-                      ? referrers.by_earnings
-                      : referrers.by_invited
-                    ).reduce((sum, r) => sum + r.earnings_week_kopeks, 0) / 100,
-                  )}{' '}
-                  {currencySymbol}
-                </div>
-              </div>
-              <div className="text-center">
-                <div className="mb-1 text-[10px] text-dark-500 sm:text-xs">
-                  {t('adminDashboard.period.month')}
-                </div>
-                <div className="truncate text-xs font-semibold text-dark-200 sm:text-base">
-                  {formatAmount(
-                    (referrersTab === 'earnings'
-                      ? referrers.by_earnings
-                      : referrers.by_invited
-                    ).reduce((sum, r) => sum + r.earnings_month_kopeks, 0) / 100,
-                  )}{' '}
-                  {currencySymbol}
-                </div>
+              <div className="grid grid-cols-3 gap-2 sm:gap-3">
+                {(
+                  [
+                    ['today', referrers.period_totals?.today_kopeks],
+                    ['week', referrers.period_totals?.week_kopeks],
+                    ['month', referrers.period_totals?.month_kopeks],
+                  ] as const
+                ).map(([key, kopeks]) => (
+                  <div key={key} className="text-center">
+                    <div className="mb-1 text-xs text-dark-400">
+                      {t(`adminDashboard.period.${key}`)}
+                    </div>
+                    <div className="text-xs font-semibold text-dark-200 sm:text-base">
+                      {money(kopeks)}
+                    </div>
+                  </div>
+                ))}
               </div>
             </div>
           </div>
