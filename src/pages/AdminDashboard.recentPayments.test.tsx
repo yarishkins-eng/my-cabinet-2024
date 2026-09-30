@@ -126,7 +126,7 @@ const newBot: RecentPaymentsResponse = {
       amount_rubles: 649,
       type: 'deposit',
       type_display: 'Пополнение',
-      created_at: '2026-09-30T07:22:00+00:00',
+      created_at: '2026-09-30T21:30:00+00:00', // 00:30 МСК уже 01.10
       is_first: false,
       purpose: null,
       campaign_name: null,
@@ -158,6 +158,9 @@ describe('AdminDashboard — «Последние оплаты» (ПЛ-1)', () =
     // старые подписи типа проводки при новом боте не показываются
     expect(text).not.toContain('Оплата картой');
     expect(text).not.toContain('{{');
+    // время по Москве, как плитки денег на этом экране, а не в поясе телефона
+    expect(text).toContain('01.10, 00:30');
+    expect(api.getRecentPayments).toHaveBeenCalledWith(10);
     // метка — у своего человека: в таблице сразу за именем, в карточке — за суммой
     expect(text).toContain('Оля ТестоваПервая оплата134.00 ₽');
     expect(text).toContain('Коля ТестовПовторная оплата649.00 ₽');

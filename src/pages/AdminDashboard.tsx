@@ -216,7 +216,7 @@ export default function AdminDashboard() {
       const [topReferrers, topCampaigns, recentPayments, sysInfo] = await Promise.all([
         statsApi.getTopReferrers(10),
         statsApi.getTopCampaigns(10),
-        statsApi.getRecentPayments(20),
+        statsApi.getRecentPayments(10), // экран показывает 10 строк (ПЛ-1)
         statsApi.getSystemInfo(),
       ]);
       return { topReferrers, topCampaigns, recentPayments, sysInfo };
@@ -677,6 +677,7 @@ export default function AdminDashboard() {
                           month: '2-digit',
                           hour: '2-digit',
                           minute: '2-digit',
+                          timeZone: 'Europe/Moscow', // как плитки денег на этом экране (ПЛ-1)
                         })}
                       </span>
                     </td>
@@ -714,6 +715,7 @@ export default function AdminDashboard() {
                       month: '2-digit',
                       hour: '2-digit',
                       minute: '2-digit',
+                      timeZone: 'Europe/Moscow', // как плитки денег на этом экране (ПЛ-1)
                     })}
                   </span>
                 </div>
