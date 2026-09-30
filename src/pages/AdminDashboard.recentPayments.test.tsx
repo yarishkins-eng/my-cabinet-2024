@@ -158,6 +158,10 @@ describe('AdminDashboard — «Последние оплаты» (ПЛ-1)', () =
     // старые подписи типа проводки при новом боте не показываются
     expect(text).not.toContain('Оплата картой');
     expect(text).not.toContain('{{');
+    // метка — у своего человека: в таблице сразу за именем, в карточке — за суммой
+    expect(text).toContain('Оля ТестоваПервая оплата134.00 ₽');
+    expect(text).toContain('Коля ТестовПовторная оплата649.00 ₽');
+    expect(text).toContain('Оля Тестова134.00 ₽Первая оплата');
     expect(screen.getByText('За что')).toBeTruthy();
   });
 
