@@ -239,6 +239,34 @@ export default function AdminDashboard() {
   const referrers = extendedQuery.data?.topReferrers ?? null;
   const campaigns = extendedQuery.data?.topCampaigns ?? null;
   const payments = extendedQuery.data?.recentPayments ?? null;
+  // ПЛ-1: метка «первая / повторная» и строка «за что · реклама»; со старым ботом полей нет — прежние тип и способ
+  type PaymentRow = NonNullable<typeof payments>['payments'][number];
+  const paymentBadge = (payment: PaymentRow) => {
+    if (payment.is_first == null) {
+      const legacyClass =
+        payment.type === 'deposit'
+          ? 'bg-success-500/20 text-success-400'
+          : 'bg-accent-500/20 text-accent-400';
+      return { label: payment.type_display, className: legacyClass };
+    }
+    return payment.is_first
+      ? {
+          label: t('adminDashboard.recentPayments.first'),
+          className: 'bg-accent-500/20 text-accent-400',
+        }
+      : {
+          label: t('adminDashboard.recentPayments.repeat'),
+          className: 'bg-success-500/20 text-success-400',
+        };
+  };
+  const paymentContext = (payment: PaymentRow) => {
+    if (payment.is_first == null) return payment.payment_method || '-';
+    const parts = [payment.purpose || t('adminDashboard.recentPayments.onBalance')];
+    if (payment.campaign_name) {
+      parts.push(t('adminDashboard.recentPayments.campaign', { name: payment.campaign_name }));
+    }
+    return parts.join(' · ');
+  };
   const systemInfo = extendedQuery.data?.sysInfo ?? null;
 
   const handleRestartNode = async (uuid: string) => {
@@ -599,7 +627,7 @@ export default function AdminDashboard() {
                     {t('adminDashboard.table.amount')}
                   </th>
                   <th className="px-2 py-3 text-left text-xs font-medium text-dark-500">
-                    {t('adminDashboard.table.method')}
+                    {t('adminDashboard.recentPayments.purpose')}
                   </th>
                   <th className="px-2 py-3 text-right text-xs font-medium text-dark-500">
                     {t('adminDashboard.table.date')}
@@ -627,13 +655,9 @@ export default function AdminDashboard() {
                     </td>
                     <td className="px-2 py-3">
                       <span
-                        className={`rounded-full px-2 py-1 text-xs ${
-                          payment.type === 'deposit'
-                            ? 'bg-success-500/20 text-success-400'
-                            : 'bg-accent-500/20 text-accent-400'
-                        }`}
+                        className={`whitespace-nowrap rounded-full px-2 py-1 text-xs ${paymentBadge(payment).className}`}
                       >
-                        {payment.type_display}
+                        {paymentBadge(payment).label}
                       </span>
                     </td>
                     <td className="px-2 py-3 text-right">
@@ -642,7 +666,7 @@ export default function AdminDashboard() {
                       </span>
                     </td>
                     <td className="px-2 py-3">
-                      <span className="text-xs text-dark-400">{payment.payment_method || '-'}</span>
+                      <span className="text-xs text-dark-400">{paymentContext(payment)}</span>
                     </td>
                     <td className="px-2 py-3 text-right">
                       <span className="text-xs text-dark-400">
@@ -667,13 +691,9 @@ export default function AdminDashboard() {
                 <div className="mb-2 flex items-center justify-between">
                   <div className="flex min-w-0 flex-1 items-center gap-2">
                     <span
-                      className={`whitespace-nowrap rounded-full px-1.5 py-0.5 text-[10px] ${
-                        payment.type === 'deposit'
-                          ? 'bg-success-500/20 text-success-400'
-                          : 'bg-accent-500/20 text-accent-400'
-                      }`}
+                      className={`whitespace-nowrap rounded-full px-1.5 py-0.5 text-[10px] ${paymentBadge(payment).className}`}
                     >
-                      {payment.type_display}
+                      {paymentBadge(payment).label}
                     </span>
                     <button
                       onClick={() => navigate(`/admin/users/${payment.user_id}`)}
@@ -686,8 +706,8 @@ export default function AdminDashboard() {
                     {formatAmount(payment.amount_rubles)} {currencySymbol}
                   </span>
                 </div>
-                <div className="flex items-center justify-between text-xs text-dark-500">
-                  <span>{payment.payment_method || '-'}</span>
+                <div className="flex items-start justify-between gap-3 text-xs text-dark-400">
+                  <span className="min-w-0">{paymentContext(payment)}</span>
                   <span>
                     {new Date(payment.created_at).toLocaleString('ru-RU', {
                       day: '2-digit',
@@ -700,6 +720,15 @@ export default function AdminDashboard() {
               </div>
             ))}
           </div>
+          {payments.hidden_last_30d && (
+            <p className="mt-3 border-t border-dark-700/50 pt-3 text-xs text-dark-400">
+              {t('adminDashboard.recentPayments.hidden', {
+                bonuses: payments.hidden_last_30d.registration_bonuses,
+                balance: payments.hidden_last_30d.balance_purchases,
+                manual: payments.hidden_last_30d.manual_credits,
+              })}
+            </p>
+          )}
         </div>
       )}
 
