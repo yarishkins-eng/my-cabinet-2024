@@ -46,29 +46,38 @@ const referrer = {
   username: 'test_masha',
   email: null,
   display_name: 'Маша Тестова',
-  invited_count: 8,
+  invited_count: 6,
   invited_today: 0,
   invited_week: 1,
   invited_month: 2,
   earnings_today_kopeks: 0,
   earnings_week_kopeks: 4975,
   earnings_month_kopeks: 9950,
-  earnings_total_kopeks: 289300,
+  earnings_total_kopeks: 250000,
 };
 
 const oldBotTop: TopReferrersResponse = {
   by_earnings: [referrer],
   by_invited: [referrer],
   total_referrers: 1,
-  total_referrals: 8,
-  total_earnings_kopeks: 289300,
+  total_referrals: 6,
+  total_earnings_kopeks: 250000,
 };
 
 const newBotTop: TopReferrersResponse = {
   ...oldBotTop,
-  by_earnings: [{ ...referrer, paid_count: 3 }],
+  by_earnings: [
+    { ...referrer, paid_count: 3 },
+    {
+      ...referrer,
+      user_id: 9002,
+      display_name: 'Петя Тестов',
+      username: 'test_petya',
+      paid_count: 0,
+    },
+  ],
   by_invited: [{ ...referrer, paid_count: 3 }],
-  period_totals: { today_kopeks: 4975, week_kopeks: 29800, month_kopeks: 153583 },
+  period_totals: { today_kopeks: 4975, week_kopeks: 29800, month_kopeks: 112500 },
 };
 
 beforeEach(() => {
@@ -128,17 +137,17 @@ describe('AdminDashboard — приглашения и «Топ реферало
       months: [
         {
           month: '2026-09',
-          came: 12,
-          trial: 8,
-          paid_first: 2,
-          money_kopeks: 614300,
-          rewards_kopeks: 153583,
+          came: 9,
+          trial: 5,
+          paid_first: 3,
+          money_kopeks: 450000,
+          rewards_kopeks: 112500,
         },
       ],
-      new_people_month: 508,
-      money_month_kopeks: 2098700,
-      came_pct: 2,
-      money_pct: 29,
+      new_people_month: 300,
+      money_month_kopeks: 1500000,
+      came_pct: 3,
+      money_pct: 30,
     });
 
     const { container } = await renderPage();
@@ -146,12 +155,20 @@ describe('AdminDashboard — приглашения и «Топ реферало
     await waitFor(() => expect(screen.getByText('Начислено всем пригласившим')).toBeTruthy());
     const text = plain(container);
     expect(text).toContain('Приглашения · по ссылке друга');
-    expect(text).toContain('8 пригл. · заплатили 3');
+    // «заплатили N» — своей строкой под «N пригл.» (ревью C4-1)
+    expect(text).toContain('6 пригл.заплатили 3');
+    // ноль — тоже ответ: «заплатили 0», а не пустое место и не голый «0» (ревью C1-2)
+    expect(text).toContain('6 пригл.заплатили 0');
     expect(text).toContain('Сегодня50 ₽');
     expect(text).toContain('7 дней298 ₽');
-    expect(text).toContain('Этот месяц1 536 ₽');
+    expect(text).toContain('Этот месяц1 125 ₽');
     // «Этот месяц» под «Топом» и плитка «Начислено пригласившим» — одно число
-    expect(text).toContain('Начислено пригласившим1 536 ₽');
+    expect(text).toContain('Начислено пригласившим1 125 ₽');
+
+    // «По пригл.»: «заплатили» — рядом с людьми, а не впритык к сумме (ревью C7-5)
+    fireEvent.click(screen.getByText('По пригл.'));
+    expect(plain(container)).toContain('6 чел.заплатили 3');
+    expect(plain(container)).not.toContain('₽ · заплатили');
   });
 
   it('with the old bot: no referrals route and no new fields — the page stays whole', async () => {

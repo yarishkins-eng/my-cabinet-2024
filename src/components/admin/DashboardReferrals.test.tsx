@@ -18,25 +18,25 @@ const data: Referrals = {
   months: [
     {
       month: '2026-08',
-      came: 14,
-      trial: 8,
-      paid_first: 6,
-      money_kopeks: 896700,
-      rewards_kopeks: 284175,
+      came: 10,
+      trial: 7,
+      paid_first: 4,
+      money_kopeks: 700000,
+      rewards_kopeks: 175000,
     },
     {
       month: '2026-09',
-      came: 12,
-      trial: 8,
-      paid_first: 2,
-      money_kopeks: 614300,
-      rewards_kopeks: 153583,
+      came: 9,
+      trial: 5,
+      paid_first: 3,
+      money_kopeks: 450000,
+      rewards_kopeks: 112500,
     },
   ],
-  new_people_month: 508,
-  money_month_kopeks: 2098700,
-  came_pct: 2,
-  money_pct: 29,
+  new_people_month: 300,
+  money_month_kopeks: 1500000,
+  came_pct: 3,
+  money_pct: 30,
 };
 
 async function renderBlock(props: Partial<Parameters<typeof DashboardReferrals>[0]> = {}) {
@@ -62,12 +62,12 @@ describe('DashboardReferrals — рефералка на «Статистике�
     expect(screen.getByText('Приглашения · по ссылке друга')).toBeTruthy();
     expect(screen.getByText('Team и тестовые не считаются')).toBeTruthy();
     expect(text).toContain('Сентябрь, с начала месяца');
-    expect(text).toContain('Пришли по ссылке друга12');
-    expect(text).toContain('2 % от всех новых, вместе с рекламой');
-    expect(text).toContain('Заплатили впервые2');
-    expect(text).toContain('Деньги от приглашённых6 143 ₽');
-    expect(text).toContain('29 % от всех денег');
-    expect(text).toContain('Начислено пригласившим1 536 ₽');
+    expect(text).toContain('Пришли по ссылке друга9');
+    expect(text).toContain('3 % от всех новых, вместе с рекламой');
+    expect(text).toContain('Заплатили впервые3');
+    expect(text).toContain('Деньги от приглашённых4 500 ₽');
+    expect(text).toContain('30 % от всех денег');
+    expect(text).toContain('Начислено пригласившим1 125 ₽');
     expect(text).toContain('без бонусов приглашённым');
   });
 
@@ -78,16 +78,16 @@ describe('DashboardReferrals — рефералка на «Статистике�
     expect(text).toContain(
       'Каждое событие — в своём месяце: заплатить мог и тот, кто пришёл раньше.',
     );
-    expect(text).toContain('Августденьги: 8 967 ₽');
+    expect(text).toContain('Августденьги: 7 000 ₽');
     for (const chip of [
-      'пришли: 14',
-      'взяли пробный: 8',
-      'заплатили впервые: 6',
-      'начислено: 2 842 ₽',
+      'пришли: 10',
+      'взяли пробный: 7',
+      'заплатили впервые: 4',
+      'начислено: 1 750 ₽',
     ]) {
       expect(text).toContain(chip);
     }
-    expect(text).toContain('Сентябрьденьги: 6 143 ₽');
+    expect(text).toContain('Сентябрьденьги: 4 500 ₽');
   });
 
   it('prints no share when there is nothing to divide by', async () => {

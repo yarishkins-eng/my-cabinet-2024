@@ -99,7 +99,7 @@ export function DashboardReferrals({ data, loading, isError }: DashboardReferral
 
       <div className="space-y-1.5">
         <div className="text-xs text-dark-400">{t('adminDashboard.referrals.byMonths')}</div>
-        <div className="text-xs text-dark-500">{t('adminDashboard.referrals.byMonthsHint')}</div>
+        <div className="text-xs text-dark-400">{t('adminDashboard.referrals.byMonthsHint')}</div>
         {months.length === 0 && <div className="text-sm text-dark-400">{blank}</div>}
         <div className="divide-y divide-dark-700/50">
           {/* строка месяца — карточка в два уровня: пять чисел в одну строку на телефоне не помещаются (ревью L2-2) */}

@@ -499,19 +499,27 @@ export default function AdminDashboard() {
                           </div>
                           <div className="text-xs text-dark-400">
                             {ref.invited_count} {t('adminDashboard.topReferrers.invites')}
-                            {typeof ref.paid_count === 'number' &&
-                              ` · ${t('adminDashboard.topReferrers.paid', { count: ref.paid_count })}`}
                           </div>
+                          {/* «заплатили N» — своей строкой: в одной строке с «N пригл.» столбец чисел отнимал у
+                              имени 70–90 px на телефоне 360 px (ревью C4-1) */}
+                          {typeof ref.paid_count === 'number' && (
+                            <div className="text-xs text-dark-400">
+                              {t('adminDashboard.topReferrers.paid', { count: ref.paid_count })}
+                            </div>
+                          )}
                         </>
                       ) : (
                         <>
                           <div className="text-xs font-semibold text-accent-400 sm:text-sm">
                             {ref.invited_count} {t('adminDashboard.topReferrers.people')}
                           </div>
+                          {typeof ref.paid_count === 'number' && (
+                            <div className="text-xs text-dark-400">
+                              {t('adminDashboard.topReferrers.paid', { count: ref.paid_count })}
+                            </div>
+                          )}
                           <div className="text-xs text-dark-400">
                             {money(ref.earnings_total_kopeks)}
-                            {typeof ref.paid_count === 'number' &&
-                              ` · ${t('adminDashboard.topReferrers.paid', { count: ref.paid_count })}`}
                           </div>
                         </>
                       )}
