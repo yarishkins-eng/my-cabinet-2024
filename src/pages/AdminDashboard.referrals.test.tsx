@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { cleanup, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { createInstance } from 'i18next';
 import { I18nextProvider, initReactI18next } from 'react-i18next';
 import { MemoryRouter } from 'react-router';
@@ -171,5 +171,25 @@ describe('AdminDashboard — приглашения и «Топ реферало
     expect(text).toContain('7 дней—');
     expect(text).toContain('Этот месяц—');
     expect(text).not.toContain('заплатили');
+  });
+
+  it('the refresh button reloads the invitations and the top too', async () => {
+    api.getTopReferrers.mockResolvedValue(newBotTop);
+    api.getDashboardReferrals.mockResolvedValue({
+      months: [],
+      new_people_month: 0,
+      money_month_kopeks: 0,
+      came_pct: null,
+      money_pct: null,
+    });
+
+    await renderPage();
+    await waitFor(() => expect(api.getDashboardReferrals).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(api.getTopReferrers).toHaveBeenCalledTimes(1));
+
+    fireEvent.click(screen.getByText('Обновить'));
+
+    await waitFor(() => expect(api.getDashboardReferrals).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(api.getTopReferrers).toHaveBeenCalledTimes(2));
   });
 });
