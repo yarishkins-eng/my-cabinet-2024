@@ -4104,6 +4104,26 @@
       "newToday": "+{{count}} امروز",
       "loadError": "بارگیری پول ناموفق بود"
     },
+    "referrals": {
+      "title": "دعوت‌ها · با لینک دوست",
+      "hint": "Team و حساب‌های آزمایشی شمرده نمی‌شوند",
+      "monthCaption": "{{month}}، از ابتدای ماه",
+      "came": "با لینک دوست آمدند",
+      "cameShare": "{{percent}}٪ از همه تازه‌واردها، همراه با تبلیغات",
+      "paidFirst": "اولین پرداخت",
+      "money": "پول از دعوت‌شدگان",
+      "moneyShare": "{{percent}}٪ از کل پول",
+      "rewards": "واریز به دعوت‌کنندگان",
+      "rewardsNote": "بدون پاداش دعوت‌شدگان",
+      "byMonths": "بر اساس ماه",
+      "byMonthsHint": "هر رویداد در ماه خودش شمرده می‌شود: ممکن است پرداخت‌کننده زودتر آمده باشد.",
+      "rowMoney": "پول: {{amount}}",
+      "rowCame": "آمدند: {{count}}",
+      "rowTrial": "آزمایشی: {{count}}",
+      "rowPaidFirst": "اولین پرداخت: {{count}}",
+      "rowRewards": "واریز: {{amount}}",
+      "loadError": "دعوت‌ها بارگیری نشد"
+    },
     "stats": {
       "usersOnline": "کاربران آنلاین",
       "activeSubscriptions": "اشتراک‌های فعال",

@@ -345,6 +345,28 @@ export interface DashboardMoney {
   months: { month: string; kopeks: number }[];
 }
 
+/** РЕФ-2: месяц блока «Приглашения» — каждое событие в своём месяце по Москве. */
+export interface ReferralMonth {
+  /** 'YYYY-MM' */
+  month: string;
+  came: number;
+  trial: number;
+  paid_first: number;
+  money_kopeks: number;
+  rewards_kopeks: number;
+}
+
+/** РЕФ-2: блок «Приглашения» на «Статистике» — тот же счётчик, что утреннее письмо. Плитки — из последней строки. */
+export interface DashboardReferrals {
+  /** С первого приглашённого до текущего месяца, по возрастанию; месяц без событий — нули. */
+  months: ReferralMonth[];
+  new_people_month: number;
+  money_month_kopeks: number;
+  /** Нечего делить — `null` («—»), а не ноль. */
+  came_pct: number | null;
+  money_pct: number | null;
+}
+
 export interface SystemInfo {
   bot_version: string;
   python_version: string;
@@ -405,6 +427,12 @@ export const statsApi = {
   // Money for the Statistics screen (СП-1б)
   getDashboardMoney: async (): Promise<DashboardMoney> => {
     const response = await apiClient.get('/cabinet/admin/stats/money');
+    return response.data;
+  },
+
+  // Invitations for the Statistics screen (РЕФ-2)
+  getDashboardReferrals: async (): Promise<DashboardReferrals> => {
+    const response = await apiClient.get('/cabinet/admin/stats/referrals/overview');
     return response.data;
   },
 

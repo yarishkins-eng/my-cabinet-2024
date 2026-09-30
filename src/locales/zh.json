@@ -4097,6 +4097,26 @@
       "newToday": "今天 +{{count}}",
       "loadError": "无法加载资金数据"
     },
+    "referrals": {
+      "title": "邀请 · 通过朋友链接",
+      "hint": "不计入 Team 和测试账户",
+      "monthCaption": "{{month}}，本月至今",
+      "came": "通过朋友链接加入",
+      "cameShare": "占所有新用户的 {{percent}}%（含广告）",
+      "paidFirst": "首次付款",
+      "money": "受邀用户付款",
+      "moneyShare": "占全部收入的 {{percent}}%",
+      "rewards": "已发放给邀请人",
+      "rewardsNote": "不含受邀人奖励",
+      "byMonths": "按月",
+      "byMonthsHint": "每个事件计入其发生的月份：付款的人可能更早加入。",
+      "rowMoney": "收入：{{amount}}",
+      "rowCame": "加入：{{count}}",
+      "rowTrial": "试用：{{count}}",
+      "rowPaidFirst": "首次付款：{{count}}",
+      "rowRewards": "已发放：{{amount}}",
+      "loadError": "无法加载邀请数据"
+    },
     "stats": {
       "usersOnline": "在线用户",
       "activeSubscriptions": "活跃订阅",

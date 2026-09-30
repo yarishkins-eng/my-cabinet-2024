@@ -5,6 +5,7 @@ import { useQuery } from '@tanstack/react-query';
 import { statsApi, type NodeStatus } from '../api/admin';
 import { CampaignResultsCard } from '../components/admin/CampaignResultsCard';
 import { DashboardMoney } from '../components/admin/DashboardMoney';
+import { DashboardReferrals } from '../components/admin/DashboardReferrals';
 import { formatUptime } from '../utils/format';
 
 const CABINET_VERSION = __APP_VERSION__;
@@ -226,6 +227,13 @@ export default function AdminDashboard() {
     queryFn: () => statsApi.getDashboardMoney(),
     refetchInterval: 60_000,
   });
+  // РЕФ-2: приглашения — СВОИМ запросом, а не в общем Promise.all: до выкладки бота ручки нет (404), и сбой в общей
+  // пачке снял бы с экрана ещё три блока; числа меняются редко — раз в 5 минут и по кнопке «Обновить»
+  const referralsQuery = useQuery({
+    queryKey: ['admin-dashboard-referrals'] as const,
+    queryFn: () => statsApi.getDashboardReferrals(),
+    refetchInterval: 300_000,
+  });
   const referrers = extendedQuery.data?.topReferrers ?? null;
   const campaigns = extendedQuery.data?.topCampaigns ?? null;
   const payments = extendedQuery.data?.recentPayments ?? null;
@@ -298,6 +306,7 @@ export default function AdminDashboard() {
           onClick={() => {
             statsQuery.refetch();
             moneyQuery.refetch();
+            referralsQuery.refetch();
           }}
           disabled={loading}
           className="flex items-center gap-2 rounded-lg bg-dark-800 px-4 py-2 text-dark-300 transition-colors hover:bg-dark-700 hover:text-dark-100 disabled:opacity-50"
@@ -324,6 +333,13 @@ export default function AdminDashboard() {
           <span aria-hidden="true">→</span>
         </button>
       )}
+
+      {/* РЕФ-2: рефералка по месяцам — решения владельца 29.09 (под «Деньгами», после кнопки на продажи) */}
+      <DashboardReferrals
+        data={referralsQuery.data}
+        loading={referralsQuery.isLoading}
+        isError={referralsQuery.isError}
+      />
 
       {/* Онлайн */}
       <StatCard
