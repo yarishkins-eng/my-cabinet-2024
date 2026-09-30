@@ -4641,6 +4641,8 @@
       "showMore": "Show more"
     },
     "topReferrers": {
+      "paid": "paid {{count}}",
+      "periodCaption": "Credited to all inviters",
       "title": "Top referrers",
       "stats": "ref., {{count}} invites",
       "byEarnings": "By earnings",
@@ -4650,8 +4652,8 @@
     },
     "period": {
       "today": "Today",
-      "week": "Week",
-      "month": "Month"
+      "week": "7 days",
+      "month": "This month"
     },
     "topCampaigns": {
       "title": "Advertising campaign results",

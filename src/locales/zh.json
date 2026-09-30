@@ -4165,6 +4165,8 @@
       "revenue": "收入"
     },
     "topReferrers": {
+      "paid": "已付款 {{count}}",
+      "periodCaption": "已发放给所有邀请人",
       "title": "顶级推荐者",
       "stats": "推荐者，{{count}} 邀请",
       "byEarnings": "按收入",
@@ -4174,8 +4176,8 @@
     },
     "period": {
       "today": "今天",
-      "week": "一周",
-      "month": "一个月"
+      "week": "7 天",
+      "month": "本月"
     },
     "topCampaigns": {
       "title": "广告活动结果",

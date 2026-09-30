@@ -270,6 +270,16 @@ export interface TopReferrerItem {
   earnings_week_kopeks: number;
   earnings_month_kopeks: number;
   earnings_total_kopeks: number;
+  /** РЕФ-2.4б: сколько приглашённых этого человека хоть раз платили деньгами. Старый бот поля не шлёт, при сбое —
+   * `null`: тогда строку «заплатили» не печатаем. */
+  paid_count?: number | null;
+}
+
+/** РЕФ-2.4б: начислено ВСЕМ пригласившим — сегодня, 7 суток и календарный месяц по Москве (как плитка блока). */
+export interface ReferralPeriodTotals {
+  today_kopeks: number;
+  week_kopeks: number;
+  month_kopeks: number;
 }
 
 export interface TopReferrersResponse {
@@ -278,6 +288,8 @@ export interface TopReferrersResponse {
   total_referrers: number;
   total_referrals: number;
   total_earnings_kopeks: number;
+  /** РЕФ-2.4б: нет у старого бота, `null` при сбое — на экране «—». */
+  period_totals?: ReferralPeriodTotals | null;
 }
 
 export interface TopCampaignItem {

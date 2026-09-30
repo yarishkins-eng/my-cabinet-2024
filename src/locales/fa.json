@@ -4172,6 +4172,8 @@
       "revenue": "درآمد"
     },
     "topReferrers": {
+      "paid": "پرداخت کردند {{count}}",
+      "periodCaption": "واریز به همه دعوت‌کنندگان",
       "title": "بهترین ارجاع‌دهندگان",
       "stats": "ارجاع، {{count}} دعوت",
       "byEarnings": "بر اساس درآمد",
@@ -4181,8 +4183,8 @@
     },
     "period": {
       "today": "امروز",
-      "week": "هفته",
-      "month": "ماه"
+      "week": "۷ روز",
+      "month": "این ماه"
     },
     "topCampaigns": {
       "title": "نتایج کمپین‌های تبلیغاتی",
