@@ -4675,15 +4675,15 @@
       "openStats": "Open statistics for campaign “{{name}}”"
     },
     "recentPayments": {
-      "title": "Recent paid orders",
+      "title": "Recent payments",
       "today": "Today: {{amount}}",
       "week": "For the week: {{amount}}",
       "first": "First payment",
-      "repeat": "Repeat",
-      "purpose": "For",
-      "onBalance": "to balance, not spent yet",
-      "campaign": "ad “{{name}}”",
-      "hidden": "Not shown for 30 days: sign-up bonuses — {{bonuses}}, purchases from balance — {{balance}}, manual credits — {{manual}}"
+      "repeat": "Next payment",
+      "purpose": "Paid for",
+      "onBalance": "Balance top-up",
+      "campaign": "from ad “{{name}}”",
+      "hidden": "Not in the list (last 30 days): sign-up bonuses — {{bonuses}}, purchases from balance — {{balance}}, manual credits — {{manual}}"
     },
     "table": {
       "user": "User",

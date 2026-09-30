@@ -147,17 +147,18 @@ describe('AdminDashboard — «Последние оплаты» (ПЛ-1)', () =
     await waitFor(() => expect(screen.getByText('Последние оплаты')).toBeTruthy());
     const text = plain(container);
     expect(screen.getAllByText('Первая оплата').length).toBeGreaterThan(0);
-    expect(screen.getAllByText('Повторная').length).toBeGreaterThan(0);
-    expect(text).toContain('Оплата подписки картой: 1 месяц · реклама «Тест-канал»');
-    expect(text).toContain('на баланс, пока не потрачено');
-    expect(text).not.toContain('на баланс, пока не потрачено · реклама');
+    expect(screen.getAllByText('Повторная оплата').length).toBeGreaterThan(0);
+    expect(text).toContain('Оплата подписки картой: 1 месяц · из рекламы «Тест-канал»');
+    expect(text).toContain('Пополнение баланса');
+    expect(text).not.toContain('Пополнение баланса · из рекламы');
     expect(text).toContain(
-      'Не показаны за 30 дней: бонусы за регистрацию — 412, покупки с баланса — 37, ручные начисления — 3',
+      'За 30 дней не вошли в список: бонусы за регистрацию — 412, покупки с баланса — 37, ручные начисления — 3',
     );
     expect(text).not.toContain('Последние платежи');
     // старые подписи типа проводки при новом боте не показываются
     expect(text).not.toContain('Оплата картой');
     expect(text).not.toContain('{{');
+    expect(screen.getByText('За что')).toBeTruthy();
   });
 
   it('with the old bot: no new fields — rows keep type and method, no hidden line', async () => {
@@ -176,7 +177,8 @@ describe('AdminDashboard — «Последние оплаты» (ПЛ-1)', () =
     const text = plain(container);
     expect(text).toContain('Оплата картой');
     expect(text).toContain('platega');
+    expect(screen.queryByText('За что')).toBeNull();
     expect(text).not.toContain('Первая оплата');
-    expect(text).not.toContain('Не показаны за 30 дней');
+    expect(text).not.toContain('За 30 дней не вошли в список');
   });
 });

@@ -627,7 +627,9 @@ export default function AdminDashboard() {
                     {t('adminDashboard.table.amount')}
                   </th>
                   <th className="px-2 py-3 text-left text-xs font-medium text-dark-500">
-                    {t('adminDashboard.recentPayments.purpose')}
+                    {payments.payments[0]?.is_first == null
+                      ? t('adminDashboard.table.method')
+                      : t('adminDashboard.recentPayments.purpose')}
                   </th>
                   <th className="px-2 py-3 text-right text-xs font-medium text-dark-500">
                     {t('adminDashboard.table.date')}
@@ -688,27 +690,25 @@ export default function AdminDashboard() {
           <div className="space-y-2 md:hidden">
             {payments.payments.slice(0, 10).map((payment) => (
               <div key={payment.id} className="rounded-lg bg-dark-900/50 p-3">
-                <div className="mb-2 flex items-center justify-between">
-                  <div className="flex min-w-0 flex-1 items-center gap-2">
-                    <span
-                      className={`whitespace-nowrap rounded-full px-1.5 py-0.5 text-[10px] ${paymentBadge(payment).className}`}
-                    >
-                      {paymentBadge(payment).label}
-                    </span>
-                    <button
-                      onClick={() => navigate(`/admin/users/${payment.user_id}`)}
-                      className="truncate text-sm font-medium text-dark-100 underline decoration-dark-600 underline-offset-2 transition-colors hover:decoration-dark-400"
-                    >
-                      {payment.display_name}
-                    </button>
-                  </div>
-                  <span className="ml-2 whitespace-nowrap text-sm font-semibold text-dark-100">
+                {/* ПЛ-1: имя одно в первой строке — метка и сумма не съедают его на узком экране */}
+                <div className="flex items-center justify-between gap-2">
+                  <button
+                    onClick={() => navigate(`/admin/users/${payment.user_id}`)}
+                    className="min-w-0 truncate text-left text-sm font-medium text-dark-100 underline decoration-dark-600 underline-offset-2 transition-colors hover:decoration-dark-400"
+                  >
+                    {payment.display_name}
+                  </button>
+                  <span className="shrink-0 whitespace-nowrap text-sm font-semibold tabular-nums text-dark-100">
                     {formatAmount(payment.amount_rubles)} {currencySymbol}
                   </span>
                 </div>
-                <div className="flex items-start justify-between gap-3 text-xs text-dark-400">
-                  <span className="min-w-0">{paymentContext(payment)}</span>
-                  <span>
+                <div className="mt-1.5 flex items-center justify-between gap-2 text-xs text-dark-400">
+                  <span
+                    className={`whitespace-nowrap rounded-full px-2 py-0.5 ${paymentBadge(payment).className}`}
+                  >
+                    {paymentBadge(payment).label}
+                  </span>
+                  <span className="shrink-0 whitespace-nowrap tabular-nums">
                     {new Date(payment.created_at).toLocaleString('ru-RU', {
                       day: '2-digit',
                       month: '2-digit',
@@ -716,6 +716,9 @@ export default function AdminDashboard() {
                       minute: '2-digit',
                     })}
                   </span>
+                </div>
+                <div className="mt-1.5 break-words text-xs text-dark-400">
+                  {paymentContext(payment)}
                 </div>
               </div>
             ))}
