@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { cleanup, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, render, screen, waitFor, within } from '@testing-library/react';
 import { createInstance } from 'i18next';
 import { I18nextProvider, initReactI18next } from 'react-i18next';
 import { MemoryRouter } from 'react-router';
@@ -187,5 +187,31 @@ describe('AdminDashboard — «Последние оплаты» (ПЛ-1)', () =
     expect(screen.queryByText('За что')).toBeNull();
     expect(text).not.toContain('Первая оплата');
     expect(text).not.toContain('За 30 дней не вошли в список');
+  });
+});
+
+describe('AdminDashboard — «Последние оплаты», таблица и карточки по отдельности (ПЛ-1)', () => {
+  it('each view shows its own badge, context and at most 10 rows', async () => {
+    const many = Array.from({ length: 11 }, (_, index) => ({
+      ...newBot.payments[index % 2],
+      id: 100 + index,
+      display_name: `Тест ${index}`,
+    }));
+    api.getRecentPayments.mockResolvedValue({ ...newBot, payments: many });
+
+    const { container } = await renderPage();
+
+    await waitFor(() => expect(screen.getByText('Последние оплаты')).toBeTruthy());
+    const table = container.querySelector('table') as HTMLElement;
+    const cards = container.querySelector('.md\\:hidden') as HTMLElement;
+    expect(table.querySelectorAll('tbody tr').length).toBe(10);
+    expect(cards.children.length).toBe(10);
+    for (const view of [table, cards]) {
+      expect(plain(view)).toContain('Оплата подписки картой: 1 месяц · из рекламы «Тест-канал»');
+      const first = within(view).getAllByText('Первая оплата')[0];
+      const repeat = within(view).getAllByText('Повторная оплата')[0];
+      expect(first.className).toContain('text-accent-400');
+      expect(repeat.className).toContain('text-success-400');
+    }
   });
 });
