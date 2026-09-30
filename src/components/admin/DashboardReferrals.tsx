@@ -87,7 +87,8 @@ export function DashboardReferrals({ data, loading, isError }: DashboardReferral
         <div className="mt-2 grid grid-cols-2 gap-2">
           {tiles.map((tile) => (
             <div key={tile.key} className="min-w-0 rounded-lg bg-dark-800/50 p-3">
-              <div className="text-xs text-dark-400">{tile.label}</div>
+              {/* две строки под подпись — числа первого ряда стоят вровень (ревью C4-3) */}
+              <div className="min-h-8 text-xs leading-4 text-dark-400">{tile.label}</div>
               <div className="mt-1 text-base font-semibold text-dark-100 sm:text-xl">
                 {tile.value}
               </div>
@@ -111,7 +112,8 @@ export function DashboardReferrals({ data, loading, isError }: DashboardReferral
                   {t('adminDashboard.referrals.rowMoney', { amount: format(row.money_kopeks) })}
                 </span>
               </div>
-              <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 text-xs tabular-nums text-dark-300">
+              {/* левая колонка шире: «заплатили впервые: 15» не отрывает число на 360 px (ревью C4-4, замер в Chrome) */}
+              <div className="grid grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)] gap-x-3 gap-y-0.5 text-xs tabular-nums text-dark-300">
                 <span className="min-w-0">
                   {t('adminDashboard.referrals.rowCame', { count: row.came })}
                 </span>

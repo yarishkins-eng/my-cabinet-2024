@@ -4104,7 +4104,7 @@
       "came": "通过朋友链接加入",
       "cameShare": "占所有新用户的 {{percent}}%（含广告）",
       "paidFirst": "首次付款",
-      "money": "受邀用户付款",
+      "money": "受邀用户付款（所有付款）",
       "moneyShare": "占全部收入的 {{percent}}%",
       "rewards": "已发放给邀请人",
       "rewardsNote": "不含受邀人奖励",

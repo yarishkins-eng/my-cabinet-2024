@@ -4603,7 +4603,7 @@
       "came": "Came via a friend's link",
       "cameShare": "{{percent}}% of all new people, ads included",
       "paidFirst": "Paid for the first time",
-      "money": "Money from invited people",
+      "money": "Money from invited people (all payments)",
       "moneyShare": "{{percent}}% of all money",
       "rewards": "Credited to inviters",
       "rewardsNote": "excluding bonuses to invited people",

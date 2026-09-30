@@ -49,7 +49,7 @@ async function renderBlock(props: Partial<Parameters<typeof DashboardReferrals>[
   );
 }
 
-/** Текст экрана без неразрывных пробелов: «6 143 ₽» и «2 %» печатаются через NBSP. */
+/** Текст экрана без неразрывных пробелов: «4 500 ₽» и «3 %» печатаются через NBSP. */
 const plain = (container: HTMLElement) => (container.textContent ?? '').replace(/\u00a0/g, ' ');
 
 afterEach(cleanup);
@@ -65,7 +65,8 @@ describe('DashboardReferrals — рефералка на «Статистике�
     expect(text).toContain('Пришли по ссылке друга9');
     expect(text).toContain('3 % от всех новых, вместе с рекламой');
     expect(text).toContain('Заплатили впервые3');
-    expect(text).toContain('Деньги от приглашённых4 500 ₽');
+    // деньги — все оплаты приглашённых, а не только первые: рядом стоит «заплатили впервые» (ревью W2P-1)
+    expect(text).toContain('Деньги от приглашённых (все оплаты)4 500 ₽');
     expect(text).toContain('30 % от всех денег');
     expect(text).toContain('Начислено пригласившим1 125 ₽');
     expect(text).toContain('без бонусов приглашённым');

@@ -76,7 +76,16 @@ const newBotTop: TopReferrersResponse = {
       paid_count: 0,
     },
   ],
-  by_invited: [{ ...referrer, paid_count: 3 }],
+  by_invited: [
+    { ...referrer, paid_count: 3 },
+    {
+      ...referrer,
+      user_id: 9002,
+      display_name: 'Петя Тестов',
+      username: 'test_petya',
+      paid_count: 0,
+    },
+  ],
   period_totals: { today_kopeks: 4975, week_kopeks: 29800, month_kopeks: 112500 },
 };
 
@@ -156,7 +165,8 @@ describe('AdminDashboard — приглашения и «Топ реферало
     const text = plain(container);
     expect(text).toContain('Приглашения · по ссылке друга');
     // «заплатили N» — своей строкой под «N пригл.» (ревью C4-1)
-    expect(text).toContain('6 пригл.заплатили 3');
+    // сумма строки — общий заработок пригласившего, первой; «заплатили N» — своей строкой под «N пригл.» (C4-1)
+    expect(text).toContain('2 500 ₽6 пригл.заплатили 3');
     // ноль — тоже ответ: «заплатили 0», а не пустое место и не голый «0» (ревью C1-2)
     expect(text).toContain('6 пригл.заплатили 0');
     expect(text).toContain('Сегодня50 ₽');
@@ -167,7 +177,8 @@ describe('AdminDashboard — приглашения и «Топ реферало
 
     // «По пригл.»: «заплатили» — рядом с людьми, а не впритык к сумме (ревью C7-5)
     fireEvent.click(screen.getByText('По пригл.'));
-    expect(plain(container)).toContain('6 чел.заплатили 3');
+    expect(plain(container)).toContain('6 чел.заплатили 32 500 ₽');
+    expect(plain(container)).toContain('6 чел.заплатили 0');
     expect(plain(container)).not.toContain('₽ · заплатили');
   });
 
