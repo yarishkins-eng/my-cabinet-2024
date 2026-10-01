@@ -4208,7 +4208,13 @@
     "recentPayments": {
       "title": "پرداخت‌های اخیر",
       "today": "امروز: {{amount}}",
-      "week": "این هفته: {{amount}}"
+      "week": "این هفته: {{amount}}",
+      "first": "پرداخت اول",
+      "repeat": "پرداخت بعدی",
+      "purpose": "بابت",
+      "onBalance": "افزایش موجودی",
+      "campaign": "از تبلیغ «{{name}}»",
+      "hidden": "در ۳۰ روز گذشته فهرست نشده: پاداش ثبت‌نام — {{bonuses}}، خرید از موجودی — {{balance}}، واریز دستی — {{manual}}"
     },
     "table": {
       "user": "کاربر",

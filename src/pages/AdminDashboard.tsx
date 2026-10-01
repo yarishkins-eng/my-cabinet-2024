@@ -216,7 +216,7 @@ export default function AdminDashboard() {
       const [topReferrers, topCampaigns, recentPayments, sysInfo] = await Promise.all([
         statsApi.getTopReferrers(10),
         statsApi.getTopCampaigns(10),
-        statsApi.getRecentPayments(20),
+        statsApi.getRecentPayments(10), // экран показывает 10 строк (ПЛ-1)
         statsApi.getSystemInfo(),
       ]);
       return { topReferrers, topCampaigns, recentPayments, sysInfo };
@@ -239,6 +239,34 @@ export default function AdminDashboard() {
   const referrers = extendedQuery.data?.topReferrers ?? null;
   const campaigns = extendedQuery.data?.topCampaigns ?? null;
   const payments = extendedQuery.data?.recentPayments ?? null;
+  // ПЛ-1: метка «первая / повторная» и строка «за что · реклама»; со старым ботом полей нет — прежние тип и способ
+  type PaymentRow = NonNullable<typeof payments>['payments'][number];
+  const paymentBadge = (payment: PaymentRow) => {
+    if (payment.is_first == null) {
+      const legacyClass =
+        payment.type === 'deposit'
+          ? 'bg-success-500/20 text-success-400'
+          : 'bg-accent-500/20 text-accent-400';
+      return { label: payment.type_display, className: legacyClass };
+    }
+    return payment.is_first
+      ? {
+          label: t('adminDashboard.recentPayments.first'),
+          className: 'bg-accent-500/20 text-accent-400',
+        }
+      : {
+          label: t('adminDashboard.recentPayments.repeat'),
+          className: 'bg-success-500/20 text-success-400',
+        };
+  };
+  const paymentContext = (payment: PaymentRow) => {
+    if (payment.is_first == null) return payment.payment_method || '-';
+    const parts = [payment.purpose || t('adminDashboard.recentPayments.onBalance')];
+    if (payment.campaign_name) {
+      parts.push(t('adminDashboard.recentPayments.campaign', { name: payment.campaign_name }));
+    }
+    return parts.join(' · ');
+  };
   const systemInfo = extendedQuery.data?.sysInfo ?? null;
 
   const handleRestartNode = async (uuid: string) => {
@@ -599,7 +627,9 @@ export default function AdminDashboard() {
                     {t('adminDashboard.table.amount')}
                   </th>
                   <th className="px-2 py-3 text-left text-xs font-medium text-dark-500">
-                    {t('adminDashboard.table.method')}
+                    {payments.payments[0]?.is_first == null
+                      ? t('adminDashboard.table.method')
+                      : t('adminDashboard.recentPayments.purpose')}
                   </th>
                   <th className="px-2 py-3 text-right text-xs font-medium text-dark-500">
                     {t('adminDashboard.table.date')}
@@ -627,13 +657,9 @@ export default function AdminDashboard() {
                     </td>
                     <td className="px-2 py-3">
                       <span
-                        className={`rounded-full px-2 py-1 text-xs ${
-                          payment.type === 'deposit'
-                            ? 'bg-success-500/20 text-success-400'
-                            : 'bg-accent-500/20 text-accent-400'
-                        }`}
+                        className={`whitespace-nowrap rounded-full px-2 py-1 text-xs ${paymentBadge(payment).className}`}
                       >
-                        {payment.type_display}
+                        {paymentBadge(payment).label}
                       </span>
                     </td>
                     <td className="px-2 py-3 text-right">
@@ -642,7 +668,7 @@ export default function AdminDashboard() {
                       </span>
                     </td>
                     <td className="px-2 py-3">
-                      <span className="text-xs text-dark-400">{payment.payment_method || '-'}</span>
+                      <span className="text-xs text-dark-400">{paymentContext(payment)}</span>
                     </td>
                     <td className="px-2 py-3 text-right">
                       <span className="text-xs text-dark-400">
@@ -651,6 +677,7 @@ export default function AdminDashboard() {
                           month: '2-digit',
                           hour: '2-digit',
                           minute: '2-digit',
+                          timeZone: 'Europe/Moscow', // как плитки денег на этом экране (ПЛ-1)
                         })}
                       </span>
                     </td>
@@ -664,42 +691,49 @@ export default function AdminDashboard() {
           <div className="space-y-2 md:hidden">
             {payments.payments.slice(0, 10).map((payment) => (
               <div key={payment.id} className="rounded-lg bg-dark-900/50 p-3">
-                <div className="mb-2 flex items-center justify-between">
-                  <div className="flex min-w-0 flex-1 items-center gap-2">
-                    <span
-                      className={`whitespace-nowrap rounded-full px-1.5 py-0.5 text-[10px] ${
-                        payment.type === 'deposit'
-                          ? 'bg-success-500/20 text-success-400'
-                          : 'bg-accent-500/20 text-accent-400'
-                      }`}
-                    >
-                      {payment.type_display}
-                    </span>
-                    <button
-                      onClick={() => navigate(`/admin/users/${payment.user_id}`)}
-                      className="truncate text-sm font-medium text-dark-100 underline decoration-dark-600 underline-offset-2 transition-colors hover:decoration-dark-400"
-                    >
-                      {payment.display_name}
-                    </button>
-                  </div>
-                  <span className="ml-2 whitespace-nowrap text-sm font-semibold text-dark-100">
+                {/* ПЛ-1: имя одно в первой строке — метка и сумма не съедают его на узком экране */}
+                <div className="flex items-center justify-between gap-2">
+                  <button
+                    onClick={() => navigate(`/admin/users/${payment.user_id}`)}
+                    className="min-w-0 truncate text-left text-sm font-medium text-dark-100 underline decoration-dark-600 underline-offset-2 transition-colors hover:decoration-dark-400"
+                  >
+                    {payment.display_name}
+                  </button>
+                  <span className="shrink-0 whitespace-nowrap text-sm font-semibold tabular-nums text-dark-100">
                     {formatAmount(payment.amount_rubles)} {currencySymbol}
                   </span>
                 </div>
-                <div className="flex items-center justify-between text-xs text-dark-500">
-                  <span>{payment.payment_method || '-'}</span>
-                  <span>
+                <div className="mt-1.5 flex items-center justify-between gap-2 text-xs text-dark-400">
+                  <span
+                    className={`whitespace-nowrap rounded-full px-2 py-0.5 ${paymentBadge(payment).className}`}
+                  >
+                    {paymentBadge(payment).label}
+                  </span>
+                  <span className="shrink-0 whitespace-nowrap tabular-nums">
                     {new Date(payment.created_at).toLocaleString('ru-RU', {
                       day: '2-digit',
                       month: '2-digit',
                       hour: '2-digit',
                       minute: '2-digit',
+                      timeZone: 'Europe/Moscow', // как плитки денег на этом экране (ПЛ-1)
                     })}
                   </span>
+                </div>
+                <div className="mt-1.5 break-words text-xs text-dark-400">
+                  {paymentContext(payment)}
                 </div>
               </div>
             ))}
           </div>
+          {payments.hidden_last_30d && (
+            <p className="mt-3 border-t border-dark-700/50 pt-3 text-xs text-dark-400">
+              {t('adminDashboard.recentPayments.hidden', {
+                bonuses: payments.hidden_last_30d.registration_bonuses,
+                balance: payments.hidden_last_30d.balance_purchases,
+                manual: payments.hidden_last_30d.manual_credits,
+              })}
+            </p>
+          )}
         </div>
       )}
 

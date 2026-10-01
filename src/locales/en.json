@@ -4677,7 +4677,13 @@
     "recentPayments": {
       "title": "Recent payments",
       "today": "Today: {{amount}}",
-      "week": "For the week: {{amount}}"
+      "week": "For the week: {{amount}}",
+      "first": "First payment",
+      "repeat": "Next payment",
+      "purpose": "Paid for",
+      "onBalance": "Balance top-up",
+      "campaign": "from ad “{{name}}”",
+      "hidden": "Not in the list (last 30 days): sign-up bonuses — {{bonuses}}, purchases from balance — {{balance}}, manual credits — {{manual}}"
     },
     "table": {
       "user": "User",

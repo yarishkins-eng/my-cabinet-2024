@@ -337,6 +337,11 @@ export interface RecentPaymentItem {
   description?: string | null;
   created_at: string;
   is_completed: boolean;
+  /** ПЛ-1: первая живая оплата человека за всё время. Нет поля — старый бот. */
+  is_first?: boolean | null;
+  /** ПЛ-1: за что заплачено; null — пополнение, после которого покупки не было. */
+  purpose?: string | null;
+  campaign_name?: string | null;
 }
 
 export interface RecentPaymentsResponse {
@@ -344,6 +349,12 @@ export interface RecentPaymentsResponse {
   total_count: number;
   total_today_kopeks: number;
   total_week_kopeks: number;
+  /** ПЛ-1: что за 30 дней не попало в список — это не живые деньги. */
+  hidden_last_30d?: {
+    registration_bonuses: number;
+    balance_purchases: number;
+    manual_credits: number;
+  } | null;
 }
 
 /** СП-1б: «Пришло денег» для экрана «Статистика» — правило экрана продаж и утреннего письма, сутки по Москве. */

@@ -4198,7 +4198,13 @@
     "recentPayments": {
       "title": "最近的支付",
       "today": "今天：{{amount}}",
-      "week": "本周：{{amount}}"
+      "week": "本周：{{amount}}",
+      "first": "首次付款",
+      "repeat": "后续付款",
+      "purpose": "用途",
+      "onBalance": "余额充值",
+      "campaign": "来自广告「{{name}}」",
+      "hidden": "近 30 天未列出：注册奖励 {{bonuses}}，余额购买 {{balance}}，手动入账 {{manual}}"
     },
     "table": {
       "user": "用户",
