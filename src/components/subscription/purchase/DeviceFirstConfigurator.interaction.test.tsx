@@ -1831,6 +1831,16 @@ describe('DeviceFirstConfigurator interaction safety', () => {
     expect(await screen.findByText('deviceFirst.invoiceNotCreatedText')).toBeTruthy();
     expect(screen.queryByText('deviceFirst.refreshText')).toBeNull();
     expect(screen.queryByText('deviceFirst.errorPaymentChecking')).toBeNull();
+    // Тост говорит то же, что карточка, а не «счёт уже закрыт»: счёта не было.
+    await waitFor(() =>
+      expect(showToast).toHaveBeenCalledWith({
+        type: 'warning',
+        message: 'deviceFirst.invoiceNotCreatedText',
+      }),
+    );
+    expect(showToast).not.toHaveBeenCalledWith(
+      expect.objectContaining({ message: 'deviceFirst.errorInvoiceTerminal' }),
+    );
   });
 
   it('заказ протух — техническую защиту «не оплачивайте повторно» НЕ гасим', async () => {

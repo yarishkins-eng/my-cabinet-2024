@@ -1355,9 +1355,13 @@ export function DeviceFirstConfigurator({
             ? 'deviceFirst.refreshPaymentFound'
             : next.ui_state === 'operator_review'
               ? 'deviceFirst.errorOperatorReview'
-              : invoiceClosed
-                ? 'deviceFirst.errorInvoiceTerminal'
-                : 'deviceFirst.refreshUnchanged',
+              : // ВК-15: «счёт уже закрыт» здесь неправда — счёта не было. Говорим теми же
+                // словами, что карточка закрытого заказа под тостом.
+                invoiceClosed && next.terminal_reason === 'provider_invoice_not_created'
+                ? 'deviceFirst.invoiceNotCreatedText'
+                : invoiceClosed
+                  ? 'deviceFirst.errorInvoiceTerminal'
+                  : 'deviceFirst.refreshUnchanged',
         ),
       });
     } finally {
