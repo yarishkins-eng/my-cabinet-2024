@@ -207,9 +207,25 @@ describe('вердикт о деньгах доведён до всех экра
       // Защита от копии чужого смысла: «не оплачивайте повторно» здесь неправда — счёта нет.
       expect(text).not.toBe(locale(language).deviceFirst.errorPaymentChecking);
     }
+    // «Не ответила» было бы неправдой: тот же код уходит и на прямой отказ Platega (4xx) и на
+    // ответ без номера. Поэтому «не выдала счёт» и выход: другой способ оплаты и поддержка.
     expect(locale('ru').deviceFirst.errorProviderNoInvoice).toBe(
-      'Платёжная система не ответила. Деньги не списаны — попробуйте оплатить ещё раз.',
+      'Платёжная система не выдала счёт, деньги не списаны. Попробуйте ещё раз или выберите другой ' +
+        'способ оплаты, а если не выйдет — напишите в поддержку.',
     );
+    // Экран закрытого заказа с той же причиной: деньги не списаны, а про «старую ссылку» молчим —
+    // ссылки у человека не было. Тексты провайдерского закрытия и брошенной корзины здесь неправда.
+    for (const language of ['ru', 'en', 'zh', 'fa']) {
+      const text = locale(language).deviceFirst.invoiceNotCreatedText;
+      expect(text, `${language}.invoiceNotCreatedText`).toBeTruthy();
+      expect(text, `${language}: обязано сказать, что денег не брали`).toMatch(
+        NO_CHARGE_CLAIM[language],
+      );
+      expect(text, `${language}: ссылки не было — про неё не предупреждаем`).not.toMatch(
+        WARNS_AGAINST_OLD_LINK[language],
+      );
+    }
+    expect(source).toContain("statusQuery.data.terminal_reason === 'provider_invoice_not_created'");
   });
 
   it('мина F: поздней оплате не говорят «деньги не списаны»', () => {

@@ -576,6 +576,13 @@ export function DeviceFirstConfigurator({
     // экран падает в запасной текст. Гасим ровно там, где этап поставил ЗАМЕНУ: закрытый
     // провайдером счёт со своим объяснением. Остальные состояния ведут себя как прежде.
     if (statusQuery.data.terminal_reason?.startsWith('provider_terminal:')) setActionError(null);
+    // ВК-15: у заказа, закрытого как «счёт не создан», замена тоже есть (`closedCartCopy`), а
+    // висящее «мы проверяем созданный счёт, не оплачивайте повторно» здесь неправда — счёта нет.
+    if (
+      statusQuery.data.terminal_reason === 'provider_invoice_not_created' &&
+      statusQuery.data.money_state === 'no_money'
+    )
+      setActionError(null);
   }, [statusQuery.data]);
 
   const methods = useQuery({
