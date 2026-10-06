@@ -5763,6 +5763,7 @@
     "errorRateLimited": "Too many attempts. Wait a minute and try again.",
     "errorRetryQuote": "Create the quote again. No money was charged.",
     "errorPaymentChecking": "We are checking the created invoice. Do not pay again; refresh its status or contact support.",
+    "errorProviderNoInvoice": "The payment system didn't respond. No money was charged — try paying again.",
     "errorOperatorReview": "The order needs a manual check, so it cannot continue right now. Contact support.",
     "errorLegacyTrialReconciliation": "A previous payment is unfinished. Do not pay again — contact support.",
     "errorPaymentMethod": "This payment method is unavailable. Choose another one.",

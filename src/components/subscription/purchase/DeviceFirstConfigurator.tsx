@@ -2821,6 +2821,10 @@ function deviceFirstErrorMessage(
     idempotency_conflict: 'deviceFirst.errorRetryQuote',
     idempotency_key_required: 'deviceFirst.error',
     reconciliation_required: 'deviceFirst.errorPaymentChecking',
+    // ВК-15: Platega не вернула номер счёта, и сервер уже отпустил заказ — ссылки на оплату у
+    // человека не было, денег по нему нет. Свой текст, а не «мы проверяем созданный счёт, не
+    // оплачивайте повторно»: счёта нет, и оплатить ещё раз — ровно то, что нужно сделать.
+    provider_invoice_not_created: 'deviceFirst.errorProviderNoInvoice',
     legacy_trial_reconciliation_required: 'deviceFirst.errorLegacyTrialReconciliation',
     external_invoice_active: 'deviceFirst.errorPaymentChecking',
     // Свой текст, а не общий «мы проверяем созданный счёт, не оплачивайте повторно»:

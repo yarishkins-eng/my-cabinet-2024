@@ -1749,6 +1749,29 @@ describe('DeviceFirstConfigurator interaction safety', () => {
     expect(screen.queryByText('deviceFirst.error')).toBeNull();
   });
 
+  it('ВК-15: Platega не выставила счёт — свой текст, и можно сразу оплатить ещё раз', async () => {
+    // Сервер отпускает заказ, у которого Platega не вернула номер счёта (ссылки у человека не
+    // было), и отвечает `provider_invoice_not_created`. Человек остаётся на подтверждении: тот
+    // же выбор, та же кнопка способа оплаты, и второе нажатие уходит на сервер заново.
+    vi.mocked(deviceFirstApi.payDirect).mockRejectedValueOnce({
+      response: { status: 409, data: { detail: { code: 'provider_invoice_not_created' } } },
+    });
+    renderConfigurator();
+
+    fireEvent.click(screen.getByRole('button', { name: 'deviceFirst.review' }));
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'deviceFirst.paymentMethodAmount:450 ₽' }),
+    );
+
+    expect(await screen.findByText('deviceFirst.errorProviderNoInvoice')).toBeTruthy();
+    // Улики: ни безликого «попробуйте ещё раз», ни ложного «не оплачивайте повторно».
+    expect(screen.queryByText('deviceFirst.error')).toBeNull();
+    expect(screen.queryByText('deviceFirst.errorPaymentChecking')).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'deviceFirst.paymentMethodAmount:450 ₽' }));
+    await waitFor(() => expect(deviceFirstApi.payDirect).toHaveBeenCalledTimes(2));
+  });
+
   it('заказ протух — техническую защиту «не оплачивайте повторно» НЕ гасим', async () => {
     // 🔴 Волна 2 нашла, что моё гашение ошибки было слишком широким: на `expired`/`failed`/
     // `conflict` своего объяснения у экрана нет, он падает в запасной текст «деньги без

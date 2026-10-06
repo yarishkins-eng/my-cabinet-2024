@@ -5073,6 +5073,7 @@
     "errorRateLimited": "尝试次数过多。请等待一分钟后重试。",
     "errorRetryQuote": "请重新创建报价。未扣款。",
     "errorPaymentChecking": "我们正在核对已创建的账单。请勿再次付款；请刷新状态或联系支持。",
+    "errorProviderNoInvoice": "支付系统没有响应。未扣款——请再次尝试付款。",
     "errorOperatorReview": "订单需要人工核对，因此现在无法继续。请联系客服。",
     "errorLegacyTrialReconciliation": "存在未完成的先前付款。请勿重复付款 — 请联系支持。",
     "errorPaymentMethod": "该支付方式暂不可用。请选择其他方式。",

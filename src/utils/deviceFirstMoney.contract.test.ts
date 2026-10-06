@@ -191,6 +191,27 @@ describe('вердикт о деньгах доведён до всех экра
     expect(locale('fa').deviceFirst.abandonedCartText).toMatch(NO_CHARGE_CLAIM.fa);
   });
 
+  it('ВК-15: «счёт не создан» — свой текст, он говорит, что денег не брали, и зовёт оплатить ещё раз', () => {
+    // Сервер отвечает кодом `provider_invoice_not_created` только когда Platega не вернула номер
+    // счёта и заказ уже отпущен: ссылки на оплату у человека не было, денег нет. Здесь «не списано»
+    // — правда, и человеку нужно именно это услышать, чтобы нажать ещё раз, а не ждать ответа.
+    // Без строки в карте кодов экран упал бы в безликое «Не удалось выполнить действие».
+    const source = read('../components/subscription/purchase/DeviceFirstConfigurator.tsx');
+    expect(source).toContain("provider_invoice_not_created: 'deviceFirst.errorProviderNoInvoice'");
+    for (const language of ['ru', 'en', 'zh', 'fa']) {
+      const text = locale(language).deviceFirst.errorProviderNoInvoice;
+      expect(text, `${language}.errorProviderNoInvoice`).toBeTruthy();
+      expect(text, `${language}: обязано сказать, что денег не брали`).toMatch(
+        NO_CHARGE_CLAIM[language],
+      );
+      // Защита от копии чужого смысла: «не оплачивайте повторно» здесь неправда — счёта нет.
+      expect(text).not.toBe(locale(language).deviceFirst.errorPaymentChecking);
+    }
+    expect(locale('ru').deviceFirst.errorProviderNoInvoice).toBe(
+      'Платёжная система не ответила. Деньги не списаны — попробуйте оплатить ещё раз.',
+    );
+  });
+
   it('мина F: поздней оплате не говорят «деньги не списаны»', () => {
     // Единственный случай, когда деньги есть. До этой ветки экран показывал ему общий
     // «цена изменилась, деньги без подтверждения не списаны» — неправда дважды.
