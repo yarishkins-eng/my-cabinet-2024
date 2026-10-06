@@ -94,6 +94,27 @@ describe('closedCartCopy — мина F', () => {
   });
 });
 
+describe('closedCartCopy — Platega не выдала счёт (ВК-15)', () => {
+  it('отпущенный заказ без счёта получает свой текст, а не «цена изменилась»', () => {
+    expect(closedCartCopy('provider_invoice_not_created', 'no_money')).toEqual({
+      titleKey: 'deviceFirst.abandonedCartTitle',
+      textKey: 'deviceFirst.invoiceNotCreatedText',
+    });
+  });
+
+  it('соседние причины provider_invoice_* этот текст не получают', () => {
+    expect(closedCartCopy('provider_invoice_missing_or_elapsed_expiry', 'no_money')).toBeNull();
+    expect(closedCartCopy('provider_invoice_creation_incomplete', 'no_money')).toBeNull();
+    expect(closedCartCopy('provider_invoice_not_created_x', 'no_money')).toBeNull();
+  });
+
+  it('без вердикта «денег не брали» от бэкенда про деньги не утверждаем ничего', () => {
+    expect(closedCartCopy('provider_invoice_not_created', 'unknown')).toBeNull();
+    expect(closedCartCopy('provider_invoice_not_created', 'money_in_flight')).toBeNull();
+    expect(closedCartCopy('provider_invoice_not_created', undefined)).toBeNull();
+  });
+});
+
 describe('closedCartCopy — поздняя оплата закрытого заказа', () => {
   it('деньги пришли после закрытия — говорим про баланс, а не «цена изменилась»', () => {
     expect(closedCartCopy('late_paid_wallet_credit', 'money_in_flight')).toEqual({

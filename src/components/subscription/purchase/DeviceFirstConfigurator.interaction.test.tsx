@@ -1749,6 +1749,152 @@ describe('DeviceFirstConfigurator interaction safety', () => {
     expect(screen.queryByText('deviceFirst.error')).toBeNull();
   });
 
+  it('ВК-15: Platega не выставила счёт — свой текст, и можно сразу оплатить ещё раз', async () => {
+    // Сервер отпускает заказ, у которого Platega не вернула номер счёта (ссылки у человека не
+    // было), и отвечает `provider_invoice_not_created`. Человек остаётся на подтверждении: тот
+    // же выбор, та же кнопка способа оплаты, и второе нажатие уходит на сервер заново.
+    vi.mocked(deviceFirstApi.payDirect).mockRejectedValueOnce({
+      response: { status: 409, data: { detail: { code: 'provider_invoice_not_created' } } },
+    });
+    renderConfigurator();
+
+    fireEvent.click(screen.getByRole('button', { name: 'deviceFirst.review' }));
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'deviceFirst.paymentMethodAmount:450 ₽' }),
+    );
+
+    expect(await screen.findByText('deviceFirst.errorProviderNoInvoice')).toBeTruthy();
+    // Улики: ни безликого «попробуйте ещё раз», ни ложного «не оплачивайте повторно».
+    expect(screen.queryByText('deviceFirst.error')).toBeNull();
+    expect(screen.queryByText('deviceFirst.errorPaymentChecking')).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'deviceFirst.paymentMethodAmount:450 ₽' }));
+    await waitFor(() => expect(deviceFirstApi.payDirect).toHaveBeenCalledTimes(2));
+  });
+
+  it('ВК-15: вход из бота, счёт не выдан — свой текст, повтор уходит обычной кнопкой', async () => {
+    // Главный живой вход: кнопка оплаты в боте открывает кабинет с `autostart=1`. Автозапуск
+    // разовый; после отказа человек остаётся на подтверждении, а второе нажатие — обычный
+    // кабинетный запрос, не повтор автозапуска.
+    vi.mocked(deviceFirstApi.nativeLaunchDirect).mockRejectedValueOnce({
+      response: { status: 409, data: { detail: { code: 'provider_invoice_not_created' } } },
+    });
+    renderConfigurator({
+      options: { ...options, balance_kopeks: 0 },
+      initialPath: '/subscription/purchase?period=30&devices=2&method=sbp&autostart=1',
+    });
+
+    expect(await screen.findByText('deviceFirst.errorProviderNoInvoice')).toBeTruthy();
+    expect(screen.queryByText('deviceFirst.error')).toBeNull();
+    expect(deviceFirstApi.nativeLaunchDirect).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(screen.getByRole('button', { name: 'deviceFirst.paymentMethodAmount:450 ₽' }));
+    await waitFor(() => expect(deviceFirstApi.payDirect).toHaveBeenCalledTimes(1));
+    expect(deviceFirstApi.nativeLaunchDirect).toHaveBeenCalledTimes(1);
+  });
+
+  it('ВК-15: заказ закрыт как «счёт не создан» — свой текст, и «не оплачивайте повторно» гаснет', async () => {
+    // Редкий путь: запрос оборвался, человек оказался на экране проверки счёта с ошибкой
+    // «мы проверяем созданный счёт», а сверка через 5 минут отпустила заказ. Запасной текст
+    // «данные подписки или цена изменились» здесь неправда, а висящая ошибка спорила бы с ним.
+    const invoice = directInvoice();
+    let released = false;
+    vi.mocked(deviceFirstApi.get).mockImplementation(async () =>
+      released
+        ? {
+            ...invoice,
+            ui_state: 'cancelled',
+            lifecycle_state: 'cancelled',
+            terminal_reason: 'provider_invoice_not_created',
+            money_state: 'no_money',
+          }
+        : invoice,
+    );
+    vi.mocked(deviceFirstApi.getPendingPayment).mockResolvedValue({
+      redirect_url: null,
+      status: 'pending',
+      resume_allowed: true,
+    });
+    vi.mocked(deviceFirstApi.resumeInvoice).mockImplementation(async () => {
+      released = true;
+      throw { response: { data: { detail: { code: 'external_invoice_active' } } } };
+    });
+
+    renderConfigurator({ initialPath: '/subscription/purchase?checkout=checkout-owned' });
+    fireEvent.click(await screen.findByRole('button', { name: 'deviceFirst.resumeInvoice' }));
+    expect(await screen.findByText('deviceFirst.errorPaymentChecking')).toBeTruthy();
+    // Улика: до перехода объяснения закрытого заказа на экране нет.
+    expect(screen.queryByText('deviceFirst.invoiceNotCreatedText')).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'deviceFirst.refreshStatus' }));
+
+    expect(await screen.findByText('deviceFirst.invoiceNotCreatedText')).toBeTruthy();
+    expect(screen.queryByText('deviceFirst.refreshText')).toBeNull();
+    expect(screen.queryByText('deviceFirst.errorPaymentChecking')).toBeNull();
+    // Тост говорит то же, что карточка, а не «счёт уже закрыт»: счёта не было.
+    await waitFor(() =>
+      expect(showToast).toHaveBeenCalledWith({
+        type: 'warning',
+        message: 'deviceFirst.invoiceNotCreatedText',
+      }),
+    );
+    expect(showToast).not.toHaveBeenCalledWith(
+      expect.objectContaining({ message: 'deviceFirst.errorInvoiceTerminal' }),
+    );
+  });
+
+  it.each([
+    ['provider_invoice_not_created', 'money_in_flight'],
+    ['provider_invoice_not_created', 'unknown'],
+    ['provider_invoice_missing_or_elapsed_expiry', 'no_money'],
+  ] as const)(
+    'ВК-15: закрыт как %s при вердикте %s — не «счёт не выдан», защита «не оплачивайте повторно» остаётся',
+    async (terminalReason, moneyState) => {
+      // «Деньги не списаны» — только по вердикту бэкенда и только для своей причины. Иначе экран,
+      // гашение ошибки и тост ведут себя как до ВК-15 (мутационный прогон волны 2).
+      const invoice = directInvoice();
+      let released = false;
+      vi.mocked(deviceFirstApi.get).mockImplementation(async () =>
+        released
+          ? {
+              ...invoice,
+              ui_state: 'cancelled',
+              lifecycle_state: 'cancelled',
+              terminal_reason: terminalReason,
+              money_state: moneyState,
+            }
+          : invoice,
+      );
+      vi.mocked(deviceFirstApi.getPendingPayment).mockResolvedValue({
+        redirect_url: null,
+        status: 'pending',
+        resume_allowed: true,
+      });
+      vi.mocked(deviceFirstApi.resumeInvoice).mockImplementation(async () => {
+        released = true;
+        throw { response: { data: { detail: { code: 'external_invoice_active' } } } };
+      });
+
+      renderConfigurator({ initialPath: '/subscription/purchase?checkout=checkout-owned' });
+      fireEvent.click(await screen.findByRole('button', { name: 'deviceFirst.resumeInvoice' }));
+      expect(await screen.findByText('deviceFirst.errorPaymentChecking')).toBeTruthy();
+      fireEvent.click(screen.getByRole('button', { name: 'deviceFirst.refreshStatus' }));
+      await waitFor(() => expect(screen.getByText('deviceFirst.refreshText')).toBeTruthy());
+
+      expect(screen.queryByText('deviceFirst.invoiceNotCreatedText')).toBeNull();
+      expect(screen.getByText('deviceFirst.errorPaymentChecking')).toBeTruthy();
+      await waitFor(() =>
+        expect(showToast).toHaveBeenCalledWith({
+          type: 'warning',
+          message: 'deviceFirst.errorInvoiceTerminal',
+        }),
+      );
+      expect(showToast).not.toHaveBeenCalledWith(
+        expect.objectContaining({ message: 'deviceFirst.invoiceNotCreatedText' }),
+      );
+    },
+  );
+
   it('заказ протух — техническую защиту «не оплачивайте повторно» НЕ гасим', async () => {
     // 🔴 Волна 2 нашла, что моё гашение ошибки было слишком широким: на `expired`/`failed`/
     // `conflict` своего объяснения у экрана нет, он падает в запасной текст «деньги без

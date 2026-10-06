@@ -103,6 +103,15 @@ export function closedCartCopy(
       textKey: 'deviceFirst.providerClosedText',
     };
   }
+  // ВК-15: Platega не вернула номер счёта, и бот отпустил заказ сразу. Ссылки на оплату у
+  // человека не было — предупреждать про «старую ссылку» нечего, а запасной текст «данные
+  // подписки или цена изменились» здесь неправда. «Не списано» — только по вердикту бэкенда.
+  if (terminalReason === 'provider_invoice_not_created' && moneyState === 'no_money') {
+    return {
+      titleKey: 'deviceFirst.abandonedCartTitle',
+      textKey: 'deviceFirst.invoiceNotCreatedText',
+    };
+  }
   if (terminalReason !== 'cancelled_by_user_after_invoice' || moneyState !== 'no_money') {
     return null;
   }

@@ -97,6 +97,23 @@ describe('device-first pay-time api', () => {
     expect(idempotencyKeyOf(0)).not.toBe(idempotencyKeyOf(1));
   });
 
+  it('ВК-15: after «invoice not created» (409) the same pay intent goes out under a NEW key', async () => {
+    // The whole ВК-15 gain rests on this: the bot stores the 409 under the key and
+    // replays it verbatim. Kept key → every retry of the same period/devices/method/price
+    // gets the stored refusal until the Mini App is closed (sessionStorage survives reloads).
+    postMock.mockRejectedValueOnce({
+      response: { status: 409, data: { detail: { code: 'provider_invoice_not_created' } } },
+    });
+    postMock.mockResolvedValueOnce({ data: { checkout: { id: 'c2' } } });
+
+    await expect(deviceFirstApi.nativeLaunchDirect(plategaRequest)).rejects.toBeTruthy();
+    await deviceFirstApi.payDirect(plategaRequest);
+
+    expect(postMock).toHaveBeenCalledTimes(2);
+    expect(postMock.mock.calls[1][1]).toEqual(plategaRequest);
+    expect(idempotencyKeyOf(1)).not.toBe(idempotencyKeyOf(0));
+  });
+
   it('sends a reprice retry with the new price as a new intent under a new key', async () => {
     postMock.mockRejectedValueOnce({
       response: { status: 409, data: { detail: { code: 'reprice_required' } } },

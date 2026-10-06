@@ -191,6 +191,75 @@ describe('вердикт о деньгах доведён до всех экра
     expect(locale('fa').deviceFirst.abandonedCartText).toMatch(NO_CHARGE_CLAIM.fa);
   });
 
+  it('ВК-15: «счёт не создан» — свой текст, он говорит, что денег не брали, и зовёт оплатить ещё раз', () => {
+    // Сервер отвечает кодом `provider_invoice_not_created` только когда Platega не вернула номер
+    // счёта и заказ уже отпущен: ссылки на оплату у человека не было, денег нет. Здесь «не списано»
+    // — правда, и человеку нужно именно это услышать, чтобы нажать ещё раз, а не ждать ответа.
+    // Без строки в карте кодов экран упал бы в безликое «Не удалось выполнить действие».
+    const source = read('../components/subscription/purchase/DeviceFirstConfigurator.tsx');
+    expect(source).toContain("provider_invoice_not_created: 'deviceFirst.errorProviderNoInvoice'");
+    for (const language of ['ru', 'en', 'zh', 'fa']) {
+      const text = locale(language).deviceFirst.errorProviderNoInvoice;
+      expect(text, `${language}.errorProviderNoInvoice`).toBeTruthy();
+      expect(text, `${language}: обязано сказать, что денег не брали`).toMatch(
+        NO_CHARGE_CLAIM[language],
+      );
+      // Защита от копии чужого смысла: «не оплачивайте повторно» здесь неправда — счёта нет.
+      expect(text).not.toBe(locale(language).deviceFirst.errorPaymentChecking);
+    }
+    // «Не ответила» было бы неправдой: тот же код уходит и на прямой отказ Platega (4xx) и на
+    // ответ без номера. Поэтому «не выдала счёт» и выход: другой способ оплаты и поддержка.
+    expect(locale('ru').deviceFirst.errorProviderNoInvoice).toBe(
+      'Платёжная система не выдала счёт, деньги не списаны. Попробуйте ещё раз или выберите другой ' +
+        'способ оплаты, а если не выйдет — напишите в поддержку.',
+    );
+    // Экран закрытого заказа с той же причиной: деньги не списаны, а про «старую ссылку» молчим —
+    // ссылки у человека не было. Тексты провайдерского закрытия и брошенной корзины здесь неправда.
+    for (const language of ['ru', 'en', 'zh', 'fa']) {
+      const text = locale(language).deviceFirst.invoiceNotCreatedText;
+      expect(text, `${language}.invoiceNotCreatedText`).toBeTruthy();
+      expect(text, `${language}: обязано сказать, что денег не брали`).toMatch(
+        NO_CHARGE_CLAIM[language],
+      );
+      expect(text, `${language}: ссылки не было — про неё не предупреждаем`).not.toMatch(
+        WARNS_AGAINST_OLD_LINK[language],
+      );
+    }
+    expect(source).toContain("statusQuery.data.terminal_reason === 'provider_invoice_not_created'");
+    // Смысл, а не только «не списано» (мутационный прогон волны 2): оба текста зовут оплатить
+    // заново, никогда не велят ждать или «не платить повторно»; ошибка оплаты ведёт в поддержку.
+    const OFFERS_RETRY: Record<string, RegExp> = {
+      ru: /ещё раз|заново/i,
+      en: /try again|pay again/i,
+      zh: /重试|重新付款|再次尝试/,
+      fa: /دوباره/,
+    };
+    const STALLS_THE_CUSTOMER: Record<string, RegExp> = {
+      ru: /не оплачивайте повторно|не платите повторно|дождитесь/i,
+      en: /do not pay again|don't pay again|wait for/i,
+      zh: /请勿再次付款|请勿重复付款|请等待/,
+      fa: /دوباره پرداخت نکنید|منتظر/,
+    };
+    const OFFERS_SUPPORT: Record<string, RegExp> = {
+      ru: /поддержк/i,
+      en: /support/i,
+      zh: /客服/,
+      fa: /پشتیبانی/,
+    };
+    for (const language of ['ru', 'en', 'zh', 'fa']) {
+      for (const key of ['errorProviderNoInvoice', 'invoiceNotCreatedText']) {
+        const text = locale(language).deviceFirst[key];
+        expect(text, `${language}.${key}: зовёт оплатить заново`).toMatch(OFFERS_RETRY[language]);
+        expect(text, `${language}.${key}: не велит ждать`).not.toMatch(
+          STALLS_THE_CUSTOMER[language],
+        );
+      }
+      expect(locale(language).deviceFirst.errorProviderNoInvoice, `${language}: поддержка`).toMatch(
+        OFFERS_SUPPORT[language],
+      );
+    }
+  });
+
   it('мина F: поздней оплате не говорят «деньги не списаны»', () => {
     // Единственный случай, когда деньги есть. До этой ветки экран показывал ему общий
     // «цена изменилась, деньги без подтверждения не списаны» — неправда дважды.

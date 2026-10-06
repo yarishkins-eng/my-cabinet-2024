@@ -576,6 +576,13 @@ export function DeviceFirstConfigurator({
     // экран падает в запасной текст. Гасим ровно там, где этап поставил ЗАМЕНУ: закрытый
     // провайдером счёт со своим объяснением. Остальные состояния ведут себя как прежде.
     if (statusQuery.data.terminal_reason?.startsWith('provider_terminal:')) setActionError(null);
+    // ВК-15: у заказа, закрытого как «счёт не создан», замена тоже есть (`closedCartCopy`), а
+    // висящее «мы проверяем созданный счёт, не оплачивайте повторно» здесь неправда — счёта нет.
+    if (
+      statusQuery.data.terminal_reason === 'provider_invoice_not_created' &&
+      statusQuery.data.money_state === 'no_money'
+    )
+      setActionError(null);
   }, [statusQuery.data]);
 
   const methods = useQuery({
@@ -1348,9 +1355,16 @@ export function DeviceFirstConfigurator({
             ? 'deviceFirst.refreshPaymentFound'
             : next.ui_state === 'operator_review'
               ? 'deviceFirst.errorOperatorReview'
-              : invoiceClosed
-                ? 'deviceFirst.errorInvoiceTerminal'
-                : 'deviceFirst.refreshUnchanged',
+              : // ВК-15: «счёт уже закрыт» здесь неправда — счёта не было. Говорим теми же
+                // словами, что карточка закрытого заказа под тостом, и при том же условии:
+                // «деньги не списаны» — только по вердикту бэкенда.
+                invoiceClosed &&
+                  next.terminal_reason === 'provider_invoice_not_created' &&
+                  next.money_state === 'no_money'
+                ? 'deviceFirst.invoiceNotCreatedText'
+                : invoiceClosed
+                  ? 'deviceFirst.errorInvoiceTerminal'
+                  : 'deviceFirst.refreshUnchanged',
         ),
       });
     } finally {
@@ -2821,6 +2835,10 @@ function deviceFirstErrorMessage(
     idempotency_conflict: 'deviceFirst.errorRetryQuote',
     idempotency_key_required: 'deviceFirst.error',
     reconciliation_required: 'deviceFirst.errorPaymentChecking',
+    // ВК-15: Platega не вернула номер счёта, и сервер уже отпустил заказ — ссылки на оплату у
+    // человека не было, денег по нему нет. Свой текст, а не «мы проверяем созданный счёт, не
+    // оплачивайте повторно»: счёта нет, и оплатить ещё раз — ровно то, что нужно сделать.
+    provider_invoice_not_created: 'deviceFirst.errorProviderNoInvoice',
     legacy_trial_reconciliation_required: 'deviceFirst.errorLegacyTrialReconciliation',
     external_invoice_active: 'deviceFirst.errorPaymentChecking',
     // Свой текст, а не общий «мы проверяем созданный счёт, не оплачивайте повторно»:
