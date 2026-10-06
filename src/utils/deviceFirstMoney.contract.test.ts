@@ -226,6 +226,38 @@ describe('вердикт о деньгах доведён до всех экра
       );
     }
     expect(source).toContain("statusQuery.data.terminal_reason === 'provider_invoice_not_created'");
+    // Смысл, а не только «не списано» (мутационный прогон волны 2): оба текста зовут оплатить
+    // заново, никогда не велят ждать или «не платить повторно»; ошибка оплаты ведёт в поддержку.
+    const OFFERS_RETRY: Record<string, RegExp> = {
+      ru: /ещё раз|заново/i,
+      en: /try again|pay again/i,
+      zh: /重试|重新付款|再次尝试/,
+      fa: /دوباره/,
+    };
+    const STALLS_THE_CUSTOMER: Record<string, RegExp> = {
+      ru: /не оплачивайте повторно|не платите повторно|дождитесь/i,
+      en: /do not pay again|don't pay again|wait for/i,
+      zh: /请勿再次付款|请勿重复付款|请等待/,
+      fa: /دوباره پرداخت نکنید|منتظر/,
+    };
+    const OFFERS_SUPPORT: Record<string, RegExp> = {
+      ru: /поддержк/i,
+      en: /support/i,
+      zh: /客服/,
+      fa: /پشتیبانی/,
+    };
+    for (const language of ['ru', 'en', 'zh', 'fa']) {
+      for (const key of ['errorProviderNoInvoice', 'invoiceNotCreatedText']) {
+        const text = locale(language).deviceFirst[key];
+        expect(text, `${language}.${key}: зовёт оплатить заново`).toMatch(OFFERS_RETRY[language]);
+        expect(text, `${language}.${key}: не велит ждать`).not.toMatch(
+          STALLS_THE_CUSTOMER[language],
+        );
+      }
+      expect(locale(language).deviceFirst.errorProviderNoInvoice, `${language}: поддержка`).toMatch(
+        OFFERS_SUPPORT[language],
+      );
+    }
   });
 
   it('мина F: поздней оплате не говорят «деньги не списаны»', () => {

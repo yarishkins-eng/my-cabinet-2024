@@ -1843,6 +1843,58 @@ describe('DeviceFirstConfigurator interaction safety', () => {
     );
   });
 
+  it.each([
+    ['provider_invoice_not_created', 'money_in_flight'],
+    ['provider_invoice_not_created', 'unknown'],
+    ['provider_invoice_missing_or_elapsed_expiry', 'no_money'],
+  ] as const)(
+    'ВК-15: закрыт как %s при вердикте %s — не «счёт не выдан», защита «не оплачивайте повторно» остаётся',
+    async (terminalReason, moneyState) => {
+      // «Деньги не списаны» — только по вердикту бэкенда и только для своей причины. Иначе экран,
+      // гашение ошибки и тост ведут себя как до ВК-15 (мутационный прогон волны 2).
+      const invoice = directInvoice();
+      let released = false;
+      vi.mocked(deviceFirstApi.get).mockImplementation(async () =>
+        released
+          ? {
+              ...invoice,
+              ui_state: 'cancelled',
+              lifecycle_state: 'cancelled',
+              terminal_reason: terminalReason,
+              money_state: moneyState,
+            }
+          : invoice,
+      );
+      vi.mocked(deviceFirstApi.getPendingPayment).mockResolvedValue({
+        redirect_url: null,
+        status: 'pending',
+        resume_allowed: true,
+      });
+      vi.mocked(deviceFirstApi.resumeInvoice).mockImplementation(async () => {
+        released = true;
+        throw { response: { data: { detail: { code: 'external_invoice_active' } } } };
+      });
+
+      renderConfigurator({ initialPath: '/subscription/purchase?checkout=checkout-owned' });
+      fireEvent.click(await screen.findByRole('button', { name: 'deviceFirst.resumeInvoice' }));
+      expect(await screen.findByText('deviceFirst.errorPaymentChecking')).toBeTruthy();
+      fireEvent.click(screen.getByRole('button', { name: 'deviceFirst.refreshStatus' }));
+      await waitFor(() => expect(screen.getByText('deviceFirst.refreshText')).toBeTruthy());
+
+      expect(screen.queryByText('deviceFirst.invoiceNotCreatedText')).toBeNull();
+      expect(screen.getByText('deviceFirst.errorPaymentChecking')).toBeTruthy();
+      await waitFor(() =>
+        expect(showToast).toHaveBeenCalledWith({
+          type: 'warning',
+          message: 'deviceFirst.errorInvoiceTerminal',
+        }),
+      );
+      expect(showToast).not.toHaveBeenCalledWith(
+        expect.objectContaining({ message: 'deviceFirst.invoiceNotCreatedText' }),
+      );
+    },
+  );
+
   it('заказ протух — техническую защиту «не оплачивайте повторно» НЕ гасим', async () => {
     // 🔴 Волна 2 нашла, что моё гашение ошибки было слишком широким: на `expired`/`failed`/
     // `conflict` своего объяснения у экрана нет, он падает в запасной текст «деньги без
