@@ -232,7 +232,7 @@ export default function AdminAutoMessages() {
       </div>
 
       <p className="mb-1 text-xs text-dark-500">{t('admin.autoMessages.tiles.caveat')}</p>
-      <p className="mb-6 text-xs text-dark-500">{t('admin.autoMessages.scope')}</p>
+      <p className="mb-6 mt-3 text-xs text-dark-400">{t('admin.autoMessages.scope')}</p>
 
       {GROUP_ORDER.map((group) => {
         const groupItems = items.filter((item) => item.group === group);

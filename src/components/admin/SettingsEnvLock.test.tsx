@@ -11,14 +11,17 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { AxiosError, AxiosHeaders } from 'axios';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { updateSetting } = vi.hoisted(() => ({ updateSetting: vi.fn() }));
+const { updateSetting, resetSetting } = vi.hoisted(() => ({
+  updateSetting: vi.fn(),
+  resetSetting: vi.fn(),
+}));
 
 vi.mock('../../api/adminSettings', async () => {
   const actual =
     await vi.importActual<typeof import('../../api/adminSettings')>('../../api/adminSettings');
   return {
     ...actual,
-    adminSettingsApi: { ...actual.adminSettingsApi, updateSetting, resetSetting: vi.fn() },
+    adminSettingsApi: { ...actual.adminSettingsApi, updateSetting, resetSetting },
   };
 });
 
@@ -62,14 +65,17 @@ function row(item: SettingDefinition) {
   );
 }
 
-function rejection(status: number) {
+function rejection(
+  status: number,
+  detail: unknown = "Setting 'X' is fixed in the environment (.env)",
+) {
   const headers = new AxiosHeaders();
   return new AxiosError('Request failed', 'ERR_BAD_REQUEST', { headers }, null, {
     status,
     statusText: '',
     headers: {},
     config: { headers },
-    data: { detail: "Setting 'X' is fixed in the environment (.env)" },
+    data: { detail },
   });
 }
 
@@ -96,6 +102,7 @@ describe('ВК-4, мина NM: настройка с сервера не при�
   // Тело в фигурных скобках: стрелка, возвращающая мок, превратила бы его в «уборку» после теста.
   beforeEach(() => {
     updateSetting.mockReset();
+    resetSetting.mockReset();
   });
   afterEach(cleanup);
 
@@ -127,6 +134,60 @@ describe('ВК-4, мина NM: настройка с сервера не при�
 
     expect(screen.queryByText('admin.settings.settingNames.A FROM ENV')).toBeNull();
     expect(screen.getByText('admin.settings.settingNames.B FREE')).toBeTruthy();
+  });
+
+  it('под замком — подпись варианта, прочерк вместо пустоты и длинное значение целиком', () => {
+    const long = '30:0,60:5,90:10,180:15,360:20,720:25,1440:30';
+    const { unmount } = row(
+      setting({
+        type: 'str',
+        current: 'cabinet',
+        env_locked: true,
+        choices: [{ value: 'cabinet', label: '🏠 Кабинет' }],
+      }),
+    );
+    expect(screen.getByText('🏠 Кабинет')).toBeTruthy();
+    expect(screen.queryByText('cabinet')).toBeNull();
+    unmount();
+
+    const empty = row(setting({ type: 'str', current: '', env_locked: true }));
+    expect(screen.getByText('—')).toBeTruthy();
+    empty.unmount();
+
+    row(
+      setting({
+        key: 'X_DISCOUNTS',
+        name: 'X_DISCOUNTS',
+        type: 'str',
+        current: long,
+        env_locked: true,
+      }),
+    );
+    const value = screen.getByText(long);
+    expect(value.className).not.toContain('truncate');
+  });
+
+  it('над списком сказано, где меняются настройки под замком', () => {
+    renderTab([setting({ env_locked: true })]);
+    expect(screen.getByText('admin.settings.serverLockedHint')).toBeTruthy();
+    cleanup();
+    renderTab([setting()]);
+    expect(screen.queryByText('admin.settings.serverLockedHint')).toBeNull();
+  });
+
+  it('409 обнуления тестового аккаунта не выдаётся за «задано на сервере»', async () => {
+    updateSetting.mockRejectedValue(rejection(409, { code: 'account_test_reset_busy' }));
+    renderTab([setting()]);
+    fireEvent.click(screen.getAllByRole('switch')[0]);
+    await waitFor(() => expect(screen.getByText('admin.settings.saveFailed')).toBeTruthy());
+    expect(screen.queryByText('admin.settings.lockedOnServer')).toBeNull();
+  });
+
+  it('неудачный сброс называется сбросом, а не сохранением', async () => {
+    resetSetting.mockRejectedValue(rejection(500));
+    renderTab([setting({ has_override: true })]);
+    fireEvent.click(screen.getAllByLabelText('admin.settings.reset')[0]);
+    await waitFor(() => expect(screen.getByText('admin.settings.resetFailed')).toBeTruthy());
   });
 
   it.each([

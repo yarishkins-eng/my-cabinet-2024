@@ -16,9 +16,12 @@ export function FavoritesTab({ settings, isFavorite, toggleFavorite }: Favorites
   const { t } = useTranslation();
   const queryClient = useQueryClient();
   const { showToast } = useToast();
-  // Отказ сервера говорим словами: раньше переключатель молча возвращался назад (мина NM).
-  const onSaveError = (error: unknown) =>
-    showToast({ type: 'error', message: t(settingSaveErrorKey(error)) });
+  // Отказ сервера говорим словами: раньше переключатель молча возвращался назад (мина NM). Список
+  // перечитываем — если ключ успели задать на сервере, строка сама покажет замок.
+  const onError = (action: 'save' | 'reset') => (error: unknown) => {
+    queryClient.invalidateQueries({ queryKey: ['admin-settings'] });
+    showToast({ type: 'error', message: t(settingSaveErrorKey(error, action)) });
+  };
 
   const updateSettingMutation = useMutation({
     mutationFn: ({ key, value }: { key: string; value: string }) =>
@@ -26,7 +29,7 @@ export function FavoritesTab({ settings, isFavorite, toggleFavorite }: Favorites
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['admin-settings'] });
     },
-    onError: onSaveError,
+    onError: onError('save'),
   });
 
   const resetSettingMutation = useMutation({
@@ -34,7 +37,7 @@ export function FavoritesTab({ settings, isFavorite, toggleFavorite }: Favorites
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['admin-settings'] });
     },
-    onError: onSaveError,
+    onError: onError('reset'),
   });
 
   if (settings.length === 0) {

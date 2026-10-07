@@ -40,6 +40,14 @@ export function SettingsTableRow({
   // молча откатывался бы назад, поэтому вместо него замок и значение только для чтения.
   const locked = setting.read_only || Boolean(setting.env_locked);
   const boolChecked = setting.current === true || setting.current === 'true';
+  // Под замком значение только читают: подпись варианта вместо техзначения, прочерк вместо пустоты, длинное —
+  // переносом, а не обрезкой (раньше его можно было дочитать в поле ввода).
+  const lockedValue = (() => {
+    if (isBool) return boolChecked ? t('admin.settings.enabled') : t('admin.settings.disabled');
+    const choice = setting.choices?.find((option) => option.value === setting.current);
+    const value = choice ? choice.label : String(setting.current ?? '');
+    return value.trim() ? value : '—';
+  })();
 
   const isLongValue = (() => {
     const val = String(setting.current ?? '');
@@ -94,7 +102,14 @@ export function SettingsTableRow({
             )}
 
             {locked && (
-              <span className="flex items-center gap-0.5 rounded-full bg-warning-500/15 px-1.5 py-0.5 text-[10px] font-medium leading-none text-warning-400">
+              <span
+                className={cn(
+                  'flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[10px] font-medium leading-none',
+                  setting.env_locked
+                    ? 'bg-dark-700/60 text-dark-300'
+                    : 'bg-warning-500/15 text-warning-400',
+                )}
+              >
                 {setting.env_locked
                   ? t('admin.settings.badgeServer')
                   : t('admin.settings.badgeEnv')}
@@ -122,12 +137,13 @@ export function SettingsTableRow({
           )}
         >
           {locked ? (
-            <span className="max-w-[240px] truncate rounded bg-dark-700/30 px-3 py-1.5 font-mono text-xs text-dark-400">
-              {isBool
-                ? boolChecked
-                  ? t('admin.settings.enabled')
-                  : t('admin.settings.disabled')
-                : String(setting.current ?? '-')}
+            <span
+              className={cn(
+                'whitespace-pre-wrap break-all rounded bg-dark-700/30 px-3 py-1.5 font-mono text-xs text-dark-400',
+                !isLongValue && 'max-w-[240px]',
+              )}
+            >
+              {lockedValue}
             </span>
           ) : isBool ? (
             <Toggle
