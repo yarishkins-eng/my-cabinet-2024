@@ -20,8 +20,15 @@ const SETTINGS_KEYS = [
   'serverLockedHint',
 ];
 
-function dictionary(lang: string): Record<string, any> {
-  return JSON.parse(readFileSync(join(HERE, `${lang}.json`), 'utf8')) as Record<string, any>;
+type Dictionary = {
+  admin: {
+    settings: Record<string, unknown>;
+    autoMessages: { scope: unknown; history: Record<string, unknown> };
+  };
+};
+
+function dictionary(lang: string): Dictionary {
+  return JSON.parse(readFileSync(join(HERE, `${lang}.json`), 'utf8')) as Dictionary;
 }
 
 describe('ВК-4: подписи замка «задано на сервере» и раздела «Автосообщения» на месте', () => {
