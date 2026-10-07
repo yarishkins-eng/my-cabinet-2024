@@ -105,6 +105,14 @@ describe('AdminAutoMessages: список ничего не переключае
     expect(patch).not.toHaveBeenCalled();
   });
 
+  it('над списком сказано, чего в разделе нет (ВК-4, АП-0)', async () => {
+    list.mockResolvedValue(payload([item()]));
+    renderPage();
+
+    await waitFor(() => expect(screen.getByText('Скидка на продление')).toBeTruthy());
+    expect(screen.getByText('admin.autoMessages.scope')).toBeTruthy();
+  });
+
   it('слова «не считаем» на экране нет, и прочерков тоже', async () => {
     // Владелец: «что такое не считаем? что именно не считаем? почему?». Ответ —
     // не показывать счётчик там, где его нет, вместо загадочного прочерка.

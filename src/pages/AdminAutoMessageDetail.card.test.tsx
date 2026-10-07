@@ -279,6 +279,30 @@ describe('AdminAutoMessageDetail: управление живёт здесь', (
     await waitFor(() =>
       expect(screen.getByText('admin.autoMessages.history.notCounted')).toBeTruthy(),
     );
+    expect(screen.queryByText('admin.autoMessages.history.notCountedQuiet')).toBeNull();
+  });
+
+  it.each([
+    ['выключенное', { enabled: false, quiet_reason: 'выключено в этом разделе' }],
+    ['молчащее', { enabled: true, quiet_reason: 'суточных тарифов не заведено' }],
+  ])('%s сообщение без счёта не называет себя уходящим (ВК-4, АП-0)', async (_, overrides) => {
+    // «Сообщение уходит, но бот не записывает…» про выключенное — неправда в первой же половине.
+    get.mockResolvedValue(card({ sent_count: null, history: [], state: 'quiet', ...overrides }));
+    renderCard();
+
+    await waitFor(() =>
+      expect(screen.getByText('admin.autoMessages.history.notCountedQuiet')).toBeTruthy(),
+    );
+    expect(screen.queryByText('admin.autoMessages.history.notCounted')).toBeNull();
+  });
+
+  it('счёт есть и он ноль — это «пока ни разу», а не «бот не записывает» (первые дни после выкладки)', async () => {
+    get.mockResolvedValue(card({ sent_count: 0, history: [] }));
+    renderCard();
+
+    await waitFor(() => expect(screen.getByText('admin.autoMessages.empty')).toBeTruthy());
+    expect(screen.queryByText('admin.autoMessages.history.notCounted')).toBeNull();
+    expect(screen.queryByText('admin.autoMessages.history.notCountedQuiet')).toBeNull();
   });
 
   it('текст письма виден — тот, что придёт клиенту', async () => {

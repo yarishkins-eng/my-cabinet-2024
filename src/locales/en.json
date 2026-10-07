@@ -2230,6 +2230,11 @@
       "readOnly": "Read only",
       "badgeDb": "DB",
       "badgeEnv": "ENV",
+      "badgeServer": "set on the server",
+      "lockedOnServer": "Not saved: this setting is set on the server and cannot be changed from the cabinet.",
+      "saveFailed": "Could not save the setting. Check the value and try again.",
+      "resetFailed": "Could not reset the setting. Please try again.",
+      "serverLockedHint": "Settings marked \"set on the server\" live in a file on the server. They cannot be changed from the cabinet: whoever runs the server changes them.",
       "reset": "Reset",
       "categoriesCount": "categories",
       "settingsCount": "settings",
@@ -3885,12 +3890,13 @@
         "claimed": "Claimed",
         "yes": "yes",
         "no": "no",
-        "notCounted": "The message is sent, but the bot does not record the sends. There is no way to tell how many there were, here or anywhere else. This is not zero."
+        "notCounted": "The message is sent, but the bot does not record the sends. There is no way to tell how many there were, here or anywhere else. This is not zero.",
+        "notCountedQuiet": "The bot does not record sends of this message — there is no way to tell how many there were before."
       },
       "locked": {
         "hint": "No switch here: the lever kills the bonus itself, not the letter — turning it off would also cost the client their free days of VPN. It goes on and off only together with the bonus."
       },
-      "scope": "Only messages the bot sends on a schedule. Confirmations after a payment or top-up live elsewhere and are not listed here.",
+      "scope": "Messages the bot sends on its own: on a schedule and at the moment a subscription ends. Not listed here yet: the panel's own messages (its warnings 3 days, 2 days and 1 day before the end, \"expired yesterday\", \"new device\", \"first connection\" and others; clients get them on top of the messages below); receipts after a payment or top-up; referral messages.",
       "lastCheck": "Last check:",
       "confirmOffPair": "Turn off «{{title}}»? «{{other}}» goes silent with it — inside the bot they are one and the same place. Clients stop getting both.",
       "pairShort": "one switch with «{{other}}»",

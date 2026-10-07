@@ -1920,6 +1920,11 @@
       "modifiedCount": "已修改 {{count}} 项",
       "badgeDb": "数据库",
       "badgeEnv": "环境变量",
+      "badgeServer": "在服务器上设置",
+      "lockedOnServer": "未保存：此设置在服务器上设定，无法在后台中更改。",
+      "saveFailed": "无法保存设置，请检查数值后重试。",
+      "resetFailed": "无法重置设置，请重试。",
+      "serverLockedHint": "标有“在服务器上设置”的设置保存在服务器文件中，无法在后台中更改，需由服务器管理员修改。",
       "groups": {
         "payments": "支付",
         "subscriptions": "订阅",

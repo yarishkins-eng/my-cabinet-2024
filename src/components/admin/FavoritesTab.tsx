@@ -3,6 +3,8 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { SettingDefinition, adminSettingsApi } from '../../api/adminSettings';
 import { StarIcon } from './icons';
 import { SettingsTableRow } from './SettingsTableRow';
+import { settingSaveErrorKey } from './utils';
+import { useToast } from '../Toast';
 
 interface FavoritesTabProps {
   settings: SettingDefinition[];
@@ -13,6 +15,13 @@ interface FavoritesTabProps {
 export function FavoritesTab({ settings, isFavorite, toggleFavorite }: FavoritesTabProps) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
+  const { showToast } = useToast();
+  // Отказ сервера говорим словами: раньше переключатель молча возвращался назад (мина NM). Список
+  // перечитываем — если ключ успели задать на сервере, строка сама покажет замок.
+  const onError = (action: 'save' | 'reset') => (error: unknown) => {
+    queryClient.invalidateQueries({ queryKey: ['admin-settings'] });
+    showToast({ type: 'error', message: t(settingSaveErrorKey(error, action)) });
+  };
 
   const updateSettingMutation = useMutation({
     mutationFn: ({ key, value }: { key: string; value: string }) =>
@@ -20,6 +29,7 @@ export function FavoritesTab({ settings, isFavorite, toggleFavorite }: Favorites
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['admin-settings'] });
     },
+    onError: onError('save'),
   });
 
   const resetSettingMutation = useMutation({
@@ -27,6 +37,7 @@ export function FavoritesTab({ settings, isFavorite, toggleFavorite }: Favorites
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['admin-settings'] });
     },
+    onError: onError('reset'),
   });
 
   if (settings.length === 0) {

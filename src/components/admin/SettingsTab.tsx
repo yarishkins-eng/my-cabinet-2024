@@ -3,6 +3,8 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { SettingDefinition, adminSettingsApi } from '../../api/adminSettings';
 import { QuickToggles } from './QuickToggles';
 import { SettingsTableRow } from './SettingsTableRow';
+import { settingSaveErrorKey } from './utils';
+import { useToast } from '../Toast';
 
 interface CategoryGroup {
   key: string;
@@ -27,6 +29,13 @@ export function SettingsTab({
 }: SettingsTabProps) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
+  const { showToast } = useToast();
+  // Отказ сервера говорим словами: раньше переключатель молча возвращался назад (мина NM). Список
+  // перечитываем — если ключ успели задать на сервере, строка сама покажет замок.
+  const onError = (action: 'save' | 'reset') => (error: unknown) => {
+    queryClient.invalidateQueries({ queryKey: ['admin-settings'] });
+    showToast({ type: 'error', message: t(settingSaveErrorKey(error, action)) });
+  };
 
   const updateSettingMutation = useMutation({
     mutationFn: ({ key, value }: { key: string; value: string }) =>
@@ -34,6 +43,7 @@ export function SettingsTab({
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['admin-settings'] });
     },
+    onError: onError('save'),
   });
 
   const resetSettingMutation = useMutation({
@@ -41,6 +51,7 @@ export function SettingsTab({
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['admin-settings'] });
     },
+    onError: onError('reset'),
   });
 
   // Search mode: flat list of filtered results
@@ -84,6 +95,11 @@ export function SettingsTab({
 
   return (
     <div>
+      {allCategorySettings.some((setting) => setting.env_locked) && (
+        <p className="mb-3 rounded-lg border border-dark-700/40 bg-dark-800/30 px-3 py-2 text-xs text-dark-300">
+          {t('admin.settings.serverLockedHint')}
+        </p>
+      )}
       <QuickToggles
         settings={allCategorySettings}
         onUpdate={(key, value) => updateSettingMutation.mutate({ key, value })}

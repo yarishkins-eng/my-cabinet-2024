@@ -1,3 +1,19 @@
+import axios from 'axios';
+
+// Мина NM: 409 со строкой-причиной — настройка задана на сервере (.env); 409 с объектом (идёт обнуление
+// тестового аккаунта) и всё остальное — обычный отказ. Сервер отвечает по-английски, поэтому человеку
+// показываем свой текст, а не его.
+export function settingSaveErrorKey(error: unknown, action: 'save' | 'reset' = 'save'): string {
+  if (
+    axios.isAxiosError(error) &&
+    error.response?.status === 409 &&
+    typeof error.response.data?.detail === 'string'
+  ) {
+    return 'admin.settings.lockedOnServer';
+  }
+  return action === 'reset' ? 'admin.settings.resetFailed' : 'admin.settings.saveFailed';
+}
+
 // Format setting key from Snake_Case / CamelCase to readable text
 export function formatSettingKey(name: string): string {
   if (!name) return '';

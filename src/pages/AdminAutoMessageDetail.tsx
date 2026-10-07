@@ -780,7 +780,13 @@ export default function AdminAutoMessageDetail() {
               {t('admin.autoMessages.detail.history')}
             </div>
             {data.sent_count === null ? (
-              <p className="text-sm text-dark-400">{t('admin.autoMessages.history.notCounted')}</p>
+              // «Уходит, но не записывается» — правда только про работающее сообщение: у выключенного
+              // или молчащего первая половина фразы была бы неправдой.
+              <p className="text-sm text-dark-400">
+                {quiet
+                  ? t('admin.autoMessages.history.notCountedQuiet')
+                  : t('admin.autoMessages.history.notCounted')}
+              </p>
             ) : data.history.length === 0 ? (
               <p className="text-sm text-dark-400">{t('admin.autoMessages.empty')}</p>
             ) : (
