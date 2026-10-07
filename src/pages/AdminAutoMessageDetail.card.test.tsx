@@ -296,6 +296,15 @@ describe('AdminAutoMessageDetail: управление живёт здесь', (
     expect(screen.queryByText('admin.autoMessages.history.notCounted')).toBeNull();
   });
 
+  it('счёт есть и он ноль — это «пока ни разу», а не «бот не записывает» (первые дни после выкладки)', async () => {
+    get.mockResolvedValue(card({ sent_count: 0, history: [] }));
+    renderCard();
+
+    await waitFor(() => expect(screen.getByText('admin.autoMessages.empty')).toBeTruthy());
+    expect(screen.queryByText('admin.autoMessages.history.notCounted')).toBeNull();
+    expect(screen.queryByText('admin.autoMessages.history.notCountedQuiet')).toBeNull();
+  });
+
   it('текст письма виден — тот, что придёт клиенту', async () => {
     // Это и есть весь смысл АС-10: до него владелец включал рассылку живым людям,
     // не зная её содержания.

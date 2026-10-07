@@ -31,6 +31,7 @@ vi.mock('react-i18next', () => ({
 
 import type { SettingDefinition } from '../../api/adminSettings';
 import { ToastProvider } from '../Toast';
+import { FavoritesTab } from './FavoritesTab';
 import { QuickToggles } from './QuickToggles';
 import { SettingsTab } from './SettingsTab';
 import { SettingsTableRow } from './SettingsTableRow';
@@ -79,10 +80,13 @@ function rejection(
   });
 }
 
-function renderTab(items: SettingDefinition[]) {
-  const client = new QueryClient({
+function queryClient() {
+  return new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
+}
+
+function renderTab(items: SettingDefinition[], client = queryClient()) {
   return render(
     <QueryClientProvider client={client}>
       <ToastProvider>
@@ -202,5 +206,66 @@ describe('ВК-4, мина NM: настройка с сервера не при�
 
     await waitFor(() => expect(screen.getByText(text)).toBeTruthy());
     expect(updateSetting).toHaveBeenCalledWith('WEBHOOK_NOTIFY_SUB_EXPIRED', 'false');
+  });
+
+  it('после отказа список перечитывается: переключатель встаёт в правду сервера', async () => {
+    updateSetting.mockRejectedValue(rejection(409));
+    const client = queryClient();
+    const invalidate = vi.spyOn(client, 'invalidateQueries');
+    renderTab([setting()], client);
+
+    fireEvent.click(screen.getAllByRole('switch')[0]);
+
+    await waitFor(() => expect(screen.getByText('admin.settings.lockedOnServer')).toBeTruthy());
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['admin-settings'] });
+  });
+
+  it('подсказка о замке видна, если под замком хоть одна настройка из многих', () => {
+    renderTab([setting({ env_locked: true }), setting({ key: 'FREE', name: 'FREE' })]);
+    expect(screen.getByText('admin.settings.serverLockedHint')).toBeTruthy();
+  });
+
+  it('«Избранное» тоже говорит словами об отказе сохранения и сброса', async () => {
+    updateSetting.mockRejectedValue(rejection(409));
+    resetSetting.mockRejectedValue(rejection(500));
+    const favorites = () =>
+      render(
+        <QueryClientProvider client={queryClient()}>
+          <ToastProvider>
+            <FavoritesTab
+              settings={[setting({ has_override: true })]}
+              isFavorite={() => true}
+              toggleFavorite={() => {}}
+            />
+          </ToastProvider>
+        </QueryClientProvider>,
+      );
+
+    favorites();
+    fireEvent.click(screen.getAllByRole('switch')[0]);
+    await waitFor(() => expect(screen.getByText('admin.settings.lockedOnServer')).toBeTruthy());
+    cleanup();
+
+    favorites();
+    fireEvent.click(screen.getAllByLabelText('admin.settings.reset')[0]);
+    await waitFor(() => expect(screen.getByText('admin.settings.resetFailed')).toBeTruthy());
+  });
+
+  it('у настройки под замком нет ни значка «БД», ни кнопки «Сбросить»', () => {
+    row(setting({ env_locked: true, has_override: true }));
+    expect(screen.queryByText('admin.settings.badgeDb')).toBeNull();
+    expect(screen.queryByLabelText('admin.settings.reset')).toBeNull();
+  });
+
+  it('настройка только для чтения — тоже замок, а не переключатель', () => {
+    row(setting({ read_only: true }));
+    expect(screen.queryByRole('switch')).toBeNull();
+    expect(screen.getByText('admin.settings.badgeEnv')).toBeTruthy();
+  });
+
+  it('пустое (null) значение под замком — прочерк, а не слово null', () => {
+    row(setting({ type: 'str', current: null as unknown as string, env_locked: true }));
+    expect(screen.getByText('—')).toBeTruthy();
+    expect(screen.queryByText('null')).toBeNull();
   });
 });
