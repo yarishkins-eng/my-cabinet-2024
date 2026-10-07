@@ -35,6 +35,8 @@ export interface SettingDefinition {
   original: unknown;
   has_override: boolean;
   read_only: boolean;
+  // Мина NM: ключ задан в .env на сервере — сохранение из кабинета сервер отбивает 409.
+  env_locked?: boolean;
   choices: SettingChoice[];
   hint?: SettingHint | null;
 }

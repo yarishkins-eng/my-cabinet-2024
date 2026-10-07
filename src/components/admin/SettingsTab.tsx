@@ -3,6 +3,8 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { SettingDefinition, adminSettingsApi } from '../../api/adminSettings';
 import { QuickToggles } from './QuickToggles';
 import { SettingsTableRow } from './SettingsTableRow';
+import { settingSaveErrorKey } from './utils';
+import { useToast } from '../Toast';
 
 interface CategoryGroup {
   key: string;
@@ -27,6 +29,10 @@ export function SettingsTab({
 }: SettingsTabProps) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
+  const { showToast } = useToast();
+  // Отказ сервера говорим словами: раньше переключатель молча возвращался назад (мина NM).
+  const onSaveError = (error: unknown) =>
+    showToast({ type: 'error', message: t(settingSaveErrorKey(error)) });
 
   const updateSettingMutation = useMutation({
     mutationFn: ({ key, value }: { key: string; value: string }) =>
@@ -34,6 +40,7 @@ export function SettingsTab({
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['admin-settings'] });
     },
+    onError: onSaveError,
   });
 
   const resetSettingMutation = useMutation({
@@ -41,6 +48,7 @@ export function SettingsTab({
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['admin-settings'] });
     },
+    onError: onSaveError,
   });
 
   // Search mode: flat list of filtered results

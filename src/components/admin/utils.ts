@@ -1,3 +1,13 @@
+import axios from 'axios';
+
+// Мина NM: 409 — настройка задана на сервере (.env), остальное — обычный отказ. Сервер отвечает
+// по-английски, поэтому человеку показываем свой текст, а не его.
+export function settingSaveErrorKey(error: unknown): string {
+  return axios.isAxiosError(error) && error.response?.status === 409
+    ? 'admin.settings.lockedOnServer'
+    : 'admin.settings.saveFailed';
+}
+
 // Format setting key from Snake_Case / CamelCase to readable text
 export function formatSettingKey(name: string): string {
   if (!name) return '';
