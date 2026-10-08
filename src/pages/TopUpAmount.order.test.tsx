@@ -597,6 +597,8 @@ describe('TopUpAmount — «Оплата заказа» (ВК-16 · 16в-1)', ()
       devices: 3,
       change_method: true,
     });
+    // Прежнего счёта не было — предупреждать не о чем.
+    expect(screen.queryByText('balance.topUpOrder.oldInvoiceVoid')).toBeNull();
   });
 
   it('криптовалюты на «Оплате заказа» нет; касса с криптой — счёт по СБП', async () => {

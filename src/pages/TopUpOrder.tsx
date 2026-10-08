@@ -114,7 +114,7 @@ export default function TopUpOrder({
   const mutation = useMutation<
     TopUpResponse,
     unknown,
-    { option: string | null; changeMethod: boolean; confirmedAt: string | null }
+    { option: string | null; changeMethod: boolean; confirmedAt: string | null; replacing: boolean }
   >({
     mutationFn: ({ option, changeMethod, confirmedAt }) => {
       const intent: TopUpIntentRequest = { period_days: periodDays, devices };
@@ -124,7 +124,7 @@ export default function TopUpOrder({
       return balanceApi.createTopUp(amountKopeks, method.id, option ?? undefined, intent);
     },
     onSuccess: (data, variables) => {
-      setReplacedOld(variables.changeMethod && data.intent_status === 'accepted');
+      setReplacedOld(variables.replacing && data.intent_status === 'accepted');
       // Защита от отката 3а: сервер снова спросил ПРО ТУ ЖЕ покупку, на которую мы уже ответили «да», — значит
       // ответ он не принял. Задать тот же вопрос второй раз — замкнуть человека в круге.
       if (
@@ -179,7 +179,9 @@ export default function TopUpOrder({
         return;
       }
       setBusy(true);
-      mutate({ option, changeMethod, confirmedAt: confirmedRef.current });
+      // «Прежний счёт не оплачивайте» — только если прежний счёт у человека был.
+      const replacing = changeMethod && paymentIdRef.current !== null;
+      mutate({ option, changeMethod, confirmedAt: confirmedRef.current, replacing });
     },
     [mutate, t],
   );
