@@ -1024,6 +1024,33 @@
         }
       }
     },
+    "topUpOrder": {
+      "title": "Order payment",
+      "price": "Price",
+      "fromBalance": "From your balance",
+      "toPay": "To pay",
+      "preparing": "Preparing the invoice…",
+      "pay": "Pay {{amount}}",
+      "autoPromise": "Your subscription will be set up automatically once the bank confirms the payment — even if you close this window.",
+      "alreadyPaying": "There is already an unpaid invoice for this order — you can pay it.",
+      "otherMethodHint": "Another method — pick it above and we will issue a new invoice.",
+      "ordinary": "This is a regular balance top-up: after paying, go back to your order and place it.",
+      "openOrder": "You already have an open order — open it.",
+      "toMyOrder": "My order",
+      "onReview": "Your order is under review — contact support and we'll sort it out.",
+      "writeSupport": "Contact support",
+      "fulfilledWhat": "Already ordered: {{what}}.",
+      "fulfilledRecent": "There was already a purchase within the last hour.",
+      "fulfilledUntil": "Your subscription is active until {{date}}.",
+      "morePeriodQuestion": "Pay for another term — {{what}} for {{price}}?",
+      "morePeriodQuestionNoPrice": "Pay for another term — {{what}}?",
+      "morePeriodYes": "Yes, pay for another term",
+      "morePeriodNo": "No, go to home",
+      "balanceCovers": "Your balance already covers this order — place it from the balance.",
+      "backToOrder": "Back to the order",
+      "changeOrder": "‹ Change order",
+      "confirmRejected": "We couldn't confirm paying for another term. Please open the order again."
+    },
     "top_up": "Top up balance"
   },
   "referral": {

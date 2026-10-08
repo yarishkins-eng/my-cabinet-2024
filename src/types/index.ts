@@ -698,6 +698,36 @@ export interface PendingPayment {
   intent_offer_tariff_name?: string | null;
 }
 
+/** 🔴 ВК-16 (16в-1). Заказ, ради которого доплачивают: срок и устройства. Цену и сумму считает сервер. */
+export interface TopUpIntentRequest {
+  period_days: number;
+  devices: number;
+  /** Ответ «да» на «Уже оформлено до …»: `purchased_at` того вопроса СТРОКОЙ, как пришла (мина OP). */
+  confirmed_purchase_at?: string;
+  /** Человек сам выбрал другой способ при живом счёте того же заказа (мина OR). */
+  change_method?: boolean;
+}
+
+/** Ответ `POST /cabinet/balance/topup`. Договор — докстринг `TopUpResponse` бота (16а-1, 3а). */
+export interface TopUpResponse {
+  payment_id?: string | null;
+  payment_url?: string | null;
+  invoice_url?: string;
+  amount_kopeks: number;
+  amount_rubles: number;
+  status: string;
+  expires_at: string | null;
+  intent_status?: string | null;
+  intent_reason?: string | null;
+  checkout_public_id?: string | null;
+  period_days?: number | null;
+  devices?: number | null;
+  price_kopeks?: number | null;
+  subscription_end_date?: string | null;
+  purchased_at?: string | null;
+  payment_option?: string | null;
+}
+
 export interface ManualCheckResponse {
   success: boolean;
   message: string;

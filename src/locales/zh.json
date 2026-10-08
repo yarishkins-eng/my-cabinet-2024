@@ -798,6 +798,33 @@
         }
       }
     },
+    "topUpOrder": {
+      "title": "订单付款",
+      "price": "价格",
+      "fromBalance": "从您的余额",
+      "toPay": "应付",
+      "preparing": "正在生成账单…",
+      "pay": "支付 {{amount}}",
+      "autoPromise": "银行确认付款后，订阅会自动开通 — 即使您关闭此窗口。",
+      "alreadyPaying": "此订单已有一张未支付的账单 — 您可以直接支付。",
+      "otherMethodHint": "其他方式 — 请在上方选择，我们会开具新账单。",
+      "ordinary": "这是普通的余额充值：付款后请返回订单并下单。",
+      "openOrder": "您已有一个未完成的订单 — 请打开它。",
+      "toMyOrder": "我的订单",
+      "onReview": "您的订单正在审核中 — 请联系客服。",
+      "writeSupport": "联系客服",
+      "fulfilledWhat": "已下单：{{what}}。",
+      "fulfilledRecent": "最近一小时内已有一笔购买。",
+      "fulfilledUntil": "您的订阅有效期至 {{date}}。",
+      "morePeriodQuestion": "再支付一个周期 — {{what}}，{{price}}？",
+      "morePeriodQuestionNoPrice": "再支付一个周期 — {{what}}？",
+      "morePeriodYes": "是的，再支付一个周期",
+      "morePeriodNo": "不，返回首页",
+      "balanceCovers": "您的余额已足够支付此订单 — 请用余额下单。",
+      "backToOrder": "返回订单",
+      "changeOrder": "‹ 修改订单",
+      "confirmRejected": "无法确认再支付一个周期。请重新打开订单。"
+    },
     "top_up": "充值"
   },
   "referral": {

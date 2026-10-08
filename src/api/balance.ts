@@ -9,6 +9,8 @@ import type {
   PendingPayment,
   ManualCheckResponse,
   SavedCardsResponse,
+  TopUpIntentRequest,
+  TopUpResponse,
 } from '../types';
 
 export const balanceApi = {
@@ -44,20 +46,16 @@ export const balanceApi = {
     amountKopeks: number,
     paymentMethod: string,
     paymentOption?: string,
-  ): Promise<{
-    payment_id: string;
-    payment_url: string;
-    amount_kopeks: number;
-    amount_rubles: number;
-    status: string;
-    expires_at: string | null;
-  }> => {
+    // 🔴 ВК-16 (16в-1). Доплата под заказ: сервер сам считает сумму и отвечает исходом (`intent_status`).
+    intent?: TopUpIntentRequest,
+  ): Promise<TopUpResponse> => {
     const payload: {
       amount_kopeks: number;
       payment_method: string;
       payment_option?: string;
       language?: string;
       return_surface?: string;
+      intent?: TopUpIntentRequest;
     } = {
       amount_kopeks: amountKopeks,
       payment_method: paymentMethod,
@@ -71,6 +69,7 @@ export const balanceApi = {
     // где он не авторизован, и упирался в форму входа. Спрашивать сервер об этом бесполезно:
     // с его стороны запрос из мини-приложения и из браузера выглядит одинаково.
     payload.return_surface = isInTelegramWebApp() ? 'telegram' : 'web';
+    if (intent) payload.intent = intent;
     const response = await apiClient.post('/cabinet/balance/topup', payload);
     return response.data;
   },
