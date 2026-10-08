@@ -602,7 +602,17 @@ export default function TopUpAmount() {
     );
   }
 
-  if (orderMode && checkoutReturn && initialAmountRubles && orderPeriodDays && orderDevices) {
+  // Решение «Оплата заказа» — до первого счёта: если прежний экран уже выставил обычный счёт (признак не ответил,
+  // а потом перечитался), на «Оплату заказа» не переключаемся — иначе на один заказ было бы два живых счёта.
+  const plainInvoiceStarted = !!paymentUrl || topUpMutation.isPending || !!topUpMutation.data;
+  if (
+    orderMode &&
+    !plainInvoiceStarted &&
+    checkoutReturn &&
+    initialAmountRubles &&
+    orderPeriodDays &&
+    orderDevices
+  ) {
     return (
       <TopUpOrder
         method={method}

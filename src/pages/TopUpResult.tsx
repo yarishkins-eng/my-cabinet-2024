@@ -75,10 +75,15 @@ const CLOSED_PAID_GRACE_MS = 2 * 60 * 1000;
 function intentSettled(payment: PendingPayment, closedPaidExpired: boolean): boolean {
   switch (payment.intent_outcome) {
     case 'fulfilled':
-    case 'refused':
       return true;
+    case 'refused':
+      // Отказ «оформить» / «к заказу» сервер ещё может сменить: купил этот же заказ другим путём — `fulfilled`,
+      // другой — `bought` (предложение гаснет, `topup_intent_screen_view`). Опрос идёт до потолка, чтобы кнопка
+      // «Перейти к оформлению» не висела после покупки.
+      return payment.intent_refusal_kind !== 'retry' && payment.intent_refusal_kind !== 'order';
     case 'closed':
-      return !payment.intent_paid || closedPaidExpired;
+      // Закрытый без денег счёт у провайдера ещё можно оплатить — ждём, пока провайдер его не закроет.
+      return payment.intent_paid ? closedPaidExpired : isFailedStatus(payment.status);
     case 'waiting':
       return isFailedStatus(payment.status);
     default:
@@ -469,16 +474,21 @@ const QUIET_BUTTON =
 const MAIN_BUTTON =
   'flex min-h-[44px] w-full items-center justify-center gap-2 rounded-xl bg-accent-500 px-6 py-3 text-sm font-medium text-white transition-colors hover:bg-accent-400';
 
+/**
+ * Ожидание доплаты под заказ: `waiting` — денег ещё нет, `processing` — пришли, оформляем, `checking` — закрытое
+ * намерение с пришедшими деньгами (сервер его НЕ оформит, ждём отказ — без обещания «оформится сама»).
+ * «Проверить ещё раз» — только пока денег нет: для оплаченного `/check` в платёжную систему не ходит.
+ */
 function IntentWaitingState({
   amountKopeks,
-  paid,
+  mode,
   onCheck,
   checking,
   onLeave,
   leaveLabelKey,
 }: {
   amountKopeks: number | null;
-  paid: boolean;
+  mode: 'waiting' | 'processing' | 'checking';
   onCheck: (() => void) | null;
   checking: boolean;
   onLeave: () => void;
@@ -494,18 +504,22 @@ function IntentWaitingState({
       <Spinner className="h-16 w-16 border-[3px]" />
       <div>
         <h1 className="text-xl font-bold text-dark-50">
-          {paid
-            ? t('balance.topUpResult.intent.processingTitle')
-            : t('balance.topUpResult.intent.waitingTitle')}
+          {t(`balance.topUpResult.intent.${mode}Title`)}
         </h1>
-        <p className="mt-2 text-sm text-dark-400">{t('balance.topUpResult.intent.waitingDesc')}</p>
+        <p className="mt-2 text-sm text-dark-400">{t(`balance.topUpResult.intent.${mode}Desc`)}</p>
       </div>
       {amountKopeks != null && amountKopeks > 0 && (
         <AmountDisplay amountKopeks={amountKopeks} label={t('balance.topUpResult.topUpAmount')} />
       )}
       <div className="flex flex-wrap items-center justify-center gap-3">
-        {onCheck && (
-          <button type="button" onClick={onCheck} disabled={checking} className={QUIET_BUTTON}>
+        {onCheck && mode === 'waiting' && (
+          <button
+            type="button"
+            onClick={onCheck}
+            disabled={checking}
+            aria-busy={checking}
+            className={`${QUIET_BUTTON} disabled:opacity-50`}
+          >
             {t('balance.topUpResult.intent.checkAgain')}
           </button>
         )}
@@ -531,9 +545,7 @@ function IntentReadyState({ checkoutPath }: { checkoutPath: string }) {
         <h1 className="text-xl font-bold text-dark-50">
           {t('balance.topUpResult.intent.readyTitle')}
         </h1>
-        <p role="status" className="mt-2 text-sm text-dark-400">
-          {t('balance.topUpResult.intent.readyDesc')}
-        </p>
+        <p className="mt-2 text-sm text-dark-400">{t('balance.topUpResult.intent.readyDesc')}</p>
       </div>
       <button
         type="button"
@@ -558,16 +570,14 @@ function IntentReadyState({ checkoutPath }: { checkoutPath: string }) {
 function IntentNotPlacedState({
   payment,
   amountKopeks,
-  timedOut,
 }: {
   payment: PendingPayment;
   amountKopeks: number | null;
-  timedOut: boolean;
 }) {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const { formatAmount, currencySymbol } = useCurrency();
-  const kind = timedOut ? null : (payment.intent_refusal_kind ?? null);
+  const kind = payment.intent_refusal_kind ?? null;
   const reason =
     payment.intent_reason && INTENT_REASONS.has(payment.intent_reason)
       ? payment.intent_reason
@@ -627,14 +637,16 @@ function IntentNotPlacedState({
             ? t('balance.topUpResult.intent.boughtTitle')
             : t('balance.topUpResult.intent.notPlacedTitle')}
         </h1>
-        {!timedOut && (
+        <p className="mt-2 text-sm text-dark-400">
+          {t(`balance.topUpResult.intent.reasons.${reason}`)}
+        </p>
+        {/* «Деньги на балансе» — не после чужой покупки (она могла их потратить; бот тут пишет остаток) и не рядом с
+            «не хватило» (причина сама говорит, где деньги). */}
+        {kind !== 'bought' && reason !== 'balance_short' && (
           <p className="mt-2 text-sm text-dark-400">
-            {t(`balance.topUpResult.intent.reasons.${reason}`)}
+            {t('balance.topUpResult.intent.moneyOnBalance')}
           </p>
         )}
-        <p className="mt-2 text-sm text-dark-400">
-          {t('balance.topUpResult.intent.moneyOnBalance')}
-        </p>
       </div>
       {amountKopeks != null && amountKopeks > 0 && (
         <AmountDisplay amountKopeks={amountKopeks} label={t('balance.topUpResult.topUpAmount')} />
@@ -657,11 +669,50 @@ function IntentNotPlacedState({
   );
 }
 
+/**
+ * Десять минут «оформляем» без исхода (мина OU). Деньги пришли, а исход не записан — бывает и при уже списанном
+ * заказе (сбой записи исхода), поэтому к покупке второго срока не зовём: главная дверь — поддержка.
+ */
+function IntentDelayedState({ amountKopeks }: { amountKopeks: number | null }) {
+  const { t } = useTranslation();
+  const navigate = useNavigate();
+  const go = (path: string) => {
+    clearTopUpPendingInfo();
+    navigate(path, { replace: true });
+  };
+  return (
+    <motion.div
+      initial={{ opacity: 0, scale: 0.9 }}
+      animate={{ opacity: 1, scale: 1 }}
+      className="flex flex-col items-center gap-6 text-center"
+    >
+      <div>
+        <h1 className="text-xl font-bold text-dark-50">
+          {t('balance.topUpResult.intent.delayedTitle')}
+        </h1>
+        <p className="mt-2 text-sm text-dark-400">{t('balance.topUpResult.intent.delayedDesc')}</p>
+      </div>
+      {amountKopeks != null && amountKopeks > 0 && (
+        <AmountDisplay amountKopeks={amountKopeks} label={t('balance.topUpResult.topUpAmount')} />
+      )}
+      <div className="flex w-full flex-col gap-3">
+        <button type="button" onClick={() => go('/support')} className={MAIN_BUTTON}>
+          {t('balance.topUpResult.intent.writeSupport')}
+        </button>
+        <button type="button" onClick={() => go('/')} className={QUIET_BUTTON}>
+          {t('balance.topUpResult.goToHome')}
+        </button>
+      </div>
+    </motion.div>
+  );
+}
+
 /** Намерение закрыто до оплаты (сменили способ — `replaced`, отменили заказ в боте — `cancelled`): денег нет. */
 function IntentClosedState({ reason, returnTo }: { reason: string; returnTo: string | null }) {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const why = INTENT_REASONS.has(reason) ? reason : 'technical_error';
+  // Незнакомая причина у закрытого БЕЗ денег — строку не показываем: оформления не было, «что-то пошло не так» врёт.
+  const why = INTENT_REASONS.has(reason) && reason !== 'technical_error' ? reason : null;
   const back = resolveCheckoutReturn(returnTo) ?? '/subscription/purchase';
   const go = (path: string) => {
     clearTopUpPendingInfo();
@@ -677,9 +728,11 @@ function IntentClosedState({ reason, returnTo }: { reason: string; returnTo: str
         <h1 className="text-xl font-bold text-dark-50">
           {t('balance.topUpResult.intent.closedTitle')}
         </h1>
-        <p className="mt-2 text-sm text-dark-400">
-          {t(`balance.topUpResult.intent.reasons.${why}`)}
-        </p>
+        {why && (
+          <p className="mt-2 text-sm text-dark-400">
+            {t(`balance.topUpResult.intent.reasons.${why}`)}
+          </p>
+        )}
         <p className="mt-2 text-sm text-dark-400">
           {t('balance.topUpResult.intent.closedNoMoney')}
         </p>
@@ -1075,6 +1128,17 @@ export default function TopUpResult() {
     return () => clearTimeout(timer);
   }, [closedPaid, closedPaidExpired]);
 
+  // Деньги по намерению пришли (в том числе по СТАРОМУ счёту или при сброшенном `is_paid`, мина OH) — касса,
+  // куда ведут кнопки отказа, обязана взять свежий баланс, а не прежнее «Не хватает N» (мины EC, РЕК-3).
+  const intentCacheDroppedRef = useRef(false);
+  useEffect(() => {
+    if (!intentPaid || intentCacheDroppedRef.current) return;
+    intentCacheDroppedRef.current = true;
+    queryClient.removeQueries({ queryKey: ['device-first-options'] });
+    queryClient.invalidateQueries({ queryKey: ['balance'] });
+    refreshUser();
+  }, [intentPaid, queryClient, refreshUser]);
+
   const intentCheckoutId =
     intentOutcome === 'fulfilled' ? (intentPayment?.intent_checkout_public_id ?? null) : null;
   const intentReadyPath = intentCheckoutId
@@ -1117,38 +1181,40 @@ export default function TopUpResult() {
   }, [checkMethod, checkId, checking, canPollById, refetch, refetchLatest]);
 
   const renderIntent = (payment: PendingPayment) => {
-    const waiting = (paid: boolean) => (
+    const waiting = (mode: 'waiting' | 'processing' | 'checking') => (
       <IntentWaitingState
         amountKopeks={intentAmountKopeks}
-        paid={paid}
+        mode={mode}
         onCheck={canCheck ? handleCheckAgain : null}
         checking={checking}
         onLeave={handleGoBack}
         leaveLabelKey={exit.labelKey}
       />
     );
-    const notPlaced = (timedOut: boolean) => (
-      <IntentNotPlacedState
-        payment={payment}
-        amountKopeks={intentAmountKopeks}
-        timedOut={timedOut}
-      />
+    const notPlaced = () => (
+      <IntentNotPlacedState payment={payment} amountKopeks={intentAmountKopeks} />
     );
     switch (payment.intent_outcome) {
       case 'fulfilled':
         return <IntentReadyState checkoutPath={intentReadyPath} />;
       case 'refused':
-        return notPlaced(false);
+        return notPlaced();
       case 'closed':
         if (!intentPaid) {
           return <IntentClosedState reason={payment.intent_reason ?? ''} returnTo={returnTo} />;
         }
-        return closedPaidExpired ? notPlaced(false) : waiting(true);
+        return closedPaidExpired ? notPlaced() : waiting('checking');
       case 'processing':
-        return pollTimedOut ? notPlaced(true) : waiting(true);
+        return pollTimedOut ? (
+          <IntentDelayedState amountKopeks={intentAmountKopeks} />
+        ) : (
+          waiting('processing')
+        );
       default:
-        if (serverSaysFailed)
+        // Банк вернул на «не прошло» — отказ показываем сразу, опрос идёт дальше (как у обычного пополнения, В-1).
+        if (serverSaysFailed || isRedirectFailed) {
           return <FailedState amountKopeks={amountKopeks} returnTo={returnTo} />;
+        }
         if (pollTimedOut) {
           return (
             <TimeoutState
@@ -1158,7 +1224,7 @@ export default function TopUpResult() {
             />
           );
         }
-        return waiting(serverSaysPaid);
+        return waiting(serverSaysPaid ? 'processing' : 'waiting');
     }
   };
 

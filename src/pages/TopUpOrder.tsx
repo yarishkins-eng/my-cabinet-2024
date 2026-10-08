@@ -59,7 +59,17 @@ export default function TopUpOrder({
   const [selectedOption, setSelectedOption] = useState<string | null>(initialOptionId);
   const [answer, setAnswer] = useState<TopUpResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Ответ «да» сервер не принял — повторять тот же запрос бессмысленно, ведём назад к заказу.
+  const [rejected, setRejected] = useState(false);
   const leftToPayRef = useRef(false);
+  // 🔴 Волна 1 (три линзы): каждый запрос экрана несёт ответ «да», если он был, а «Повторить» повторяет ИМЕННО
+  // неудавшийся запрос — со сменой способа. Иначе после «да» сменить способ нельзя (сервер спросит снова, второе «да»
+  // без смены способа вернёт старый счёт — круг), а повтор молча откатывает выбор на старый счёт.
+  const confirmedRef = useRef<string | null>(loadConfirmedPurchase(periodDays, devices));
+  const lastArgsRef = useRef<{ option: string | null; changeMethod: boolean }>({
+    option: initialOptionId,
+    changeMethod: false,
+  });
   const paymentIdRef = useRef<string | null>(null);
   const sentConfirmationRef = useRef<string | null>(null);
   const autoStartedRef = useRef(false);
@@ -110,6 +120,7 @@ export default function TopUpOrder({
         data.purchased_at === sentConfirmationRef.current
       ) {
         setAnswer(null);
+        setRejected(true);
         setError(t('balance.topUpOrder.confirmRejected'));
         return;
       }
@@ -120,28 +131,30 @@ export default function TopUpOrder({
         return;
       }
       if (data.payment_url) rememberPayment(data);
-      if (
-        data.intent_status === 'already_paying' &&
-        data.payment_option &&
-        method.options?.some((option) => option.id === data.payment_option)
-      ) {
-        setSelectedOption(data.payment_option);
+      if (data.intent_status === 'already_paying') {
+        // Отмечен способ ЖИВОГО счёта; его нет в списке — не отмечен никакой, и любой выбор выставит новый счёт.
+        const known = method.options?.some((option) => option.id === data.payment_option);
+        setSelectedOption(known ? (data.payment_option ?? null) : null);
       }
       setAnswer(data);
     },
     onSettled: () => setBusy(false),
-    onError: (err: unknown) => {
-      const detail = (err as { response?: { data?: { detail?: unknown } } })?.response?.data
-        ?.detail;
-      setError(typeof detail === 'string' && detail ? detail : t('common.error'));
+    // Ошибка — кнопку оплаты прежнего счёта рядом не оставляем: отмечен уже другой способ, и «Оплатить» повела бы
+    // не туда. Сырой текст сервера (по-английски) человеку не показываем.
+    onError: () => {
+      setAnswer(null);
+      setError(t('common.error'));
     },
   });
 
   const { mutate } = mutation;
   const request = useCallback(
-    (option: string | null, changeMethod: boolean, confirmedAt: string | null) => {
+    (option: string | null, changeMethod: boolean) => {
       setError(null);
+      setRejected(false);
+      lastArgsRef.current = { option, changeMethod };
       if (!checkRateLimit(RATE_LIMIT_KEYS.PAYMENT, 3, 30000)) {
+        setAnswer(null);
         setError(
           t('balance.errors.rateLimit', {
             seconds: getRateLimitResetTime(RATE_LIMIT_KEYS.PAYMENT),
@@ -150,7 +163,7 @@ export default function TopUpOrder({
         return;
       }
       setBusy(true);
-      mutate({ option, changeMethod, confirmedAt });
+      mutate({ option, changeMethod, confirmedAt: confirmedRef.current });
     },
     [mutate, t],
   );
@@ -159,8 +172,8 @@ export default function TopUpOrder({
   useEffect(() => {
     if (autoStartedRef.current) return;
     autoStartedRef.current = true;
-    request(initialOptionId, false, loadConfirmedPurchase(periodDays, devices));
-  }, [request, initialOptionId, periodDays, devices]);
+    request(initialOptionId, false);
+  }, [request, initialOptionId]);
 
   const goToResult = useCallback(() => {
     if (!paymentIdRef.current) return;
@@ -191,19 +204,33 @@ export default function TopUpOrder({
     if (optionId === selectedOption || busy) return;
     setSelectedOption(optionId);
     // Живой счёт этого заказа уже есть — новый счёт другим способом только явным «сменить способ» (мина OR).
-    request(optionId, LIVE_INVOICE.has(answer?.intent_status ?? ''), null);
+    request(optionId, LIVE_INVOICE.has(answer?.intent_status ?? ''));
   };
 
   const handleConfirmMore = () => {
     const purchasedAt = answer?.purchased_at;
     if (!purchasedAt) return;
     saveConfirmedPurchase(periodDays, devices, purchasedAt);
-    request(selectedOption, false, purchasedAt);
+    confirmedRef.current = purchasedAt;
+    // Вопрос мог прийти в ответ на смену способа — «да» повторяет её же.
+    request(lastArgsRef.current.option, lastArgsRef.current.changeMethod);
   };
+  const retry = () => request(lastArgsRef.current.option, lastArgsRef.current.changeMethod);
+
+  // `ordinary` — сервер не принял намерение. Запрет покупок и удаление аккаунта — в поддержку; заказ нельзя
+  // оформить — назад к заказу. Платить в этих случаях бессмысленно: оформить потом будет нечего.
+  const ordinaryReason =
+    answer?.intent_status === 'ordinary' ? (answer.intent_reason ?? null) : null;
+  const ordinaryBlocked =
+    ordinaryReason === 'restricted' ||
+    ordinaryReason === 'account_erasure' ||
+    ordinaryReason === 'unavailable';
 
   const status = answer?.intent_status ?? null;
   const showsInvoice =
-    !!answer?.payment_url && (LIVE_INVOICE.has(status ?? '') || !status || status === 'ordinary');
+    !!answer?.payment_url &&
+    !ordinaryBlocked &&
+    (LIVE_INVOICE.has(status ?? '') || !status || status === 'ordinary');
   const promise = !!answer?.payment_url && LIVE_INVOICE.has(status ?? '');
   const price = answer?.price_kopeks ?? null;
   const toPay = showsInvoice ? answer!.amount_kopeks : null;
@@ -263,7 +290,7 @@ export default function TopUpOrder({
                 aria-pressed={selectedOption === option.id}
                 disabled={busy}
                 onClick={() => handlePickOption(option.id)}
-                className={`min-h-[44px] rounded-xl px-4 py-3 text-sm font-semibold transition-all duration-200 ${
+                className={`min-h-[44px] rounded-xl px-4 py-3 text-sm font-semibold transition-all duration-200 disabled:opacity-50 ${
                   selectedOption === option.id
                     ? 'bg-accent-500/15 text-accent-400 ring-2 ring-accent-500/40'
                     : 'border border-dark-700/50 bg-dark-800/70 text-dark-300 hover:bg-dark-700/70'
@@ -284,25 +311,52 @@ export default function TopUpOrder({
 
       {error && (
         <div className="space-y-3">
-          <div className="flex items-center gap-2 rounded-xl border border-error-500/20 bg-error-500/10 p-3">
+          <div
+            role="alert"
+            className="flex items-center gap-2 rounded-xl border border-error-500/20 bg-error-500/10 p-3"
+          >
             <ExclamationIcon className="h-5 w-5 shrink-0 text-error-400" />
             <span className="text-sm text-error-400">{error}</span>
           </div>
-          <Button
-            type="button"
-            fullWidth
-            variant="secondary"
-            onClick={() => request(selectedOption, false, null)}
-          >
-            {t('common.retry')}
-          </Button>
+          {rejected ? (
+            <Button
+              type="button"
+              fullWidth
+              size="lg"
+              onClick={() => navigate(checkoutReturn, { replace: true })}
+            >
+              {t('balance.topUpOrder.backToOrder')}
+            </Button>
+          ) : (
+            <Button type="button" fullWidth size="lg" variant="secondary" onClick={retry}>
+              {t('common.retry')}
+            </Button>
+          )}
         </div>
       )}
 
       {!busy && answer && (
-        <div className="space-y-3" role="status">
+        <div className="space-y-3">
           {status === 'already_paying' && note(t('balance.topUpOrder.alreadyPaying'))}
-          {status === 'ordinary' && note(t('balance.topUpOrder.ordinary'))}
+          {status === 'ordinary' &&
+            (ordinaryBlocked
+              ? note(t(`balance.topUpResult.intent.reasons.${ordinaryReason}`))
+              : note(t('balance.topUpOrder.ordinary')))}
+          {status === 'ordinary' && showsInvoice && (
+            <p className="text-sm font-semibold text-dark-100">
+              {t('balance.topUpOrder.toPay')}: {money(answer.amount_kopeks)}
+            </p>
+          )}
+          {ordinaryBlocked && ordinaryReason !== 'unavailable' && (
+            <Button
+              type="button"
+              fullWidth
+              size="lg"
+              onClick={() => navigate('/support', { replace: true })}
+            >
+              {t('balance.topUpOrder.writeSupport')}
+            </Button>
+          )}
           {showsInvoice && (
             <Button
               type="button"
@@ -327,6 +381,7 @@ export default function TopUpOrder({
               <Button
                 type="button"
                 fullWidth
+                size="lg"
                 onClick={() =>
                   navigate(
                     answer.checkout_public_id
@@ -347,6 +402,7 @@ export default function TopUpOrder({
               <Button
                 type="button"
                 fullWidth
+                size="lg"
                 onClick={() => navigate('/support', { replace: true })}
               >
                 {t('balance.topUpOrder.writeSupport')}
@@ -374,7 +430,7 @@ export default function TopUpOrder({
                       ? t('balance.topUpOrder.morePeriodQuestion', { what, price: money(price) })
                       : t('balance.topUpOrder.morePeriodQuestionNoPrice', { what }),
                   )}
-                  <Button type="button" fullWidth onClick={handleConfirmMore}>
+                  <Button type="button" fullWidth size="lg" onClick={handleConfirmMore}>
                     {t('balance.topUpOrder.morePeriodYes')}
                   </Button>
                 </>
@@ -382,6 +438,7 @@ export default function TopUpOrder({
               <Button
                 type="button"
                 fullWidth
+                size="lg"
                 variant="secondary"
                 onClick={() => navigate('/', { replace: true })}
               >
@@ -396,6 +453,7 @@ export default function TopUpOrder({
               <Button
                 type="button"
                 fullWidth
+                size="lg"
                 onClick={() => navigate(checkoutReturn, { replace: true })}
               >
                 {t('balance.topUpOrder.backToOrder')}
@@ -406,12 +464,7 @@ export default function TopUpOrder({
           {status === 'invoice_not_created' && (
             <>
               {note(t('deviceFirst.errorProviderNoInvoice'))}
-              <Button
-                type="button"
-                fullWidth
-                variant="secondary"
-                onClick={() => request(selectedOption, false, null)}
-              >
+              <Button type="button" fullWidth size="lg" variant="secondary" onClick={retry}>
                 {t('common.retry')}
               </Button>
             </>

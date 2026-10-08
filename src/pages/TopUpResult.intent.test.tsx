@@ -346,7 +346,8 @@ describe('TopUpResult — доплата под заказ ждёт заказ, 
   });
 
   // Мина OU: закрытое намерение с пришедшими деньгами — две минуты «оформляем», потом «деньги на балансе».
-  it('закрыто, но деньги пришли — сначала «проверяем», через две минуты — «деньги на балансе»', async () => {
+  // Волна 1: закрытое намерение сервер НЕ оформит — «оформится сама» здесь врёт; две минуты «проверяем заказ».
+  it('закрыто, но деньги пришли — сначала «проверяем заказ» без обещания, через две минуты — отказ', async () => {
     vi.useFakeTimers();
     vi.mocked(balanceApi.getPendingPayment).mockResolvedValue(
       intentPayment({
@@ -360,7 +361,9 @@ describe('TopUpResult — доплата под заказ ждёт заказ, 
     renderResult('?method=platega');
 
     await vi.advanceTimersByTimeAsync(10);
-    expect(screen.getByText('balance.topUpResult.intent.processingTitle')).toBeTruthy();
+    expect(screen.getByText('balance.topUpResult.intent.checkingTitle')).toBeTruthy();
+    expect(screen.queryByText('balance.topUpResult.intent.waitingDesc')).toBeNull();
+    expect(screen.queryByText('balance.topUpResult.intent.processingTitle')).toBeNull();
     await vi.advanceTimersByTimeAsync(119 * 1000);
     expect(screen.queryByText('balance.topUpResult.intent.notPlacedTitle')).toBeNull();
     await vi.advanceTimersByTimeAsync(2 * 1000);
@@ -368,8 +371,9 @@ describe('TopUpResult — доплата под заказ ждёт заказ, 
     expect(screen.getByText('balance.topUpResult.intent.reasons.cancelled')).toBeTruthy();
   });
 
-  // Мина OU: «оформляем» не вечно — потолок 10 минут, и тогда «деньги на балансе», а не спиннер.
-  it('десять минут «оформляем» — деньги на балансе и дверь к заказу', async () => {
+  // Мина OU: «оформляем» не вечно — потолок 10 минут. Исход мог не записаться и при СПИСАННОМ заказе, поэтому
+  // к покупке второго срока не зовём: главная дверь — поддержка (волна 1).
+  it('десять минут «оформляем» — «задерживается» и поддержка, а не покупка', async () => {
     vi.useFakeTimers();
     vi.mocked(balanceApi.getPendingPayment).mockResolvedValue(
       intentPayment({ is_paid: true, intent_outcome: 'processing', intent_paid: true }),
@@ -380,10 +384,125 @@ describe('TopUpResult — доплата под заказ ждёт заказ, 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(10);
     });
-    expect(screen.getByText('balance.topUpResult.intent.notPlacedTitle')).toBeTruthy();
-    expect(screen.getByText('balance.topUpResult.intent.moneyOnBalance')).toBeTruthy();
-    fireEvent.click(screen.getByText('balance.topUpResult.intent.choosePeriod'));
-    expect(location()).toBe('/subscription/purchase?from=checkout&period=30&devices=2');
+    expect(screen.getByText('balance.topUpResult.intent.delayedTitle')).toBeTruthy();
+    expect(screen.queryByText('balance.topUpResult.intent.choosePeriod')).toBeNull();
+    fireEvent.click(screen.getByText('balance.topUpResult.intent.writeSupport'));
+    expect(location()).toBe('/support');
+  });
+
+  it('деньги пришли — «Проверить ещё раз» не показываем (для оплаченного она ничего не делает)', async () => {
+    vi.mocked(balanceApi.getPendingPayment).mockResolvedValue(
+      intentPayment({ is_paid: true, intent_outcome: 'processing', intent_paid: true }),
+    );
+    renderResult('?method=platega');
+
+    expect(await screen.findByText('balance.topUpResult.intent.processingTitle')).toBeTruthy();
+    expect(screen.getByText('balance.topUpResult.intent.processingDesc')).toBeTruthy();
+    expect(screen.queryByText('balance.topUpResult.intent.checkAgain')).toBeNull();
+  });
+
+  it('«уже купили»: «деньги на балансе» не пишем — покупка могла их потратить', async () => {
+    vi.mocked(balanceApi.getPendingPayment).mockResolvedValue(
+      intentPayment({
+        is_paid: true,
+        intent_outcome: 'refused',
+        intent_paid: true,
+        intent_reason: 'already_purchased',
+        intent_refusal_kind: 'bought',
+      }),
+    );
+    renderResult('?method=platega');
+
+    expect(await screen.findByText('balance.topUpResult.intent.boughtTitle')).toBeTruthy();
+    expect(screen.queryByText('balance.topUpResult.intent.moneyOnBalance')).toBeNull();
+  });
+
+  // Волна 1 (деньги, план, корректность): оплачен СТАРЫЙ счёт — запись нового не оплачена, но касса, куда ведут
+  // кнопки отказа, обязана взять свежий баланс.
+  it('деньги пришли по старому счёту — кэш кассы снесён и баланс перечитан', async () => {
+    vi.mocked(balanceApi.getPendingPayment).mockResolvedValue(
+      intentPayment({
+        intent_outcome: 'refused',
+        intent_payment_id: 4100,
+        intent_paid: true,
+        intent_amount_kopeks: 9900,
+        intent_reason: 'replaced',
+        intent_refusal_kind: 'retry',
+      }),
+    );
+    const { queryClient } = renderResult('?method=platega');
+    queryClient.setQueryData(['device-first-options'], { balance_kopeks: 0 });
+
+    await screen.findByText('balance.topUpResult.intent.notPlacedTitle');
+    await waitFor(() => expect(queryClient.getQueryData(['device-first-options'])).toBeUndefined());
+    expect(refreshUser).toHaveBeenCalled();
+  });
+
+  // Отказ «оформить» сервер может сменить (купил этот же заказ в чате → `fulfilled`) — экран продолжает спрашивать.
+  it('отказ «оформить» — опрос продолжается и подхватывает «оформлено»', async () => {
+    vi.mocked(balanceApi.getPendingPayment)
+      .mockResolvedValueOnce(
+        intentPayment({
+          is_paid: true,
+          intent_outcome: 'refused',
+          intent_paid: true,
+          intent_reason: 'price_changed',
+          intent_refusal_kind: 'retry',
+        }),
+      )
+      .mockResolvedValue(
+        intentPayment({
+          is_paid: true,
+          intent_outcome: 'fulfilled',
+          intent_paid: true,
+          intent_checkout_public_id: 'CO-88',
+        }),
+      );
+    renderResult('?method=platega');
+
+    expect(await screen.findByText('balance.topUpResult.intent.notPlacedTitle')).toBeTruthy();
+    expect(
+      await screen.findByText('balance.topUpResult.intent.readyTitle', {}, { timeout: 5000 }),
+    ).toBeTruthy();
+  });
+
+  it('счёт закрыт без денег — опрос идёт, пока провайдер его не закрыл (его ещё могут оплатить)', async () => {
+    vi.mocked(balanceApi.getPendingPayment)
+      .mockResolvedValueOnce(
+        intentPayment({ intent_outcome: 'closed', intent_reason: 'cancelled', intent_paid: false }),
+      )
+      .mockResolvedValue(
+        intentPayment({
+          is_paid: true,
+          intent_outcome: 'refused',
+          intent_paid: true,
+          intent_reason: 'cancelled',
+          intent_refusal_kind: 'retry',
+        }),
+      );
+    renderResult('?method=platega');
+
+    expect(await screen.findByText('balance.topUpResult.intent.closedTitle')).toBeTruthy();
+    expect(
+      await screen.findByText('balance.topUpResult.intent.notPlacedTitle', {}, { timeout: 5000 }),
+    ).toBeTruthy();
+  });
+
+  it('незнакомая причина у закрытого без денег — строки причины нет', async () => {
+    vi.mocked(balanceApi.getPendingPayment).mockResolvedValue(
+      intentPayment({ intent_outcome: 'closed', intent_reason: 'weird', intent_paid: false }),
+    );
+    renderResult('?method=platega');
+
+    expect(await screen.findByText('balance.topUpResult.intent.closedTitle')).toBeTruthy();
+    expect(screen.queryByText(/intent\.reasons\./)).toBeNull();
+  });
+
+  it('банк вернул на «не прошло» — отказ сразу, хотя сервер ещё ждёт', async () => {
+    vi.mocked(balanceApi.getPendingPayment).mockResolvedValue(intentPayment());
+    renderResult('?method=platega&status=failed');
+
+    expect(await screen.findByText('balance.topUpResult.failed')).toBeTruthy();
   });
 
   it('«Проверить ещё раз» спрашивает сервер о ЭТОМ платеже и переживает его отказ', async () => {

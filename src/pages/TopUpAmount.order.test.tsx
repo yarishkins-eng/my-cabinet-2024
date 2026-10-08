@@ -97,6 +97,7 @@ function renderScreen(search: string) {
       </MemoryRouter>
     </StrictMode>,
   );
+  return queryClient;
 }
 
 async function settle() {
@@ -357,7 +358,150 @@ describe('TopUpAmount — «Оплата заказа» (ВК-16 · 16в-1)', ()
     fireEvent.click(screen.getByText('balance.topUpOrder.morePeriodYes'));
     await settle();
     expect(screen.getByText('balance.topUpOrder.confirmRejected')).toBeTruthy();
-    expect(screen.queryByText('balance.topUpOrder.morePeriodYes')).toBeNull();
+    expect(screen.queryByText('balance.topUpOrder.morePeriodYes')).toBeNull(); // Повтор бессмысленен — дверь назад к заказу.
+    expect(screen.queryByText('common.retry')).toBeNull();
+    fireEvent.click(screen.getByText('balance.topUpOrder.backToOrder'));
+    expect(location()).toBe(CHECKOUT_RETURN);
+  });
+
+  // 🔴 Волна 1 (три линзы, P1): после «да» сменить способ было нельзя — сервер спрашивал снова, второе «да» без смены
+  // способа возвращало старый счёт. Теперь каждый запрос несёт «да», а «да» повторяет запрос со сменой способа.
+  it('после «да» другой способ — новый счёт этим способом, без второго вопроса', async () => {
+    const question = accepted({
+      intent_status: 'already_fulfilled',
+      payment_url: null,
+      purchased_at: '2026-10-08T19:00:00+00:00',
+    });
+    createTopUp.mockResolvedValueOnce(question).mockResolvedValue(accepted());
+    renderScreen(BOT_LINK);
+    await settle();
+
+    fireEvent.click(screen.getByText('balance.topUpOrder.morePeriodYes'));
+    await settle();
+    fireEvent.click(screen.getByRole('button', { name: 'Карта' }));
+    await settle();
+    expect(createTopUp).toHaveBeenLastCalledWith(9900, 'platega', '11', {
+      period_days: 90,
+      devices: 3,
+      confirmed_purchase_at: '2026-10-08T19:00:00+00:00',
+      change_method: true,
+    });
+  });
+
+  it('вопрос пришёл на смену способа — «да» повторяет смену способа', async () => {
+    createTopUp
+      .mockResolvedValueOnce(accepted())
+      .mockResolvedValueOnce(
+        accepted({
+          intent_status: 'already_fulfilled',
+          payment_url: null,
+          purchased_at: '2026-10-08T19:00:00+00:00',
+        }),
+      )
+      .mockResolvedValue(accepted({ payment_url: 'https://app.platega.io/pay/777' }));
+    renderScreen(BOT_LINK);
+    await settle();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Карта' }));
+    await settle();
+    fireEvent.click(screen.getByText('balance.topUpOrder.morePeriodYes'));
+    await settle();
+    expect(createTopUp).toHaveBeenLastCalledWith(9900, 'platega', '11', {
+      period_days: 90,
+      devices: 3,
+      confirmed_purchase_at: '2026-10-08T19:00:00+00:00',
+      change_method: true,
+    });
+  });
+
+  // Волна 1 (P1): ошибка на смене способа — рядом НЕ остаётся «Оплатить» прежнего счёта; повтор — та же смена.
+  it('ошибка на смене способа — кнопки оплаты старого счёта нет, повтор повторяет смену способа', async () => {
+    createTopUp.mockResolvedValueOnce(accepted()).mockRejectedValueOnce(new Error('502'));
+    renderScreen(BOT_LINK);
+    await settle();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Карта' }));
+    await settle();
+    expect(screen.getByRole('alert').textContent).toContain('common.error');
+    expect(screen.queryByRole('button', { name: /balance\.topUpOrder\.pay/ })).toBeNull();
+    createTopUp.mockResolvedValue(accepted({ payment_url: 'https://app.platega.io/pay/888' }));
+    fireEvent.click(screen.getByText('common.retry'));
+    await settle();
+    expect(createTopUp).toHaveBeenLastCalledWith(9900, 'platega', '11', {
+      period_days: 90,
+      devices: 3,
+      change_method: true,
+    });
+  });
+
+  it('сырой текст сервера по-английски человеку не показываем', async () => {
+    createTopUp.mockRejectedValueOnce({
+      response: { data: { detail: 'Selected Platega method is unavailable' } },
+    });
+    renderScreen(BOT_LINK);
+    await settle();
+
+    expect(screen.getByText('common.error')).toBeTruthy();
+    expect(screen.queryByText(/Selected Platega/)).toBeNull();
+  });
+
+  it('обычное пополнение при запрете покупок — в поддержку, платить не зовём', async () => {
+    createTopUp.mockResolvedValue(
+      accepted({ intent_status: 'ordinary', intent_reason: 'restricted' }),
+    );
+    renderScreen(BOT_LINK);
+    await settle();
+
+    expect(screen.getByText('balance.topUpResult.intent.reasons.restricted')).toBeTruthy();
+    expect(screen.queryByText('balance.openPaymentPage')).toBeNull();
+    expect(screen.queryByText('balance.topUpOrder.ordinary')).toBeNull();
+    fireEvent.click(screen.getByText('balance.topUpOrder.writeSupport'));
+    expect(location()).toBe('/support');
+  });
+
+  it('обычное пополнение, заказ нельзя оформить — платить не зовём', async () => {
+    createTopUp.mockResolvedValue(
+      accepted({ intent_status: 'ordinary', intent_reason: 'unavailable' }),
+    );
+    renderScreen(BOT_LINK);
+    await settle();
+
+    expect(screen.getByText('balance.topUpResult.intent.reasons.unavailable')).toBeTruthy();
+    expect(screen.queryByText('balance.openPaymentPage')).toBeNull();
+  });
+
+  it('обычное пополнение — сумма видна до банка', async () => {
+    createTopUp.mockResolvedValue(
+      accepted({
+        intent_status: 'ordinary',
+        intent_reason: 'method_not_supported',
+        amount_kopeks: 9900,
+      }),
+    );
+    renderScreen(BOT_LINK);
+    await settle();
+
+    expect(screen.getByText(/balance\.topUpOrder\.toPay: 99 ₽/)).toBeTruthy();
+  });
+
+  it('живой счёт способом, которого нет в списке, — ни один способ не отмечен', async () => {
+    createTopUp.mockResolvedValue(
+      accepted({ intent_status: 'already_paying', payment_option: '12' }),
+    );
+    renderScreen(BOT_LINK);
+    await settle();
+
+    expect(screen.getByRole('button', { name: 'СБП' }).getAttribute('aria-pressed')).toBe('false');
+    expect(screen.getByRole('button', { name: 'Карта' }).getAttribute('aria-pressed')).toBe(
+      'false',
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'СБП' }));
+    await settle();
+    expect(createTopUp).toHaveBeenLastCalledWith(9900, 'platega', '2', {
+      period_days: 90,
+      devices: 3,
+      change_method: true,
+    });
   });
 
   it('баланса уже хватает — назад в кассу', async () => {
@@ -392,6 +536,25 @@ describe('TopUpAmount — «Оплата заказа» (ВК-16 · 16в-1)', ()
       period_days: 90,
       devices: 3,
     });
+  });
+
+  // Волна 1: признак не ответил — прежний экран выставил обычный счёт; признак перечитался — на «Оплату заказа» не
+  // переключаемся, иначе на один заказ два живых счёта.
+  it('обычный счёт уже выставлен — на «Оплату заказа» не переключаемся', async () => {
+    getOptions.mockRejectedValueOnce(new Error('сбой'));
+    createTopUp.mockResolvedValue(
+      accepted({ intent_status: null, payment_url: 'https://app.platega.io/pay/plain' }),
+    );
+    const queryClient = renderScreen(`${BOT_LINK}&option=2&auto=1`);
+    await settle();
+    expect(screen.getByText('balance.paymentReady')).toBeTruthy();
+
+    await act(async () => {
+      await queryClient.refetchQueries({ queryKey: ['device-first-options'] });
+    });
+    await settle();
+    expect(screen.queryByText('balance.topUpOrder.title')).toBeNull();
+    expect(createTopUp).toHaveBeenCalledTimes(1);
   });
 
   it('«Изменить заказ» — назад в кассу', async () => {
