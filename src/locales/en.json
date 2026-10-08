@@ -987,7 +987,42 @@
       "goToHome": "Back to Home",
       "backToOrder": "Back to Your Purchase",
       "returningToOrder": "Taking you back to your purchase…",
-      "tryAgain": "Try Again"
+      "tryAgain": "Try Again",
+      "intent": {
+        "waitingTitle": "Waiting for the bank to confirm",
+        "processingTitle": "Payment received — setting up your subscription",
+        "waitingDesc": "This usually takes less than a minute. Your subscription will be set up automatically — you can close this window.",
+        "checkAgain": "Check again",
+        "readyTitle": "Your subscription is ready",
+        "readyDesc": "Opening your order…",
+        "openOrder": "Open order",
+        "notPlacedTitle": "Payment received, but the subscription wasn't set up automatically",
+        "boughtTitle": "Payment received — we won't charge you twice",
+        "moneyOnBalance": "The money is on your balance.",
+        "offer": "Order: {{what}} · {{price}}",
+        "choosePeriod": "Choose a term",
+        "chooseOtherPeriod": "‹ Choose another term",
+        "toMyOrder": "My order",
+        "writeSupport": "Contact support",
+        "closedTitle": "This invoice is no longer valid",
+        "closedNoMoney": "Nothing was charged for it.",
+        "reasons": {
+          "open_order": "You already have an open order.",
+          "order_on_review": "Your order is under review — contact support and we'll sort it out.",
+          "price_changed": "The price changed while the payment was going through.",
+          "balance_short": "The balance did not cover this order.",
+          "restricted": "Purchases on your account are currently restricted — contact support.",
+          "account_erasure": "Your account is being deleted — contact support.",
+          "unavailable": "This option can't be ordered right now.",
+          "expired": "More than an hour has passed since you chose the order.",
+          "replaced": "You opened a new top-up invoice after this one.",
+          "cancelled": "You cancelled or changed the order in the bot.",
+          "disabled": "Automatic ordering is currently turned off.",
+          "already_purchased": "While the payment was going through, another payment went through on your account — to avoid charging you twice, we did not place the order.",
+          "subscription_changed": "Your subscription changed while the payment was going through.",
+          "technical_error": "Something went wrong while placing the order."
+        }
+      }
     },
     "top_up": "Top up balance"
   },

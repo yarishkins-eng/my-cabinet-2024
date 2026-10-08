@@ -679,6 +679,23 @@ export interface PendingPayment {
    *  отсутствие его = «молчим»: кабинет, выложенный раньше бота, обязан показать прежний
    *  текст, а не обещать оставшийся шаг тому, за кого деньги потратит автопокупка. */
   purchase_step_pending?: boolean;
+  /** 🔴 ВК-16 (16а-1, 3б). Исход ЗАКАЗА, ради которого доплачивали: `waiting` / `processing` / `fulfilled` /
+   *  `refused` / `closed`. Нет намерения — `null` или поля нет (старый бот). Экран ждёт заказ, а не деньги:
+   *  `is_paid` переворачивает поздний «отменён» (мина OH). Договор — докстринг `PendingPaymentResponse` бота. */
+  intent_outcome?: string | null;
+  intent_checkout_public_id?: string | null;
+  intent_reason?: string | null;
+  /** `bought` — без покупки, `order` — к заказу, `support` — поддержка, `retry` — «Оформить». */
+  intent_refusal_kind?: string | null;
+  /** О каком платеже исход: не этот — деньги пришли по СТАРОМУ счёту того же человека. */
+  intent_payment_id?: number | null;
+  intent_paid?: boolean | null;
+  intent_amount_kopeks?: number | null;
+  intent_period_days?: number | null;
+  intent_devices?: number | null;
+  intent_quote_kopeks?: number | null;
+  intent_offer_kopeks?: number | null;
+  intent_offer_tariff_name?: string | null;
 }
 
 export interface ManualCheckResponse {

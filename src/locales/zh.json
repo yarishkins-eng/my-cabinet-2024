@@ -761,7 +761,42 @@
       "goToHome": "返回首页",
       "backToOrder": "返回购买",
       "returningToOrder": "正在带您返回购买…",
-      "tryAgain": "重试"
+      "tryAgain": "重试",
+      "intent": {
+        "waitingTitle": "正在等待银行确认",
+        "processingTitle": "已收到付款 — 正在开通订阅",
+        "waitingDesc": "通常不到一分钟。订阅会自动开通 — 您可以关闭此窗口。",
+        "checkAgain": "再次检查",
+        "readyTitle": "订阅已开通",
+        "readyDesc": "正在打开您的订单…",
+        "openOrder": "打开订单",
+        "notPlacedTitle": "已收到付款，但订阅未能自动开通",
+        "boughtTitle": "已收到付款 — 我们不会重复扣款",
+        "moneyOnBalance": "款项已在您的余额中。",
+        "offer": "下单：{{what}} · {{price}}",
+        "choosePeriod": "选择期限",
+        "chooseOtherPeriod": "‹ 选择其他期限",
+        "toMyOrder": "我的订单",
+        "writeSupport": "联系客服",
+        "closedTitle": "此账单已失效",
+        "closedNoMoney": "未因此扣款。",
+        "reasons": {
+          "open_order": "您已有一个未完成的订单。",
+          "order_on_review": "您的订单正在审核中 — 请联系客服。",
+          "price_changed": "付款过程中价格发生了变化。",
+          "balance_short": "余额不足以支付此订单。",
+          "restricted": "您的账户目前限制购买 — 请联系客服。",
+          "account_erasure": "您的账户正在删除中 — 请联系客服。",
+          "unavailable": "此选项目前无法下单。",
+          "expired": "距离选择订单已超过一小时。",
+          "replaced": "之后您又打开了新的补款账单。",
+          "cancelled": "您已在机器人中取消或更改了订单。",
+          "disabled": "自动下单目前已关闭。",
+          "already_purchased": "付款过程中，您的账户上又完成了一笔付款 — 为避免重复扣款，我们没有下单。",
+          "subscription_changed": "付款过程中您的订阅发生了变化。",
+          "technical_error": "下单时出现了问题。"
+        }
+      }
     },
     "top_up": "充值"
   },
