@@ -557,6 +557,85 @@ describe('TopUpAmount — «Оплата заказа» (ВК-16 · 16в-1)', ()
     expect(createTopUp).toHaveBeenCalledTimes(1);
   });
 
+  // Волна 2 (прогон сценария, критик полноты): окно может не уйти в фон — выход к исходу по номеру платежа.
+  it('«Я уже оплатил» — на экран ожидания по номеру платежа, нового счёта нет', async () => {
+    renderScreen(BOT_LINK);
+    await settle();
+
+    fireEvent.click(screen.getByText('balance.topUpOrder.paidAlready'));
+    expect(location()).toBe(
+      `/balance/top-up/result?returnTo=${encodeURIComponent(CHECKOUT_RETURN)}`,
+    );
+    expect(JSON.parse(localStorage.getItem('topup_pending_payment') ?? '{}').payment_id).toBe(
+      '501',
+    );
+    expect(createTopUp).toHaveBeenCalledTimes(1);
+  });
+
+  it('новый счёт сменой способа — «прежний не оплачивайте»; первый счёт — без этой строки', async () => {
+    renderScreen(BOT_LINK);
+    await settle();
+    expect(screen.queryByText('balance.topUpOrder.oldInvoiceVoid')).toBeNull();
+
+    createTopUp.mockResolvedValue(
+      accepted({ payment_id: '502', payment_url: 'https://app.platega.io/pay/502' }),
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Карта' }));
+    await settle();
+    expect(screen.getByText('balance.topUpOrder.oldInvoiceVoid')).toBeTruthy();
+  });
+
+  it('ошибка первого счёта, потом выбор способа — всё равно явная смена способа', async () => {
+    createTopUp.mockRejectedValueOnce(new Error('502'));
+    renderScreen(BOT_LINK);
+    await settle();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Карта' }));
+    await settle();
+    expect(createTopUp).toHaveBeenLastCalledWith(9900, 'platega', '11', {
+      period_days: 90,
+      devices: 3,
+      change_method: true,
+    });
+  });
+
+  it('криптовалюты на «Оплате заказа» нет; касса с криптой — счёт по СБП', async () => {
+    const withCrypto = {
+      ...platega,
+      options: [...platega.options, { id: '13', name: 'Крипта', description: '' }],
+    };
+    getPaymentMethods.mockResolvedValue([withCrypto]);
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    queryClient.setQueryData(['payment-methods'], [withCrypto]);
+    render(
+      <StrictMode>
+        <MemoryRouter initialEntries={[`/balance/top-up/platega${BOT_LINK}&option=13&auto=1`]}>
+          <QueryClientProvider client={queryClient}>
+            <Routes>
+              <Route path="/balance/top-up/:methodId" element={<TopUpAmount />} />
+            </Routes>
+          </QueryClientProvider>
+        </MemoryRouter>
+      </StrictMode>,
+    );
+    await settle();
+
+    expect(screen.queryByRole('button', { name: 'Крипта' })).toBeNull();
+    expect(createTopUp).toHaveBeenCalledWith(9900, 'platega', '2', { period_days: 90, devices: 3 });
+  });
+
+  it('скрытый счёт обычного пополнения (заказ нельзя оформить) в память ожидания не кладём', async () => {
+    createTopUp.mockResolvedValue(
+      accepted({ intent_status: 'ordinary', intent_reason: 'unavailable' }),
+    );
+    renderScreen(BOT_LINK);
+    await settle();
+
+    expect(localStorage.getItem('topup_pending_payment')).toBeNull();
+  });
+
   it('«Изменить заказ» — назад в кассу', async () => {
     renderScreen(BOT_LINK);
     await settle();

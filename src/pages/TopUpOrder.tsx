@@ -42,6 +42,10 @@ interface TopUpOrderProps {
 }
 
 const LIVE_INVOICE = new Set(['accepted', 'already_paying']);
+/** Криптовалюта (Platega 13): подтверждение может прийти позже часа намерения, сервер отвечает обычным пополнением, а
+ *  прежний счёт с намерением остаётся жив — два счёта на один заказ (план 16в-1, волна 2). На «Оплате заказа» её нет. */
+const SLOW_OPTION_IDS = new Set(['13']);
+const BLOCKED_ORDINARY = new Set(['restricted', 'account_erasure', 'unavailable']);
 
 export default function TopUpOrder({
   method,
@@ -56,7 +60,15 @@ export default function TopUpOrder({
   const navigate = useNavigate();
   const { formatAmount, currencySymbol } = useCurrency();
   const { openLink, openTelegramLink } = usePlatform();
-  const [selectedOption, setSelectedOption] = useState<string | null>(initialOptionId);
+  const options = (method.options ?? []).filter((option) => !SLOW_OPTION_IDS.has(option.id));
+  const startOption = options.some((option) => option.id === initialOptionId)
+    ? initialOptionId
+    : (options.find((option) => /sbp|сбп/i.test(`${option.id} ${option.name}`))?.id ??
+      options[0]?.id ??
+      null);
+  const [selectedOption, setSelectedOption] = useState<string | null>(startOption);
+  // Счёт выставлен ЯВНОЙ сменой способа — прежний ещё оплачиваем у провайдера: предупреждаем не платить по нему.
+  const [replacedOld, setReplacedOld] = useState(false);
   const [answer, setAnswer] = useState<TopUpResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   // Ответ «да» сервер не принял — повторять тот же запрос бессмысленно, ведём назад к заказу.
@@ -111,7 +123,8 @@ export default function TopUpOrder({
       sentConfirmationRef.current = confirmedAt;
       return balanceApi.createTopUp(amountKopeks, method.id, option ?? undefined, intent);
     },
-    onSuccess: (data) => {
+    onSuccess: (data, variables) => {
+      setReplacedOld(variables.changeMethod && data.intent_status === 'accepted');
       // Защита от отката 3а: сервер снова спросил ПРО ТУ ЖЕ покупку, на которую мы уже ответили «да», — значит
       // ответ он не принял. Задать тот же вопрос второй раз — замкнуть человека в круге.
       if (
@@ -130,7 +143,10 @@ export default function TopUpOrder({
         navigate(resultPath, { replace: true });
         return;
       }
-      if (data.payment_url) rememberPayment(data);
+      // Скрытый счёт обычного пополнения (заказ оформить нельзя) в память ожидания не кладём.
+      const blocked =
+        data.intent_status === 'ordinary' && BLOCKED_ORDINARY.has(data.intent_reason ?? '');
+      if (data.payment_url && !blocked) rememberPayment(data);
       if (data.intent_status === 'already_paying') {
         // Отмечен способ ЖИВОГО счёта; его нет в списке — не отмечен никакой, и любой выбор выставит новый счёт.
         const known = method.options?.some((option) => option.id === data.payment_option);
@@ -172,8 +188,8 @@ export default function TopUpOrder({
   useEffect(() => {
     if (autoStartedRef.current) return;
     autoStartedRef.current = true;
-    request(initialOptionId, false);
-  }, [request, initialOptionId]);
+    request(startOption, false);
+  }, [request, startOption]);
 
   const goToResult = useCallback(() => {
     if (!paymentIdRef.current) return;
@@ -204,7 +220,9 @@ export default function TopUpOrder({
     if (optionId === selectedOption || busy) return;
     setSelectedOption(optionId);
     // Живой счёт этого заказа уже есть — новый счёт другим способом только явным «сменить способ» (мина OR).
-    request(optionId, LIVE_INVOICE.has(answer?.intent_status ?? ''));
+    // Ручной выбор способа — всегда «сменить способ»: без флага сервер отдал бы прежний живой счёт любым способом
+    // (мина OR), в том числе после ошибки, когда ответа на экране уже нет. Тот же способ — тот же счёт.
+    request(optionId, true);
   };
 
   const handleConfirmMore = () => {
@@ -221,10 +239,7 @@ export default function TopUpOrder({
   // оформить — назад к заказу. Платить в этих случаях бессмысленно: оформить потом будет нечего.
   const ordinaryReason =
     answer?.intent_status === 'ordinary' ? (answer.intent_reason ?? null) : null;
-  const ordinaryBlocked =
-    ordinaryReason === 'restricted' ||
-    ordinaryReason === 'account_erasure' ||
-    ordinaryReason === 'unavailable';
+  const ordinaryBlocked = BLOCKED_ORDINARY.has(ordinaryReason ?? '');
 
   const status = answer?.intent_status ?? null;
   const showsInvoice =
@@ -235,7 +250,6 @@ export default function TopUpOrder({
   const price = answer?.price_kopeks ?? null;
   const toPay = showsInvoice ? answer!.amount_kopeks : null;
   const fromBalance = promise && price !== null && toPay !== null ? price - toPay : 0;
-  const options = method.options ?? [];
   const showOptions =
     options.length > 1 && (!answer || showsInvoice || status === 'invoice_not_created');
   const endDate = answer?.subscription_end_date
@@ -371,9 +385,21 @@ export default function TopUpOrder({
             </Button>
           )}
           {promise && note(t('balance.topUpOrder.autoPromise'))}
+          {promise && replacedOld && note(t('balance.topUpOrder.oldInvoiceVoid'))}
           {status === 'already_paying' &&
             options.length > 1 &&
             note(t('balance.topUpOrder.otherMethodHint'))}
+          {/* Окно может не уйти в фон (Телеграм на компьютере) или человек вернулся сам — экран денег не видит, а
+              повторное открытие до вебхука показало бы «неоплаченный счёт». Выход к исходу по номеру платежа. */}
+          {promise && (
+            <button
+              type="button"
+              onClick={goToResult}
+              className="flex min-h-[44px] w-full items-center justify-center rounded-xl px-2 text-sm font-medium text-dark-300 transition-colors hover:text-dark-100"
+            >
+              {t('balance.topUpOrder.paidAlready')}
+            </button>
+          )}
 
           {status === 'open_order' && (
             <>

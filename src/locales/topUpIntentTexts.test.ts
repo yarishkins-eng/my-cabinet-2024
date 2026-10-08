@@ -94,6 +94,8 @@ const ORDER_KEYS = [
   'preparing',
   'pay',
   'autoPromise',
+  'paidAlready',
+  'oldInvoiceVoid',
   'alreadyPaying',
   'otherMethodHint',
   'ordinary',
