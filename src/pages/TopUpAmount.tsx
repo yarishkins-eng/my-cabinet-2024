@@ -148,14 +148,24 @@ export default function TopUpAmount() {
     initialAmountRubles > 0 &&
     orderPeriodDays !== null &&
     orderDevices !== null;
-  const { data: orderOptions, isPending: orderOptionsPending } = useQuery({
+  const {
+    data: orderOptions,
+    isPending: orderOptionsPending,
+    isError: orderOptionsFailed,
+    refetch: refetchOrderOptions,
+  } = useQuery({
     queryKey: ['device-first-options'],
     queryFn: deviceFirstApi.getOptions,
     enabled: hasOrderTarget,
   });
-  // Ответа ещё нет — ждём; ответ с ошибкой — прежний экран без обещаний.
-  const orderUndecided = hasOrderTarget && orderOptionsPending;
-  const orderMode = hasOrderTarget && orderOptions?.topup_intent_enabled === true;
+  const [orderInvoiceTarget, setOrderInvoiceTarget] = useState<string | null>(null);
+  const orderInvoiceStarted = hasOrderTarget && orderInvoiceTarget === checkoutReturn;
+  // ВК-16 16в-3 (PF): ошибка не разрешает обычный счёт, в том числе при старых cached data.
+  const orderUndecided =
+    hasOrderTarget && !orderInvoiceStarted && (orderOptionsPending || orderOptionsFailed);
+  const orderMode =
+    hasOrderTarget &&
+    (orderInvoiceStarted || (!orderUndecided && orderOptions?.topup_intent_enabled === true));
 
   const handleNavigateBack = useCallback(() => {
     navigate(-1);
@@ -398,7 +408,7 @@ export default function TopUpAmount() {
   // 450 ₽ ушло бы ~408 ₽. Человек платит комиссию и всё равно возвращается с «не хватает».
   // Автопуть не должен зависеть от того, что написано в поле: число он знает сам.
   const handleSubmit = (chargeExactRubles?: number) => {
-    if (!method) return;
+    if (!method || orderUndecided || orderMode) return;
     setError(null);
     setPaymentUrl(null);
     inputRef.current?.blur();
@@ -594,7 +604,27 @@ export default function TopUpAmount() {
     );
   }
 
-  if (isPaymentMethodsLoading || !method || orderUndecided) {
+  const plainInvoiceStarted = !!paymentUrl || topUpMutation.isPending || !!topUpMutation.data;
+  if (hasOrderTarget && orderOptionsFailed && !plainInvoiceStarted && !orderInvoiceStarted) {
+    return (
+      <div className="flex flex-col items-center gap-4 py-12 text-center">
+        <p role="alert" className="text-sm text-dark-400">
+          {t('balance.topUpOrder.loadError')}
+        </p>
+        <Button type="button" variant="secondary" onClick={() => refetchOrderOptions()}>
+          {t('common.retry')}
+        </Button>
+        <Button
+          type="button"
+          variant="secondary"
+          onClick={() => navigate(checkoutReturn!, { replace: true })}
+        >
+          {t('balance.topUpOrder.backToOrder')}
+        </Button>
+      </div>
+    );
+  }
+  if (isPaymentMethodsLoading || !method || (orderUndecided && !plainInvoiceStarted)) {
     return (
       <div className="flex items-center justify-center py-12">
         <div className="h-8 w-8 animate-spin rounded-full border-2 border-accent-500 border-t-transparent" />
@@ -602,9 +632,7 @@ export default function TopUpAmount() {
     );
   }
 
-  // Решение «Оплата заказа» — до первого счёта: если прежний экран уже выставил обычный счёт (признак не ответил,
-  // а потом перечитался), на «Оплату заказа» не переключаемся — иначе на один заказ было бы два живых счёта.
-  const plainInvoiceStarted = !!paymentUrl || topUpMutation.isPending || !!topUpMutation.data;
+  // Если обычный счёт уже создан после явного false, поздний ответ не выставляет второй.
   if (
     orderMode &&
     !plainInvoiceStarted &&
@@ -615,6 +643,8 @@ export default function TopUpAmount() {
   ) {
     return (
       <TopUpOrder
+        key={checkoutReturn}
+        onInvoiceStarted={() => setOrderInvoiceTarget(checkoutReturn)}
         method={method}
         initialOptionId={pickOptionId(method.options)}
         tariffName={orderOptions?.tariff?.name ?? null}
@@ -622,6 +652,12 @@ export default function TopUpAmount() {
         devices={orderDevices}
         amountKopeks={Math.round(initialAmountRubles * 100)}
         checkoutReturn={checkoutReturn}
+        requireMethodChoice={
+          searchParams.get('chooseMethod') === '1' ||
+          requestedOptionId === '13' ||
+          (!!requestedOptionId &&
+            !method.options?.some((option) => option.id === requestedOptionId))
+        }
       />
     );
   }

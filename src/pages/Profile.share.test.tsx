@@ -133,10 +133,17 @@ async function renderAndShare(botLink: string | undefined) {
       </MemoryRouter>
     </QueryClientProvider>,
   );
+  // Подсказка подтверждает данные текущего рендера перед нажатием.
+  await screen.findByText(
+    (ruLocale.referral as Record<string, string>).shareHint.replace('{{percent}}', '25'),
+  );
   const label = await screen.findByText((ruLocale.referral as Record<string, string>).shareButton);
   const button = label.closest('button') as HTMLButtonElement;
   await waitFor(() => expect(button.disabled).toBe(false));
-  fireEvent.click(button);
+  // Motion-мок создаёт новый компонент при рендере; после await прежний узел может быть отсоединён.
+  fireEvent.click(
+    screen.getByText((ruLocale.referral as Record<string, string>).shareButton).closest('button')!,
+  );
 }
 
 describe('«Поделиться» на экране «Профиль»', () => {
@@ -152,6 +159,7 @@ describe('«Поделиться» на экране «Профиль»', () => 
 
     await renderAndShare(BOT_LINK);
 
+    await waitFor(() => expect(share).toHaveBeenCalledTimes(1));
     expect(share.mock.calls[0][0].url).toBe(BOT_LINK);
     expect(share.mock.calls[0][0].text).not.toContain('{{');
   });
@@ -171,6 +179,7 @@ describe('«Поделиться» на экране «Профиль»', () => 
 
     await renderAndShare(undefined);
 
+    await waitFor(() => expect(share).toHaveBeenCalledTimes(1));
     expect(share.mock.calls[0][0].url).toBe(CABINET_LINK);
   });
 

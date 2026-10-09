@@ -19,6 +19,13 @@ const { getPaymentMethods, createTopUp } = vi.hoisted(() => ({
   getPaymentMethods: vi.fn(),
   createTopUp: vi.fn(),
 }));
+// Обычный путь: сервер явно выключил намерение. Ошибка цен теперь не разрешает счёт (PF).
+vi.mock('../api/deviceFirst', () => ({
+  deviceFirstApi: {
+    getOptions: vi.fn().mockResolvedValue({ eligible: true, topup_intent_enabled: false }),
+  },
+}));
+
 vi.mock('../api/balance', () => ({
   balanceApi: {
     getPaymentMethods,

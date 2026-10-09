@@ -27,6 +27,7 @@ vi.mock('../store/auth', () => ({
 }));
 
 vi.mock('@/platform', () => ({
+  usePlatform: () => ({ openLink: vi.fn() }),
   useHaptic: () => ({ notification: vi.fn(), impact: vi.fn() }),
 }));
 

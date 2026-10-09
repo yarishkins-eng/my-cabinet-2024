@@ -3736,4 +3736,63 @@ describe('DeviceFirstConfigurator interaction safety', () => {
       '/subscription/purchase?period=90&devices=5',
     );
   });
+
+  it('16в-3: доплата выбранной картой первая, полная цена только в свёртке', async () => {
+    vi.mocked(deviceFirstApi.paymentMethods).mockResolvedValue({
+      methods: [
+        { key: 'sbp', provider_code: 2 },
+        { key: 'cards_ru', provider_code: 11 },
+      ],
+    });
+    getBalancePaymentMethods.mockResolvedValue(topUpMethodsResponse);
+    renderConfigurator({
+      options: { ...options, topup_intent_enabled: true },
+      initialPath: '/subscription/purchase?period=30&devices=2&method=cards_ru&autostart=1',
+    });
+    const topup = await screen.findByRole('button', { name: 'deviceFirst.topUpShortage:350 ₽' });
+    expect(topup.className).toContain('bg-accent-500');
+    for (const button of screen.getAllByRole('button', {
+      name: 'deviceFirst.paymentMethodAmount:450 ₽',
+    })) {
+      expect(button.closest('details')).toBeTruthy();
+    }
+    expect(screen.getByText('deviceFirst.topUpAutoHint')).toBeTruthy();
+    fireEvent.click(topup);
+    await waitFor(() =>
+      expect(screen.getByTestId('location').textContent).toContain('/balance/top-up/platega'),
+    );
+    const url = new URL(screen.getByTestId('location').textContent!, 'http://test');
+    expect(url.searchParams.get('option')).toBe('11');
+  });
+
+  it('16в-3: из крипты идёт явный выбор способа, option13 не отправляется', async () => {
+    vi.mocked(deviceFirstApi.paymentMethods).mockResolvedValue({
+      methods: [{ key: 'crypto', provider_code: 13 }],
+    });
+    getBalancePaymentMethods.mockResolvedValue(topUpMethodsResponse);
+    renderConfigurator({
+      options: { ...options, topup_intent_enabled: true },
+      initialPath: '/subscription/purchase?period=30&devices=2&method=crypto&autostart=1',
+    });
+    fireEvent.click(await screen.findByRole('button', { name: 'deviceFirst.topUpShortage:350 ₽' }));
+    await waitFor(() =>
+      expect(screen.getByTestId('location').textContent).toContain('/balance/top-up/platega'),
+    );
+    const url = new URL(screen.getByTestId('location').textContent!, 'http://test');
+    expect(url.searchParams.has('option')).toBe(false);
+    expect(url.searchParams.has('auto')).toBe(false);
+    expect(url.searchParams.get('chooseMethod')).toBe('1');
+  });
+  // Независимый мутационный скептик: прежние сторожа пропускали эти семь веток.
+  it('G-M32: неизвестный provider code при включённом intent несёт chooseMethod=1', async () => {
+    vi.mocked(deviceFirstApi.paymentMethods).mockReturnValue(new Promise(() => {}));
+    getBalancePaymentMethods.mockResolvedValue(topUpMethodsResponse);
+    renderConfigurator({ options: { ...options, topup_intent_enabled: true } });
+    fireEvent.click(screen.getByRole('button', { name: 'deviceFirst.review' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'deviceFirst.topUpShortage:350 ₽' }));
+    const url = new URL(screen.getByTestId('location').textContent!, 'http://test');
+    expect(url.searchParams.has('option')).toBe(false);
+    expect(url.searchParams.has('auto')).toBe(false);
+    expect(url.searchParams.get('chooseMethod')).toBe('1');
+  });
 });

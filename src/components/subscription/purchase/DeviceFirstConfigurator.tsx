@@ -704,7 +704,12 @@ export function DeviceFirstConfigurator({
     if (topUpAmountKnown && topUpChargeKopeks > 0) {
       params.set('amount', String(topUpChargeKopeks / 100));
     }
-    if (topUpAutoSubmit) {
+    if (
+      options.topup_intent_enabled &&
+      (checkoutTopUpOptionId === 13 || checkoutTopUpOptionId === undefined)
+    ) {
+      params.set('chooseMethod', '1');
+    } else if (topUpAutoSubmit) {
       params.set('option', String(checkoutTopUpOptionId));
       params.set('auto', '1');
     }
@@ -1502,6 +1507,8 @@ export function DeviceFirstConfigurator({
     topUpChargeKopeks > 0 &&
     topUpChargeKopeks < confirmTotalKopeks;
 
+  // ВК-16 16в-3: решение 05.10.2026 ставит рабочую доплату первой, сохраняя выбранную карту.
+  // Решение РЕК-16.1 от 02.09.2026 ниже остаётся для пути без автоматического оформления.
   // 🔴 РЕК-16.1, решение владельца 02.09.2026 после живого прохода, дословно: «правильно делать
   // так как выбрал клиент, а не так — клиент выбрал, а мы ему другое подкидываем». Он нажал в
   // чате «Банковская карта · 249 ₽», а экран встречал его залитой «Доплатить 199 ₽»: мы брали
@@ -1538,11 +1545,15 @@ export function DeviceFirstConfigurator({
   // всегда одна кнопка доплаты» пришёл из Б-2 и держится здесь же. Средний слот завёл РЕК-16:
   // выбранный способ занимает первое место, доплата встаёт сразу под ним (а не в самый низ,
   // где её на телефоне не видно) и тихой — потому что главное действие теперь не она.
-  const topUpSlot: 'first' | 'afterChosen' | 'last' = chatChosenMethod
-    ? 'afterChosen'
-    : topUpActionGoesFirst
-      ? 'first'
-      : 'last';
+  const autoTopUpFirst =
+    options.topup_intent_enabled === true && showTopUpAction && topUpActionGoesFirst;
+  const topUpSlot: 'first' | 'afterChosen' | 'last' = autoTopUpFirst
+    ? 'first'
+    : chatChosenMethod
+      ? 'afterChosen'
+      : topUpActionGoesFirst
+        ? 'first'
+        : 'last';
 
   // 🔴 РЕК-16.1. Кнопка способа оплаты рисуется в ДВУХ местах — выбранная стоит первой и
   // залитой, остальные лежат под свёрткой, — поэтому разметка вынесена сюда. Две копии одного
@@ -1631,7 +1642,13 @@ export function DeviceFirstConfigurator({
           ⚠️ Верно это ровно для одной двери — возврата кнопкой платёжной системы. У двери из
           чата бота метки заказа нет, и там выбор по-прежнему начинается заново (мина HU). */}
       {hasWallet && topUpChargeKopeks > 0 && (
-        <p className="text-xs text-dark-400">{t('deviceFirst.topUpShortageHint')}</p>
+        <p className="text-xs text-dark-400">
+          {t(
+            options.topup_intent_enabled
+              ? 'deviceFirst.topUpAutoHint'
+              : 'deviceFirst.topUpShortageHint',
+          )}
+        </p>
       )}
       {/* 🔴 Волна ревью: сводка печатает честную недостачу, а кнопка — сумму счёта, и это
           РАЗНЫЕ числа, когда минимум провайдера больше недостачи. Два числа на одной карточке
@@ -2137,7 +2154,18 @@ export function DeviceFirstConfigurator({
                           still leads to the provider» требует её ВЫШЕ кнопок по делу: на телефоне
                           375×667 под ними она уходит за сгиб, а скринридер читает её уже ПОСЛЕ
                           нажатия. Предупреждение после действия предупреждением не является. */}
-                      {chatChosenMethod ? (
+                      {autoTopUpFirst ? (
+                        <details className="rounded-xl border border-dark-700/60">
+                          <summary className="cursor-pointer px-4 py-3 text-sm font-semibold text-dark-200">
+                            {t('deviceFirst.payFullPrice')}
+                          </summary>
+                          <div className="grid gap-2 px-3 pb-3">
+                            {(methods.data?.methods ?? []).map((method) =>
+                              renderPaymentMethodButton(method.key, false),
+                            )}
+                          </div>
+                        </details>
+                      ) : chatChosenMethod ? (
                         <div className="space-y-2">
                           {renderPaymentMethodButton(chatChosenMethod.key, true)}
                           {topUpSlot === 'afterChosen' && topUpAction}
