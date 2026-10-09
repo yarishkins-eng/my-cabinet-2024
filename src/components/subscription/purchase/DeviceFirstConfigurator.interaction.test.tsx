@@ -521,13 +521,17 @@ describe('DeviceFirstConfigurator interaction safety', () => {
           purchase_context: 'chat_autostart',
           confirmed_purchase_id: confirmedId,
         });
-        expect(screen.getByTestId('location').textContent).toBe(
-          '/subscription/purchase?checkout=checkout-owned',
+        await waitFor(() =>
+          expect(screen.getByTestId('location').textContent).toBe(
+            '/subscription/purchase?checkout=checkout-owned',
+          ),
         );
 
         fireEvent.click(screen.getByRole('button', { name: 'Browser Back' }));
         await screen.findByRole('button', { name: 'deviceFirst.review' });
-        expect(screen.getByTestId('location').textContent).toBe('/subscription/purchase');
+        await waitFor(() =>
+          expect(screen.getByTestId('location').textContent).toBe('/subscription/purchase'),
+        );
         // The chat's 30-day selection survived rather than remounting with the
         // 90-day default; the next 90-day selection is made manually.
         expect(
