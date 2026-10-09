@@ -525,4 +525,144 @@ describe('PROBE-R', () => {
     ).toBeNull();
     expect(openLink).not.toHaveBeenCalled();
   });
+  it('G-C35: latest не разрешает продолжить оплату без доказанного собственного id', async () => {
+    localStorage.clear();
+    vi.mocked(balanceApi.getLatestPayment).mockResolvedValue(intentPayment());
+    renderResult('?method=platega');
+    await screen.findByText('balance.topUpResult.intent.waitingTitle');
+    expect(
+      screen.queryByRole('button', { name: 'balance.topUpResult.intent.continuePayment' }),
+    ).toBeNull();
+    expect(openLink).not.toHaveBeenCalled();
+  });
+
+  it('G-C36: поздно оплаченный predecessor даёт 10 минут несмотря на is_paid=false новой записи', async () => {
+    vi.useFakeTimers();
+    localStorage.clear();
+    const api = vi.mocked(balanceApi.getLatestPayment);
+    api.mockResolvedValue(intentPayment());
+    renderResult('?method=platega');
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(9 * 60 * 1000);
+    });
+    api.mockResolvedValue(
+      intentPayment({
+        id: 4243,
+        intent_payment_id: 4242,
+        intent_outcome: 'processing',
+        intent_paid: true,
+        is_paid: false,
+      }),
+    );
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2 * 60 * 1000);
+    });
+    expect(screen.getByText('balance.topUpResult.intent.processingTitle')).toBeTruthy();
+    expect(screen.queryByText('balance.topUpResult.intent.delayedTitle')).toBeNull();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(9 * 60 * 1000);
+    });
+    expect(screen.getByText('balance.topUpResult.intent.delayedTitle')).toBeTruthy();
+  });
+
+  it('G-C37: retry того же оплаченного intent не начинает его часы заново', async () => {
+    vi.useFakeTimers();
+    vi.mocked(balanceApi.getPendingPayment).mockResolvedValue(
+      intentPayment({
+        intent_outcome: 'waiting',
+        intent_paid: true,
+        is_paid: true,
+      }),
+    );
+    renderResult('?method=platega');
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(50);
+    });
+    expect(screen.getByText('balance.topUpResult.intent.processingTitle')).toBeTruthy();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(11 * 60 * 1000);
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'common.retry' }));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(6000);
+    });
+    expect(screen.queryByText('balance.topUpResult.intent.processingTitle')).toBeNull();
+    expect(screen.getByRole('button', { name: 'common.retry' })).toBeTruthy();
+  });
+  for (const source of ['id', 'latest']) {
+    it(`G-F03: disabled observer принимает deferred paid после timeout (${source})`, async () => {
+      vi.useFakeTimers();
+      if (source === 'latest') localStorage.clear();
+      const api = vi.mocked(
+        source === 'id' ? balanceApi.getPendingPayment : balanceApi.getLatestPayment,
+      );
+      api.mockResolvedValue(intentPayment());
+      renderResult('?method=platega');
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(50);
+      });
+      expect(screen.getByText('balance.topUpResult.intent.waitingTitle')).toBeTruthy();
+      let release!: (value: PendingPayment) => void;
+      api.mockReturnValue(
+        new Promise((resolve) => {
+          release = resolve;
+        }),
+      );
+      vi.setSystemTime(Date.now() + 600_001);
+      await act(async () => {
+        fireEvent.click(
+          screen.getByRole('button', { name: 'balance.topUpResult.intent.checkAgain' }),
+        );
+      });
+      expect(screen.getByRole('button', { name: 'common.retry' })).toBeTruthy();
+      await act(async () => {
+        release(intentPayment({ intent_outcome: 'processing', intent_paid: true, is_paid: true }));
+        await vi.advanceTimersByTimeAsync(50);
+      });
+      expect(screen.getByText('balance.topUpResult.intent.processingTitle')).toBeTruthy();
+      expect(screen.queryByText('balance.topUpResult.intent.delayedTitle')).toBeNull();
+    });
+  }
+
+  for (const state of ['pending', 'failed']) {
+    it(`C-CACHE: known stored invoice не показывает ready от неактивного latest cache (${state})`, async () => {
+      if (state === 'pending')
+        vi.mocked(balanceApi.getPendingPayment).mockReturnValue(new Promise(() => {}));
+      else vi.mocked(balanceApi.getPendingPayment).mockRejectedValue(new Error('network'));
+      const { queryClient } = renderResult('?method=platega');
+      await act(async () => {
+        queryClient.setQueryData(
+          ['topup-status-latest', 'platega'],
+          intentPayment({
+            id: 4040,
+            intent_payment_id: 4040,
+            intent_outcome: 'fulfilled',
+            intent_paid: true,
+            is_paid: true,
+            intent_checkout_public_id: 'CO-OLD',
+          }),
+        );
+      });
+      await sleep(50);
+      expect(balanceApi.getPendingPayment).toHaveBeenCalledWith('platega', 4242);
+      expect(balanceApi.getLatestPayment).not.toHaveBeenCalled();
+      expect(screen.queryByText('balance.topUpResult.intent.readyTitle')).toBeNull();
+    });
+  }
+
+  it('C-LATEST: fallback с единственным latest продолжает показывать его собственный outcome', async () => {
+    localStorage.clear();
+    vi.mocked(balanceApi.getLatestPayment).mockResolvedValue(
+      intentPayment({
+        intent_outcome: 'fulfilled',
+        intent_paid: true,
+        is_paid: true,
+        intent_checkout_public_id: 'CO-ONLY',
+      }),
+    );
+    renderResult('?method=platega');
+    await screen.findByText('balance.topUpResult.intent.readyTitle');
+    expect(balanceApi.getPendingPayment).not.toHaveBeenCalled();
+    expect(balanceApi.getLatestPayment).toHaveBeenCalledWith('platega');
+  });
 });

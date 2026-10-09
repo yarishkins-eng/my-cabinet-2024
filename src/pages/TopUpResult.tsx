@@ -888,12 +888,12 @@ export default function TopUpResult() {
     retry: 2,
   });
 
-  // Merge both polling sources
-  const effectivePayment = paymentStatus ?? latestPayment;
-  // Disabled observer может получить уже начатый ответ без нового refetchInterval.
-  useEffect(() => {
-    if (effectivePayment?.intent_paid) pollingExpired(effectivePayment);
-  }, [effectivePayment, pollingExpired]);
+  // Неактивный latest-кэш может относиться к старому оплаченному заказу.
+  const effectivePayment = canPollById
+    ? paymentStatus
+    : canPollByMethod
+      ? latestPayment
+      : undefined;
 
   const invoiceExpiresAt = effectivePayment?.expires_at;
   useEffect(() => {
