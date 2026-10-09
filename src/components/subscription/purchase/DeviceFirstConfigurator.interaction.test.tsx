@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MemoryRouter, useLocation, useSearchParams } from 'react-router';
 import { DeviceFirstConfigurator } from './DeviceFirstConfigurator';
@@ -48,7 +48,8 @@ vi.mock('@/api/balance', () => ({
 // мини-приложение в живых. Ходим через адаптер, как требует `eslint.config.js:60-64`.
 const { openLink } = vi.hoisted(() => ({ openLink: vi.fn() }));
 vi.mock('@/platform', () => ({
-  usePlatform: () => ({ openLink }),
+  // В request2 вопрос использует настоящий Button: его клик обращается к адаптеру haptic.
+  usePlatform: () => ({ openLink, haptic: { impact: vi.fn() } }),
 }));
 const { showToast } = vi.hoisted(() => ({ showToast: vi.fn() }));
 vi.mock('@/components/Toast', () => ({
@@ -239,6 +240,210 @@ function renderConfigurator(
 }
 
 describe('DeviceFirstConfigurator interaction safety', () => {
+  describe('16в-3 request2 recent purchase contract', () => {
+    const chatPath = '/subscription/purchase?period=30&devices=2&method=sbp&autostart=1';
+    const recent = { transaction_id: 731, purchased_at: '2026-10-10T00:00:00Z' };
+    const confirmationRequired = (transactionId: number) => ({
+      response: {
+        status: 409,
+        data: {
+          detail: {
+            code: 'recent_purchase_confirmation_required',
+            recent_purchase: { ...recent, transaction_id: transactionId },
+          },
+        },
+      },
+    });
+    const settlePurchase = () =>
+      act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+    beforeEach(() => {
+      sessionStorage.clear();
+      vi.mocked(deviceFirstApi.nativeLaunchDirect)
+        .mockReset()
+        .mockReturnValue(new Promise(() => {}));
+      vi.mocked(deviceFirstApi.payDirect)
+        .mockReset()
+        .mockReturnValue(new Promise(() => {}));
+    });
+
+    it('asks before autostart, keeps No first/equal, and No causes no financial call', async () => {
+      renderConfigurator({
+        options: { ...options, balance_kopeks: 0, recent_purchase: recent },
+        initialPath: chatPath,
+      });
+      const no = await screen.findByRole('button', { name: 'balance.topUpOrder.morePeriodNo' });
+      const yes = screen.getByRole('button', { name: 'balance.topUpOrder.morePeriodYes' });
+      expect(no.compareDocumentPosition(yes) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(no.className).toBe(yes.className);
+      await settlePurchase();
+      expect(deviceFirstApi.nativeLaunchDirect).not.toHaveBeenCalled();
+      fireEvent.click(no);
+      await waitFor(() => expect(screen.getByTestId('location').textContent).toBe('/'));
+      await settlePurchase();
+      for (const name of [
+        'nativeLaunchDirect',
+        'payDirect',
+        'create',
+        'confirm',
+        'arm',
+        'commit',
+        'createPaymentAttempt',
+      ] as const)
+        expect(deviceFirstApi[name]).not.toHaveBeenCalled();
+    });
+
+    it('Yes confirms the exact server transaction rather than its timestamp', async () => {
+      renderConfigurator({
+        options: { ...options, balance_kopeks: 0, recent_purchase: recent },
+        initialPath: chatPath,
+      });
+      fireEvent.click(
+        await screen.findByRole('button', { name: 'balance.topUpOrder.morePeriodYes' }),
+      );
+      await waitFor(() => expect(deviceFirstApi.nativeLaunchDirect).toHaveBeenCalledTimes(1));
+      expect(deviceFirstApi.nativeLaunchDirect).toHaveBeenCalledWith({
+        ...plategaPayPayload,
+        purchase_context: 'chat_autostart',
+        confirmed_purchase_id: 731,
+      });
+      await settlePurchase();
+      expect(deviceFirstApi.nativeLaunchDirect).toHaveBeenCalledTimes(1);
+      expect(deviceFirstApi.payDirect).not.toHaveBeenCalled();
+    });
+
+    it('a new purchase between Yes and POST prompts again with the new exact ID', async () => {
+      vi.mocked(deviceFirstApi.nativeLaunchDirect)
+        .mockRejectedValueOnce(confirmationRequired(732))
+        .mockReturnValue(new Promise(() => {}));
+      renderConfigurator({
+        options: { ...options, balance_kopeks: 0, recent_purchase: recent },
+        initialPath: chatPath,
+      });
+      fireEvent.click(
+        await screen.findByRole('button', { name: 'balance.topUpOrder.morePeriodYes' }),
+      );
+      await waitFor(() => expect(deviceFirstApi.nativeLaunchDirect).toHaveBeenCalledTimes(1));
+      fireEvent.click(
+        await screen.findByRole('button', { name: 'balance.topUpOrder.morePeriodYes' }),
+      );
+      await waitFor(() => expect(deviceFirstApi.nativeLaunchDirect).toHaveBeenCalledTimes(2));
+      expect(deviceFirstApi.nativeLaunchDirect).toHaveBeenNthCalledWith(1, {
+        ...plategaPayPayload,
+        purchase_context: 'chat_autostart',
+        confirmed_purchase_id: 731,
+      });
+      expect(deviceFirstApi.nativeLaunchDirect).toHaveBeenNthCalledWith(2, {
+        ...plategaPayPayload,
+        purchase_context: 'chat_autostart',
+        confirmed_purchase_id: 732,
+      });
+    });
+
+    it('a racing purchase absent from options still asks on the native 409', async () => {
+      vi.mocked(deviceFirstApi.nativeLaunchDirect).mockRejectedValueOnce(confirmationRequired(733));
+      renderConfigurator({ options: { ...options, balance_kopeks: 0 }, initialPath: chatPath });
+      fireEvent.click(
+        await screen.findByRole('button', { name: 'balance.topUpOrder.morePeriodYes' }),
+      );
+      await waitFor(() => expect(deviceFirstApi.nativeLaunchDirect).toHaveBeenCalledTimes(2));
+      expect(deviceFirstApi.nativeLaunchDirect).toHaveBeenLastCalledWith({
+        ...plategaPayPayload,
+        purchase_context: 'chat_autostart',
+        confirmed_purchase_id: 733,
+      });
+    });
+
+    it('held wallet payment preserves chat context and asks on its own 409 before retry', async () => {
+      vi.mocked(deviceFirstApi.payDirect).mockRejectedValueOnce(confirmationRequired(734));
+      renderConfigurator({
+        options: { ...options, balance_kopeks: 45000, recent_purchase: recent },
+        initialPath: chatPath,
+      });
+      fireEvent.click(await screen.findByRole('button', { name: /deviceFirst.payAndOrder/ }));
+      await screen.findByRole('button', { name: 'balance.topUpOrder.morePeriodYes' });
+      expect(deviceFirstApi.nativeLaunchDirect).not.toHaveBeenCalled();
+      expect(deviceFirstApi.payDirect).toHaveBeenCalledWith({
+        ...plategaPayPayload,
+        funding_mode: 'wallet',
+        method_key: null,
+        purchase_context: 'chat_autostart',
+        confirmed_purchase_id: null,
+      });
+      fireEvent.click(screen.getByRole('button', { name: 'balance.topUpOrder.morePeriodYes' }));
+      await waitFor(() => expect(deviceFirstApi.payDirect).toHaveBeenCalledTimes(2));
+      expect(deviceFirstApi.payDirect).toHaveBeenLastCalledWith({
+        ...plategaPayPayload,
+        funding_mode: 'wallet',
+        method_key: null,
+        purchase_context: 'chat_autostart',
+        confirmed_purchase_id: 734,
+      });
+    });
+
+    it('old options without recent purchase remain usable without a fabricated question', async () => {
+      renderConfigurator({ options: { ...options, balance_kopeks: 0 }, initialPath: chatPath });
+      await waitFor(() => expect(deviceFirstApi.nativeLaunchDirect).toHaveBeenCalledTimes(1));
+      expect(screen.queryByRole('button', { name: 'balance.topUpOrder.morePeriodYes' })).toBeNull();
+      expect(deviceFirstApi.nativeLaunchDirect).toHaveBeenCalledWith({
+        ...plategaPayPayload,
+        purchase_context: 'chat_autostart',
+        confirmed_purchase_id: null,
+      });
+    });
+
+    it('No after a held-wallet 409 causes no second financial request', async () => {
+      vi.mocked(deviceFirstApi.payDirect).mockRejectedValueOnce(confirmationRequired(734));
+      renderConfigurator({
+        options: { ...options, balance_kopeks: 45000, recent_purchase: recent },
+        initialPath: chatPath,
+      });
+      fireEvent.click(await screen.findByRole('button', { name: /deviceFirst.payAndOrder/ }));
+      fireEvent.click(
+        await screen.findByRole('button', { name: 'balance.topUpOrder.morePeriodNo' }),
+      );
+      await settlePurchase();
+      expect(deviceFirstApi.payDirect).toHaveBeenCalledTimes(1);
+      for (const name of [
+        'nativeLaunchDirect',
+        'create',
+        'confirm',
+        'arm',
+        'commit',
+        'createPaymentAttempt',
+      ] as const)
+        expect(deviceFirstApi[name]).not.toHaveBeenCalled();
+    });
+
+    it('after a direct-payment error, every method leaves the full-price disclosure', async () => {
+      vi.mocked(deviceFirstApi.paymentMethods).mockResolvedValue({
+        methods: [
+          { key: 'sbp', provider_code: 2 },
+          { key: 'cards_ru', provider_code: 11 },
+        ],
+      });
+      vi.mocked(deviceFirstApi.payDirect).mockRejectedValue({
+        response: { status: 409, data: { detail: { code: 'provider_invoice_not_created' } } },
+      });
+      renderConfigurator({ options: { ...options, topup_intent_enabled: true } });
+      fireEvent.click(screen.getByRole('button', { name: 'deviceFirst.review' }));
+      const methods = await screen.findAllByRole('button', {
+        name: 'deviceFirst.paymentMethodAmount:450 ₽',
+      });
+      expect(methods.every((button) => button.closest('details'))).toBe(true);
+      fireEvent.click(methods[0]);
+      await screen.findByRole('alert');
+      await waitFor(() => {
+        const visibleMethods = screen.getAllByRole('button', {
+          name: 'deviceFirst.paymentMethodAmount:450 ₽',
+        });
+        expect(visibleMethods).toHaveLength(2);
+        expect(visibleMethods.every((button) => !button.closest('details'))).toBe(true);
+      });
+    });
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(deviceFirstApi.get).mockResolvedValue(checkout('awaiting_payment'));
@@ -1399,8 +1604,13 @@ describe('DeviceFirstConfigurator interaction safety', () => {
       initialPath: '/subscription/purchase?period=30&devices=2&method=sbp&autostart=1',
     });
 
+    // Request2 сохраняет денежные параметры и явно отмечает старую кнопку из чата.
     await waitFor(() =>
-      expect(deviceFirstApi.nativeLaunchDirect).toHaveBeenCalledWith(plategaPayPayload),
+      expect(deviceFirstApi.nativeLaunchDirect).toHaveBeenCalledWith({
+        ...plategaPayPayload,
+        purchase_context: 'chat_autostart',
+        confirmed_purchase_id: null,
+      }),
     );
     expect(deviceFirstApi.nativeLaunchDirect).toHaveBeenCalledTimes(1);
     expect(deviceFirstApi.nativeLaunch).not.toHaveBeenCalled();

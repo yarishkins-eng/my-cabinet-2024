@@ -95,7 +95,8 @@ export default function TopUpOrder({
   // двойном монтировании и остаётся «в ожидании» после ответа — экран держал бы «Готовим счёт…» поверх счёта.
   const [busy, setBusy] = useState(false);
 
-  const money = (kopeks: number) => `${formatAmount(kopeks / 100)} ${currencySymbol}`;
+  const money = (kopeks: number) =>
+    `${formatAmount(kopeks / 100).replace(/\.00$/, '')} ${currencySymbol}`;
   const what = [tariffName, orderPeriodLabel(t, periodDays), orderDevicesLabel(t, devices)]
     .filter(Boolean)
     .join(' · ');

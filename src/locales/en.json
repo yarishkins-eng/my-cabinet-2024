@@ -5725,6 +5725,8 @@
     }
   },
   "deviceFirst": {
+    "orderTitle": "Your order",
+    "recentPurchaseQuestion": "You made a purchase in the last hour. Pay for another period?",
     "description": "Choose a period, then the number of devices.",
     "devicesQuestion": "How many devices?",
     "deviceShort": "{{count}} devices",

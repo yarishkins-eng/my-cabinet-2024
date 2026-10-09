@@ -5049,6 +5049,8 @@
     "title": "اشتراک‌های من"
   },
   "deviceFirst": {
+    "orderTitle": "سفارش شما",
+    "recentPurchaseQuestion": "در یک ساعت گذشته خریدی انجام دادید. هزینه یک دوره دیگر را پرداخت می‌کنید؟",
     "description": "ابتدا مدت VPN و سپس تعداد دستگاه‌ها را انتخاب کنید.",
     "devicesQuestion": "چند دستگاه؟",
     "deviceShort": "{{count}} دستگاه",

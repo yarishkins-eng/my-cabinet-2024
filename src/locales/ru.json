@@ -1084,9 +1084,9 @@
       "toMyOrder": "К моему заказу",
       "onReview": "Ваш заказ на проверке — напишите в поддержку, разберёмся.",
       "writeSupport": "Написать в поддержку",
-      "fulfilledWhat": "Уже оформлено: {{what}}.",
+      "fulfilledWhat": "Уже оформлено: {{what}}",
       "fulfilledRecent": "За последний час уже была покупка.",
-      "fulfilledUntil": "Подписка действует до {{date}}.",
+      "fulfilledUntil": "Подписка действует до {{date}}",
       "morePeriodQuestion": "Оплатить ещё период — {{what}} за {{price}}?",
       "morePeriodQuestionNoPrice": "Оплатить ещё период — {{what}}?",
       "morePeriodYes": "Да, оплатить ещё период",
@@ -6300,6 +6300,8 @@
     }
   },
   "deviceFirst": {
+    "orderTitle": "Ваш заказ",
+    "recentPurchaseQuestion": "За последний час уже была покупка. Оплатить ещё период?",
     "description": "Выберите срок, затем количество устройств.",
     "devicesQuestion": "Сколько устройств?",
     "deviceShort": "{{count}} устр.",

@@ -5,7 +5,7 @@
 
 import { StrictMode } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router';
 import TopUpAmount from './TopUpAmount';
@@ -177,6 +177,48 @@ describe('PROBE', () => {
     // @ts-expect-error probe cleanup
     delete document.visibilityState;
   });
+
+  it.each(['success', 'failure'])(
+    '16в-3 request2: deferred options refetch exposes loading until %s and never creates an ordinary invoice',
+    async (outcome) => {
+      getOptions.mockRejectedValue(new Error('network'));
+      renderScreen(BOT_LINK, true);
+      await screen.findByRole('alert');
+      expect(createTopUp).not.toHaveBeenCalled();
+      let resolveOptions!: (options: unknown) => void;
+      let rejectOptions!: (error: Error) => void;
+      getOptions.mockImplementationOnce(
+        () =>
+          new Promise((resolve, reject) => {
+            resolveOptions = resolve;
+            rejectOptions = reject;
+          }),
+      );
+      fireEvent.click(screen.getByRole('button', { name: 'common.retry' }));
+      await settle();
+      expect(screen.getByRole('status', { name: 'common.loading' })).toBeTruthy();
+      expect(screen.queryByRole('alert')).toBeNull();
+      expect(createTopUp).not.toHaveBeenCalled();
+      await act(async () => {
+        if (outcome === 'success')
+          resolveOptions({
+            eligible: true,
+            topup_intent_enabled: true,
+            tariff: { id: 3, name: 'T' },
+          });
+        else rejectOptions(new Error('still offline'));
+      });
+      if (outcome === 'success') {
+        await waitFor(() => expect(createTopUp).toHaveBeenCalledTimes(1));
+        expect(createTopUp.mock.calls[0][3]).toEqual({ period_days: 90, devices: 3 });
+        expect(screen.queryByRole('status', { name: 'common.loading' })).toBeNull();
+      } else {
+        await screen.findByRole('alert');
+        expect(createTopUp).not.toHaveBeenCalled();
+        expect(screen.queryByRole('status', { name: 'common.loading' })).toBeNull();
+      }
+    },
+  );
 
   it('P-O06 rate limit гасит прежний счёт', async () => {
     renderScreen(BOT_LINK);
