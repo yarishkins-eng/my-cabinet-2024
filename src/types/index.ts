@@ -679,6 +679,53 @@ export interface PendingPayment {
    *  отсутствие его = «молчим»: кабинет, выложенный раньше бота, обязан показать прежний
    *  текст, а не обещать оставшийся шаг тому, за кого деньги потратит автопокупка. */
   purchase_step_pending?: boolean;
+  /** 🔴 ВК-16 (16а-1, 3б). Исход ЗАКАЗА, ради которого доплачивали: `waiting` / `processing` / `fulfilled` /
+   *  `refused` / `closed`. Нет намерения — `null` или поля нет (старый бот). Экран ждёт заказ, а не деньги:
+   *  `is_paid` переворачивает поздний «отменён» (мина OH). Договор — докстринг `PendingPaymentResponse` бота. */
+  intent_outcome?: string | null;
+  intent_checkout_public_id?: string | null;
+  intent_reason?: string | null;
+  /** `bought` — без покупки, `order` — к заказу, `support` — поддержка, `retry` — «Оформить». */
+  intent_refusal_kind?: string | null;
+  /** О каком платеже исход: не этот — деньги пришли по СТАРОМУ счёту того же человека. */
+  intent_payment_id?: number | null;
+  intent_paid?: boolean | null;
+  intent_amount_kopeks?: number | null;
+  intent_period_days?: number | null;
+  intent_devices?: number | null;
+  intent_quote_kopeks?: number | null;
+  intent_offer_kopeks?: number | null;
+  intent_offer_tariff_name?: string | null;
+}
+
+/** 🔴 ВК-16 (16в-1). Заказ, ради которого доплачивают: срок и устройства. Цену и сумму считает сервер. */
+export interface TopUpIntentRequest {
+  period_days: number;
+  devices: number;
+  /** Ответ «да» на «Уже оформлено до …»: `purchased_at` того вопроса СТРОКОЙ, как пришла (мина OP). */
+  confirmed_purchase_at?: string;
+  /** Человек сам выбрал другой способ при живом счёте того же заказа (мина OR). */
+  change_method?: boolean;
+}
+
+/** Ответ `POST /cabinet/balance/topup`. Договор — докстринг `TopUpResponse` бота (16а-1, 3а). */
+export interface TopUpResponse {
+  payment_id?: string | null;
+  payment_url?: string | null;
+  invoice_url?: string;
+  amount_kopeks: number;
+  amount_rubles: number;
+  status: string;
+  expires_at: string | null;
+  intent_status?: string | null;
+  intent_reason?: string | null;
+  checkout_public_id?: string | null;
+  period_days?: number | null;
+  devices?: number | null;
+  price_kopeks?: number | null;
+  subscription_end_date?: string | null;
+  purchased_at?: string | null;
+  payment_option?: string | null;
 }
 
 export interface ManualCheckResponse {

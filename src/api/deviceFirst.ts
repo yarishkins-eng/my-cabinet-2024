@@ -57,6 +57,8 @@ export interface DeviceFirstOptions {
   current_subscription?: { id: number; device_limit: number; is_trial: boolean } | null;
   balance_kopeks?: number;
   price_matrix?: Array<{ period_days: number; prices: DeviceFirstPrice[] }>;
+  /** ВК-16 (16а-1): доплата под заказ оформится сама — только тем, кому это включено. Нет поля — выключено. */
+  topup_intent_enabled?: boolean;
 }
 
 export interface DeviceFirstCheckout {

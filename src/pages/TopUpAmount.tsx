@@ -5,15 +5,17 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { motion } from 'framer-motion';
 
 import { balanceApi } from '../api/balance';
+import { deviceFirstApi } from '../api/deviceFirst';
 import { useCurrency } from '../hooks/useCurrency';
 import { checkRateLimit, getRateLimitResetTime, RATE_LIMIT_KEYS } from '../utils/rateLimit';
 import { useCloseOnSuccessNotification } from '../store/successNotification';
 import { useHaptic, usePlatform } from '@/platform';
 import { staggerContainer, staggerItem } from '@/components/motion/transitions';
 import { Button } from '@/components/primitives/Button';
-import type { PaymentMethod, PaymentMethodOption } from '../types';
+import type { PaymentMethod, PaymentMethodOption, TopUpResponse } from '../types';
 import { saveTopUpPendingInfo } from '../utils/topUpStorage';
-import { getSafeRedirectPath } from '../utils/safeRedirect';
+import { getSafeRedirectPath, resolveCheckoutReturn } from '../utils/safeRedirect';
+import TopUpOrder from './TopUpOrder';
 import { copyToClipboard } from '@/utils/clipboard';
 import {
   CardIcon,
@@ -71,6 +73,18 @@ const sortOptionsWithSbpFirst = (options?: PaymentMethod['options']) => {
   });
 };
 
+/** ВК-16: доплату под заказ сервер принимает только через Platega (`/topup`, ветка `platega`). */
+const ORDER_TOP_UP_METHOD_ID = 'platega';
+
+const ignoreSuccess = () => {};
+
+/** Срок или устройства заказа из адреса кассы — целое > 0, иначе `null` (тогда это не «Оплата заказа»). */
+const orderParam = (checkoutReturn: string | null, name: 'period' | 'devices'): number | null => {
+  if (!checkoutReturn) return null;
+  const value = Number(new URL(checkoutReturn, 'http://cabinet.invalid').searchParams.get(name));
+  return Number.isInteger(value) && value > 0 ? value : null;
+};
+
 export default function TopUpAmount() {
   const { t } = useTranslation();
   const navigate = useNavigate();
@@ -120,6 +134,28 @@ export default function TopUpAmount() {
     queryFn: balanceApi.getPaymentMethods,
   });
   const method = paymentMethods?.find((paymentMethod) => paymentMethod.id === methodId);
+
+  // 🔴 ВК-16 (16в-1). Доплата за КОНКРЕТНЫЙ заказ (адрес возврата — касса со сроком и устройствами) тем, кому она
+  // включена (`topup_intent_enabled`), идёт экраном «Оплата заказа»: счёт с намерением, сумму считает сервер,
+  // заказ оформится сам. Признак спрашиваем ДО счёта: без него `/topup` с намерением у не-стенда сразу выставил бы
+  // обычный счёт. Остальным — этот экран без единого изменения.
+  const checkoutReturn = resolveCheckoutReturn(searchParams.get('returnTo'));
+  const orderPeriodDays = orderParam(checkoutReturn, 'period');
+  const orderDevices = orderParam(checkoutReturn, 'devices');
+  const hasOrderTarget =
+    methodId === ORDER_TOP_UP_METHOD_ID &&
+    !!initialAmountRubles &&
+    initialAmountRubles > 0 &&
+    orderPeriodDays !== null &&
+    orderDevices !== null;
+  const { data: orderOptions, isPending: orderOptionsPending } = useQuery({
+    queryKey: ['device-first-options'],
+    queryFn: deviceFirstApi.getOptions,
+    enabled: hasOrderTarget,
+  });
+  // Ответа ещё нет — ждём; ответ с ошибкой — прежний экран без обещаний.
+  const orderUndecided = hasOrderTarget && orderOptionsPending;
+  const orderMode = hasOrderTarget && orderOptions?.topup_intent_enabled === true;
 
   const handleNavigateBack = useCallback(() => {
     navigate(-1);
@@ -172,7 +208,8 @@ export default function TopUpAmount() {
   }, [handleNavigateBack]);
 
   // Auto-redirect when success notification appears (e.g., balance topped up via WebSocket)
-  useCloseOnSuccessNotification(handleSuccess);
+  // ВК-16: у «Оплаты заказа» свой выход по уведомлению — на экран ожидания заказа; на кассу отсюда не уводим (Т1).
+  useCloseOnSuccessNotification(orderMode ? ignoreSuccess : handleSuccess);
 
   const getInitialAmount = (): string => {
     if (!initialAmountRubles || initialAmountRubles <= 0) return '';
@@ -250,19 +287,7 @@ export default function TopUpAmount() {
     },
   });
 
-  const topUpMutation = useMutation<
-    {
-      payment_id: string;
-      payment_url?: string;
-      invoice_url?: string;
-      amount_kopeks: number;
-      amount_rubles: number;
-      status: string;
-      expires_at: string | null;
-    },
-    unknown,
-    number
-  >({
+  const topUpMutation = useMutation<TopUpResponse, unknown, number>({
     mutationFn: (amountKopeks: number) => {
       if (!method) throw new Error('Method not loaded');
       return balanceApi.createTopUp(amountKopeks, method.id, selectedOption || undefined);
@@ -491,6 +516,12 @@ export default function TopUpAmount() {
     const stopTryingToAutoSubmit = () => {
       autoSubmittedRef.current = true;
     };
+    // ВК-16: пока не знаем, «Оплата заказа» это или нет, — ждём; «Оплата заказа» выставляет счёт сама.
+    if (orderUndecided) return;
+    if (orderMode) {
+      stopTryingToAutoSubmit();
+      return;
+    }
     // 🔴 Админский тумблер «открывать страницу оплаты сразу». При нём `onSuccess` делает
     // `window.location.href` — то есть мини-приложение вылетает к провайдеру. На ручном пути
     // это хотя бы ответ на нажатие; из эффекта это уход БЕЗ ЕДИНОГО КАСАНИЯ, и хуже того:
@@ -536,6 +567,8 @@ export default function TopUpAmount() {
     hasOptions,
     initialAmountRubles,
     method,
+    orderMode,
+    orderUndecided,
     requestedOptionId,
     searchParams,
     selectedOption,
@@ -561,11 +594,35 @@ export default function TopUpAmount() {
     );
   }
 
-  if (isPaymentMethodsLoading || !method) {
+  if (isPaymentMethodsLoading || !method || orderUndecided) {
     return (
       <div className="flex items-center justify-center py-12">
         <div className="h-8 w-8 animate-spin rounded-full border-2 border-accent-500 border-t-transparent" />
       </div>
+    );
+  }
+
+  // Решение «Оплата заказа» — до первого счёта: если прежний экран уже выставил обычный счёт (признак не ответил,
+  // а потом перечитался), на «Оплату заказа» не переключаемся — иначе на один заказ было бы два живых счёта.
+  const plainInvoiceStarted = !!paymentUrl || topUpMutation.isPending || !!topUpMutation.data;
+  if (
+    orderMode &&
+    !plainInvoiceStarted &&
+    checkoutReturn &&
+    initialAmountRubles &&
+    orderPeriodDays &&
+    orderDevices
+  ) {
+    return (
+      <TopUpOrder
+        method={method}
+        initialOptionId={pickOptionId(method.options)}
+        tariffName={orderOptions?.tariff?.name ?? null}
+        periodDays={orderPeriodDays}
+        devices={orderDevices}
+        amountKopeks={Math.round(initialAmountRubles * 100)}
+        checkoutReturn={checkoutReturn}
+      />
     );
   }
 

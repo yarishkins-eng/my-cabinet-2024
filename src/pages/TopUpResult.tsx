@@ -14,6 +14,8 @@ import { AnimatedCrossmark } from '@/components/ui/AnimatedCrossmark';
 import { loadTopUpPendingInfo, clearTopUpPendingInfo } from '../utils/topUpStorage';
 import { isPaidStatus, isFailedStatus } from '../utils/paymentStatus';
 import { getSafeRedirectPath, resolveCheckoutReturn } from '../utils/safeRedirect';
+import { orderCheckoutPath, orderDevicesLabel, orderPeriodLabel } from '../utils/orderLabel';
+import type { PendingPayment } from '../types';
 
 // ── Constants ────────────────────────────────────────────────
 const MAX_POLL_MS = 10 * 60 * 1000; // 10 minutes
@@ -40,6 +42,54 @@ const POLL_INTERVAL_MS = 3_000;
  * ⛔ Меньше 1,2 с не ставить: галочка не успеет дорисоваться. На это есть сторож.
  */
 const AUTO_RETURN_DELAY_MS = 1800;
+
+/**
+ * 🔴 ВК-16 (16в-2). Причины отказа доплаты под заказ — ЗАКРЫТЫЙ набор бота (`TOPUP_INTENT_REFUSAL_REASONS`,
+ * `device_first_checkout_service.py`). Неизвестную показываем как техническую ошибку, а не сырым кодом.
+ */
+const INTENT_REASONS = new Set([
+  'open_order',
+  'order_on_review',
+  'price_changed',
+  'balance_short',
+  'restricted',
+  'account_erasure',
+  'unavailable',
+  'expired',
+  'replaced',
+  'cancelled',
+  'disabled',
+  'already_purchased',
+  'subscription_changed',
+  'technical_error',
+]);
+/** Закрытое намерение, деньги которого пришли: оформление могло ещё идти (мина OU) — две минуты «проверяем». */
+const CLOSED_PAID_GRACE_MS = 2 * 60 * 1000;
+
+/**
+ * Опрос доплаты под заказ заканчивается ИСХОДОМ ЗАКАЗА, а не деньгами (замысел v2, правило 1). ⛔ По `is_paid` и
+ * статусу записи здесь не останавливаемся: деньги приходят раньше оформления, а у оплаченного СТАРОГО счёта
+ * (`intent_payment_id` ≠ `id`) запись — это новый, неоплаченный счёт. Статус записи решает только у `waiting`:
+ * провайдер закрыл счёт, а денег не было.
+ */
+function intentSettled(payment: PendingPayment, closedPaidExpired: boolean): boolean {
+  switch (payment.intent_outcome) {
+    case 'fulfilled':
+      return true;
+    case 'refused':
+      // Отказ «оформить» / «к заказу» сервер ещё может сменить: купил этот же заказ другим путём — `fulfilled`,
+      // другой — `bought` (предложение гаснет, `topup_intent_screen_view`). Опрос идёт до потолка, чтобы кнопка
+      // «Перейти к оформлению» не висела после покупки.
+      return payment.intent_refusal_kind !== 'retry' && payment.intent_refusal_kind !== 'order';
+    case 'closed':
+      // Закрытый без денег счёт у провайдера ещё можно оплатить — ждём, пока провайдер его не закроет.
+      return payment.intent_paid ? closedPaidExpired : isFailedStatus(payment.status);
+    case 'waiting':
+      return isFailedStatus(payment.status);
+    default:
+      return false;
+  }
+}
 
 function neutralExit(returnTo: string | null): { path: string; labelKey: string } {
   return returnTo
@@ -417,6 +467,288 @@ function TimeoutState({
   );
 }
 
+// ── ВК-16 · 16в-2: доплата под заказ — экран ждёт ЗАКАЗ ───────
+
+const QUIET_BUTTON =
+  'flex min-h-[44px] items-center justify-center gap-2 rounded-xl bg-dark-800/50 px-6 py-3 text-sm font-medium text-dark-200 transition-colors hover:bg-dark-700/50';
+const MAIN_BUTTON =
+  'flex min-h-[44px] w-full items-center justify-center gap-2 rounded-xl bg-accent-500 px-6 py-3 text-sm font-medium text-white transition-colors hover:bg-accent-400';
+
+/**
+ * Ожидание доплаты под заказ: `waiting` — денег ещё нет, `processing` — пришли, оформляем, `checking` — закрытое
+ * намерение с пришедшими деньгами (сервер его НЕ оформит, ждём отказ — без обещания «оформится сама»).
+ * «Проверить ещё раз» — только пока денег нет: для оплаченного `/check` в платёжную систему не ходит.
+ */
+function IntentWaitingState({
+  amountKopeks,
+  mode,
+  onCheck,
+  checking,
+  onLeave,
+  leaveLabelKey,
+}: {
+  amountKopeks: number | null;
+  mode: 'waiting' | 'processing' | 'checking';
+  onCheck: (() => void) | null;
+  checking: boolean;
+  onLeave: () => void;
+  leaveLabelKey: string;
+}) {
+  const { t } = useTranslation();
+  return (
+    <motion.div
+      initial={{ opacity: 0, scale: 0.9 }}
+      animate={{ opacity: 1, scale: 1 }}
+      className="flex flex-col items-center gap-6 text-center"
+    >
+      <Spinner className="h-16 w-16 border-[3px]" />
+      <div>
+        <h1 className="text-xl font-bold text-dark-50">
+          {t(`balance.topUpResult.intent.${mode}Title`)}
+        </h1>
+        <p className="mt-2 text-sm text-dark-400">{t(`balance.topUpResult.intent.${mode}Desc`)}</p>
+      </div>
+      {amountKopeks != null && amountKopeks > 0 && (
+        <AmountDisplay amountKopeks={amountKopeks} label={t('balance.topUpResult.topUpAmount')} />
+      )}
+      <div className="flex flex-wrap items-center justify-center gap-3">
+        {onCheck && mode === 'waiting' && (
+          <button
+            type="button"
+            onClick={onCheck}
+            disabled={checking}
+            aria-busy={checking}
+            className={`${QUIET_BUTTON} disabled:opacity-50`}
+          >
+            {t('balance.topUpResult.intent.checkAgain')}
+          </button>
+        )}
+        <button type="button" onClick={onLeave} className={QUIET_BUTTON}>
+          {t(leaveLabelKey)}
+        </button>
+      </div>
+    </motion.div>
+  );
+}
+
+function IntentReadyState({ checkoutPath }: { checkoutPath: string }) {
+  const { t } = useTranslation();
+  const navigate = useNavigate();
+  return (
+    <motion.div
+      initial={{ opacity: 0, scale: 0.9 }}
+      animate={{ opacity: 1, scale: 1 }}
+      className="flex flex-col items-center gap-6 text-center"
+    >
+      <AnimatedCheckmark />
+      <div>
+        <h1 className="text-xl font-bold text-dark-50">
+          {t('balance.topUpResult.intent.readyTitle')}
+        </h1>
+        <p className="mt-2 text-sm text-dark-400">{t('balance.topUpResult.intent.readyDesc')}</p>
+      </div>
+      <button
+        type="button"
+        onClick={() => {
+          clearTopUpPendingInfo();
+          navigate(checkoutPath, { replace: true });
+        }}
+        className={QUIET_BUTTON}
+      >
+        {t('balance.topUpResult.intent.openOrder')}
+      </button>
+    </motion.div>
+  );
+}
+
+/**
+ * Деньги пришли, а заказ сам не оформился — причина и ОДНА кнопка по виду, как в сообщении бота (замысел v2,
+ * правило 5). 🔴 «Оформить» здесь НЕ списывает: ведёт в кассу с тем же сроком и устройствами, где свежая цена и своя
+ * кнопка «Списать… и оформить» (мина PA не рождается: со старого экрана после покупки другим путём второй срок
+ * списать нечем). `bought` — без покупки, `support` — без покупки.
+ */
+function IntentNotPlacedState({
+  payment,
+  amountKopeks,
+}: {
+  payment: PendingPayment;
+  amountKopeks: number | null;
+}) {
+  const { t } = useTranslation();
+  const navigate = useNavigate();
+  const { formatAmount, currencySymbol } = useCurrency();
+  const kind = payment.intent_refusal_kind ?? null;
+  const reason =
+    payment.intent_reason && INTENT_REASONS.has(payment.intent_reason)
+      ? payment.intent_reason
+      : 'technical_error';
+  const period = payment.intent_period_days ?? null;
+  const devices = payment.intent_devices ?? null;
+  const offer = kind === 'retry' ? (payment.intent_offer_kopeks ?? null) : null;
+  const go = (path: string) => {
+    clearTopUpPendingInfo();
+    navigate(path, { replace: true });
+  };
+
+  let main: { label: string; path: string } | null = null;
+  if (kind === 'bought') {
+    main = { label: t('balance.topUpResult.goToHome'), path: '/' };
+  } else if (kind === 'order') {
+    const id = payment.intent_checkout_public_id;
+    main = {
+      label: t('balance.topUpResult.intent.toMyOrder'),
+      path: id
+        ? `/subscription/purchase?checkout=${encodeURIComponent(id)}`
+        : '/subscription/purchase',
+    };
+  } else if (kind === 'support') {
+    main = { label: t('balance.topUpResult.intent.writeSupport'), path: '/support' };
+  } else if (offer && period && devices) {
+    const what = [
+      payment.intent_offer_tariff_name,
+      orderPeriodLabel(t, period),
+      orderDevicesLabel(t, devices),
+    ]
+      .filter(Boolean)
+      .join(' · ');
+    main = {
+      label: t('balance.topUpResult.intent.offer', {
+        what,
+        price: `${formatAmount(offer / 100)} ${currencySymbol}`,
+      }),
+      path: orderCheckoutPath(period, devices),
+    };
+  } else {
+    main = {
+      label: t('balance.topUpResult.intent.choosePeriod'),
+      path: orderCheckoutPath(period, devices),
+    };
+  }
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, scale: 0.9 }}
+      animate={{ opacity: 1, scale: 1 }}
+      className="flex flex-col items-center gap-6 text-center"
+    >
+      <div>
+        <h1 className="text-xl font-bold text-dark-50">
+          {kind === 'bought'
+            ? t('balance.topUpResult.intent.boughtTitle')
+            : t('balance.topUpResult.intent.notPlacedTitle')}
+        </h1>
+        <p className="mt-2 text-sm text-dark-400">
+          {t(`balance.topUpResult.intent.reasons.${reason}`)}
+        </p>
+        {/* «Деньги на балансе» — не после чужой покупки (она могла их потратить; бот тут пишет остаток) и не рядом с
+            «не хватило» (причина сама говорит, где деньги). */}
+        {kind !== 'bought' && reason !== 'balance_short' && (
+          <p className="mt-2 text-sm text-dark-400">
+            {t('balance.topUpResult.intent.moneyOnBalance')}
+          </p>
+        )}
+      </div>
+      {amountKopeks != null && amountKopeks > 0 && (
+        <AmountDisplay amountKopeks={amountKopeks} label={t('balance.topUpResult.topUpAmount')} />
+      )}
+      <div className="flex w-full flex-col gap-3">
+        <button type="button" onClick={() => go(main.path)} className={MAIN_BUTTON}>
+          {main.label}
+        </button>
+        {offer && (
+          <button
+            type="button"
+            onClick={() => go('/subscription/purchase')}
+            className={QUIET_BUTTON}
+          >
+            {t('balance.topUpResult.intent.chooseOtherPeriod')}
+          </button>
+        )}
+      </div>
+    </motion.div>
+  );
+}
+
+/**
+ * Десять минут «оформляем» без исхода (мина OU). Деньги пришли, а исход не записан — бывает и при уже списанном
+ * заказе (сбой записи исхода), поэтому к покупке второго срока не зовём: главная дверь — поддержка.
+ */
+function IntentDelayedState({ amountKopeks }: { amountKopeks: number | null }) {
+  const { t } = useTranslation();
+  const navigate = useNavigate();
+  const go = (path: string) => {
+    clearTopUpPendingInfo();
+    navigate(path, { replace: true });
+  };
+  return (
+    <motion.div
+      initial={{ opacity: 0, scale: 0.9 }}
+      animate={{ opacity: 1, scale: 1 }}
+      className="flex flex-col items-center gap-6 text-center"
+    >
+      <div>
+        <h1 className="text-xl font-bold text-dark-50">
+          {t('balance.topUpResult.intent.delayedTitle')}
+        </h1>
+        <p className="mt-2 text-sm text-dark-400">{t('balance.topUpResult.intent.delayedDesc')}</p>
+      </div>
+      {amountKopeks != null && amountKopeks > 0 && (
+        <AmountDisplay amountKopeks={amountKopeks} label={t('balance.topUpResult.topUpAmount')} />
+      )}
+      <div className="flex w-full flex-col gap-3">
+        <button type="button" onClick={() => go('/support')} className={MAIN_BUTTON}>
+          {t('balance.topUpResult.intent.writeSupport')}
+        </button>
+        <button type="button" onClick={() => go('/')} className={QUIET_BUTTON}>
+          {t('balance.topUpResult.goToHome')}
+        </button>
+      </div>
+    </motion.div>
+  );
+}
+
+/** Намерение закрыто до оплаты (сменили способ — `replaced`, отменили заказ в боте — `cancelled`): денег нет. */
+function IntentClosedState({ reason, returnTo }: { reason: string; returnTo: string | null }) {
+  const { t } = useTranslation();
+  const navigate = useNavigate();
+  // Незнакомая причина у закрытого БЕЗ денег — строку не показываем: оформления не было, «что-то пошло не так» врёт.
+  const why = INTENT_REASONS.has(reason) && reason !== 'technical_error' ? reason : null;
+  const back = resolveCheckoutReturn(returnTo) ?? '/subscription/purchase';
+  const go = (path: string) => {
+    clearTopUpPendingInfo();
+    navigate(path, { replace: true });
+  };
+  return (
+    <motion.div
+      initial={{ opacity: 0, scale: 0.9 }}
+      animate={{ opacity: 1, scale: 1 }}
+      className="flex flex-col items-center gap-6 text-center"
+    >
+      <div>
+        <h1 className="text-xl font-bold text-dark-50">
+          {t('balance.topUpResult.intent.closedTitle')}
+        </h1>
+        {why && (
+          <p className="mt-2 text-sm text-dark-400">
+            {t(`balance.topUpResult.intent.reasons.${why}`)}
+          </p>
+        )}
+        <p className="mt-2 text-sm text-dark-400">
+          {t('balance.topUpResult.intent.closedNoMoney')}
+        </p>
+      </div>
+      <div className="flex w-full flex-col gap-3">
+        <button type="button" onClick={() => go(back)} className={MAIN_BUTTON}>
+          {t('balance.topUpResult.backToOrder')}
+        </button>
+        <button type="button" onClick={() => go('/')} className={QUIET_BUTTON}>
+          {t('balance.topUpResult.goToHome')}
+        </button>
+      </div>
+    </motion.div>
+  );
+}
+
 // ── Main Component ───────────────────────────────────────────
 
 export default function TopUpResult() {
@@ -429,6 +761,10 @@ export default function TopUpResult() {
   const [pollTimedOut, setPollTimedOut] = useState(false);
   const hapticFiredRef = useRef<'success' | 'error' | null>(null);
   const cleanedUpRef = useRef(false);
+  const [closedPaidExpired, setClosedPaidExpired] = useState(false);
+  const closedPaidExpiredRef = useRef(false);
+  closedPaidExpiredRef.current = closedPaidExpired;
+  const [checking, setChecking] = useState(false);
 
   // Load saved payment info from sessionStorage (once on mount)
   const [pendingInfo] = useState(() => loadTopUpPendingInfo());
@@ -479,6 +815,9 @@ export default function TopUpResult() {
       const payment = query.state.data;
       if (!payment) return POLL_INTERVAL_MS;
 
+      if (payment.intent_outcome) {
+        return intentSettled(payment, closedPaidExpiredRef.current) ? false : POLL_INTERVAL_MS;
+      }
       if (payment.is_paid || isPaidStatus(payment.status) || isFailedStatus(payment.status)) {
         return false;
       }
@@ -511,6 +850,9 @@ export default function TopUpResult() {
       const payment = query.state.data;
       if (!payment) return POLL_INTERVAL_MS;
 
+      if (payment.intent_outcome) {
+        return intentSettled(payment, closedPaidExpiredRef.current) ? false : POLL_INTERVAL_MS;
+      }
       if (payment.is_paid || isPaidStatus(payment.status) || isFailedStatus(payment.status)) {
         return false;
       }
@@ -661,6 +1003,9 @@ export default function TopUpResult() {
     // происхождение ответа — линза денег показала, что кэш соседнего запроса пролезает даже
     // при выключенном запросе. Здесь берём ровно ответ по НАШЕМУ номеру.
     if (!paymentStatus) return null;
+    // 🔴 ВК-16 (16в-2, Т1): доплата под заказ на кассу НЕ уезжает — деньги приходят раньше оформления, и касса
+    // показала бы «Списать… и оформить» поверх уже купленного. Её ведёт исход заказа ниже.
+    if (paymentStatus.intent_outcome) return null;
     if (!paymentStatus.is_paid && !isPaidStatus(paymentStatus.status)) return null;
     const target = resolveCheckoutReturn(returnTo);
     if (!target) return null;
@@ -767,6 +1112,122 @@ export default function TopUpResult() {
     }
   }, [resolvedPaid, serverSaysPaid, queryClient, refreshUser]);
 
+  // 🔴 ВК-16 (16в-2). Доплата под заказ: экран ждёт ИСХОД ЗАКАЗА. Признак — поле от бота; у старого бота и у
+  // обычного пополнения его нет, и экран ведёт себя как раньше.
+  const intentPayment = effectivePayment?.intent_outcome ? effectivePayment : null;
+  const intentOutcome = intentPayment?.intent_outcome ?? null;
+  const intentPaid = Boolean(intentPayment?.intent_paid);
+  // Оплачен СТАРЫЙ счёт того же заказа: сумма — его, а не записи (её `amount_kopeks` — про новый счёт).
+  const intentAmountKopeks = intentPayment
+    ? (intentPayment.intent_amount_kopeks ?? intentPayment.amount_kopeks)
+    : null;
+  const closedPaid = intentOutcome === 'closed' && intentPaid;
+  useEffect(() => {
+    if (!closedPaid || closedPaidExpired) return;
+    const timer = setTimeout(() => setClosedPaidExpired(true), CLOSED_PAID_GRACE_MS);
+    return () => clearTimeout(timer);
+  }, [closedPaid, closedPaidExpired]);
+
+  // Деньги по намерению пришли (в том числе по СТАРОМУ счёту или при сброшенном `is_paid`, мина OH) — касса,
+  // куда ведут кнопки отказа, обязана взять свежий баланс, а не прежнее «Не хватает N» (мины EC, РЕК-3).
+  const intentCacheDroppedRef = useRef(false);
+  useEffect(() => {
+    if (!intentPaid || intentCacheDroppedRef.current) return;
+    intentCacheDroppedRef.current = true;
+    queryClient.removeQueries({ queryKey: ['device-first-options'] });
+    queryClient.invalidateQueries({ queryKey: ['balance'] });
+    refreshUser();
+  }, [intentPaid, queryClient, refreshUser]);
+
+  const intentCheckoutId =
+    intentOutcome === 'fulfilled' ? (intentPayment?.intent_checkout_public_id ?? null) : null;
+  const intentReadyPath = intentCheckoutId
+    ? `/subscription/purchase?checkout=${encodeURIComponent(intentCheckoutId)}`
+    : '/';
+  // «Оформлен» → готовые экраны заказа «Настраиваем VPN» → «VPN готов». Пауза — та же, что у автоувода кассы:
+  // галочку должно быть видно.
+  useEffect(() => {
+    if (intentOutcome !== 'fulfilled') return;
+    queryClient.removeQueries({ queryKey: ['device-first-options'] });
+    queryClient.invalidateQueries({ queryKey: ['balance'] });
+    queryClient.invalidateQueries({
+      predicate: (query) => Array.isArray(query.queryKey) && query.queryKey[0] === 'subscription',
+    });
+    refreshUser();
+    const timer = setTimeout(() => {
+      clearTopUpPendingInfo();
+      navigate(intentReadyPath, { replace: true });
+    }, AUTO_RETURN_DELAY_MS);
+    return () => clearTimeout(timer);
+  }, [intentOutcome, intentReadyPath, navigate, queryClient, refreshUser]);
+
+  // «Проверить ещё раз» — `/check` сам спрашивает платёжную систему и запускает оформление. Ответ 500 — не повод
+  // останавливаться: опрос продолжается.
+  const checkMethod = canPollById ? pendingInfo!.method_id : (effectivePayment?.method ?? null);
+  const checkId = canPollById ? parsedPaymentId : (effectivePayment?.id ?? null);
+  const canCheck = checkMethod !== null && checkId !== null;
+  const handleCheckAgain = useCallback(async () => {
+    if (checkMethod === null || checkId === null || checking) return;
+    setChecking(true);
+    try {
+      await balanceApi.checkPaymentStatus(checkMethod, checkId);
+    } catch {
+      // опрос ниже ответит сам
+    } finally {
+      setChecking(false);
+      if (canPollById) refetch();
+      else refetchLatest();
+    }
+  }, [checkMethod, checkId, checking, canPollById, refetch, refetchLatest]);
+
+  const renderIntent = (payment: PendingPayment) => {
+    const waiting = (mode: 'waiting' | 'processing' | 'checking') => (
+      <IntentWaitingState
+        amountKopeks={intentAmountKopeks}
+        mode={mode}
+        onCheck={canCheck ? handleCheckAgain : null}
+        checking={checking}
+        onLeave={handleGoBack}
+        leaveLabelKey={exit.labelKey}
+      />
+    );
+    const notPlaced = () => (
+      <IntentNotPlacedState payment={payment} amountKopeks={intentAmountKopeks} />
+    );
+    switch (payment.intent_outcome) {
+      case 'fulfilled':
+        return <IntentReadyState checkoutPath={intentReadyPath} />;
+      case 'refused':
+        return notPlaced();
+      case 'closed':
+        if (!intentPaid) {
+          return <IntentClosedState reason={payment.intent_reason ?? ''} returnTo={returnTo} />;
+        }
+        return closedPaidExpired ? notPlaced() : waiting('checking');
+      case 'processing':
+        return pollTimedOut ? (
+          <IntentDelayedState amountKopeks={intentAmountKopeks} />
+        ) : (
+          waiting('processing')
+        );
+      default:
+        // Банк вернул на «не прошло» — отказ показываем сразу, опрос идёт дальше (как у обычного пополнения, В-1).
+        if (serverSaysFailed || isRedirectFailed) {
+          return <FailedState amountKopeks={amountKopeks} returnTo={returnTo} />;
+        }
+        if (pollTimedOut) {
+          return (
+            <TimeoutState
+              onRetry={handleRetryPoll}
+              onGoBack={handleGoBack}
+              goBackLabelKey={exit.labelKey}
+            />
+          );
+        }
+        return waiting(serverSaysPaid ? 'processing' : 'waiting');
+    }
+  };
+
   // Haptic feedback on status resolution (fire once)
   // 🔴 Этап В-1: замок хранит, ЧТО именно уже отвиброировали. Раньше это был просто «уже»,
   // и телефон вибрировал «ошибкой» на отказ из адреса, а на пришедшее следом подтверждение
@@ -789,7 +1250,9 @@ export default function TopUpResult() {
         aria-live="polite"
         aria-atomic="true"
       >
-        {resolvedPaid ? (
+        {intentPayment ? (
+          renderIntent(intentPayment)
+        ) : resolvedPaid ? (
           <SuccessState
             amountKopeks={amountKopeks}
             returnTo={returnTo}

@@ -197,6 +197,9 @@ export function clearStaleSessionIfNeeded(freshInitData: string | null): void {
       // а тянуть сюда импорт ради строки — связать вход с кассой без нужды.
       localStorage.removeItem('topup_pending_payment');
       sessionStorage.removeItem('topup_pending_payment');
+      // ВК-16 (16в-1): ответ «да» на «уже оформлено» — тоже ЭТОГО человека. Достанься он второму аккаунту на том же
+      // телефоне, его покупку сервер счёл бы подтверждённой и выставил бы ещё один срок без вопроса (мина OP).
+      localStorage.removeItem('topup_order_confirmed');
     }
 
     if (currentTgUserId) {

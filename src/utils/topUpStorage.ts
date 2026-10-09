@@ -81,3 +81,43 @@ export function clearTopUpPendingInfo() {
     sessionStorage.removeItem(STORAGE_KEY);
   } catch {}
 }
+
+/**
+ * 🔴 ВК-16 (16в-1). Ответ «да» на «Уже оформлено до … Оплатить ещё период?» — момент той покупки (`purchased_at`)
+ * СТРОКОЙ, как его прислал сервер. Хранится до конца сценария (час, как счёт), чтобы повторное открытие экрана того
+ * же заказа не задавало вопрос снова; новее покупка — сервер спросит заново сам (мины OP, OY).
+ */
+const CONFIRMED_KEY = 'topup_order_confirmed';
+
+export function saveConfirmedPurchase(periodDays: number, devices: number, purchasedAt: string) {
+  try {
+    localStorage.setItem(
+      CONFIRMED_KEY,
+      JSON.stringify({
+        period_days: periodDays,
+        devices,
+        purchased_at: purchasedAt,
+        saved_at: Date.now(),
+      }),
+    );
+  } catch {}
+}
+
+export function loadConfirmedPurchase(periodDays: number, devices: number): string | null {
+  try {
+    const parsed: unknown = JSON.parse(localStorage.getItem(CONFIRMED_KEY) ?? 'null');
+    if (
+      !isRecord(parsed) ||
+      parsed.period_days !== periodDays ||
+      parsed.devices !== devices ||
+      typeof parsed.purchased_at !== 'string' ||
+      typeof parsed.saved_at !== 'number' ||
+      Date.now() - parsed.saved_at > MAX_AGE_MS
+    ) {
+      return null;
+    }
+    return parsed.purchased_at;
+  } catch {
+    return null;
+  }
+}
