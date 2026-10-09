@@ -455,6 +455,39 @@ describe('PROBE', () => {
     });
   }
 
+  it('16в-3 request2: warm cached failed options expose loading during deferred retry', async () => {
+    getOptions.mockResolvedValue({ eligible: true, topup_intent_enabled: false });
+    const client = renderScreen(BOT_LINK);
+    await settle();
+    getOptions.mockRejectedValue(new Error('transport'));
+    await act(async () => {
+      await client.refetchQueries({ queryKey: ['device-first-options'] });
+    });
+    await screen.findByRole('alert');
+    expect(createTopUp).not.toHaveBeenCalled();
+    let resolveOptions!: (options: unknown) => void;
+    getOptions.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveOptions = resolve;
+        }),
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'common.retry' }));
+    await settle();
+    const pending = client.getQueryState(['device-first-options']);
+    expect(pending?.data).toMatchObject({ topup_intent_enabled: false });
+    expect(pending?.status).toBe('error');
+    expect(pending?.fetchStatus).toBe('fetching');
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(screen.queryByRole('status', { name: 'common.loading' })).not.toBeNull();
+    expect(createTopUp).not.toHaveBeenCalled();
+    await act(async () => {
+      resolveOptions({ eligible: true, topup_intent_enabled: true });
+    });
+    await waitFor(() => expect(createTopUp).toHaveBeenCalledTimes(1));
+    expect(createTopUp.mock.calls[0][3]).toEqual({ period_days: 90, devices: 3 });
+  });
+
   it('16в-3 PF: прогретые данные и отказ refetch не разрешают обычное пополнение', async () => {
     getOptions.mockResolvedValue({ eligible: true, topup_intent_enabled: false });
     const client = renderScreen(BOT_LINK);
