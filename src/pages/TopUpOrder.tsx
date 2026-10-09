@@ -39,6 +39,7 @@ interface TopUpOrderProps {
   amountKopeks: number;
   /** Касса с этим заказом (`from=checkout`) — «Изменить заказ» и адрес возврата экрана ожидания. */
   checkoutReturn: string;
+  requireMethodChoice?: boolean;
 }
 
 const LIVE_INVOICE = new Set(['accepted', 'already_paying']);
@@ -55,6 +56,7 @@ export default function TopUpOrder({
   devices,
   amountKopeks,
   checkoutReturn,
+  requireMethodChoice = false,
 }: TopUpOrderProps) {
   const { t, i18n } = useTranslation();
   const navigate = useNavigate();
@@ -66,7 +68,9 @@ export default function TopUpOrder({
     : (options.find((option) => /sbp|сбп/i.test(`${option.id} ${option.name}`))?.id ??
       options[0]?.id ??
       null);
-  const [selectedOption, setSelectedOption] = useState<string | null>(startOption);
+  const [selectedOption, setSelectedOption] = useState<string | null>(
+    requireMethodChoice ? null : startOption,
+  );
   // Счёт выставлен ЯВНОЙ сменой способа — прежний ещё оплачиваем у провайдера: предупреждаем не платить по нему.
   const [replacedOld, setReplacedOld] = useState(false);
   const [answer, setAnswer] = useState<TopUpResponse | null>(null);
@@ -188,10 +192,11 @@ export default function TopUpOrder({
 
   // Счёт — при открытии, один раз (`useRef` — против двойного эффекта StrictMode).
   useEffect(() => {
-    if (autoStartedRef.current) return;
+    // Крипта не подменяется на СБП. При пустом списке null сервер мог бы снова выбрать крипту.
+    if (autoStartedRef.current || requireMethodChoice || startOption === null) return;
     autoStartedRef.current = true;
     request(startOption, false);
-  }, [request, startOption]);
+  }, [request, startOption, requireMethodChoice]);
 
   const goToResult = useCallback(() => {
     if (!paymentIdRef.current) return;
@@ -253,7 +258,8 @@ export default function TopUpOrder({
   const toPay = showsInvoice ? answer!.amount_kopeks : null;
   const fromBalance = promise && price !== null && toPay !== null ? price - toPay : 0;
   const showOptions =
-    options.length > 1 && (!answer || showsInvoice || status === 'invoice_not_created');
+    (options.length > 1 || (requireMethodChoice && options.length > 0)) &&
+    (!answer || showsInvoice || status === 'invoice_not_created');
   const endDate = answer?.subscription_end_date
     ? new Date(answer.subscription_end_date).toLocaleDateString(i18n.language || 'ru', {
         day: 'numeric',
@@ -295,6 +301,16 @@ export default function TopUpOrder({
         </dl>
       )}
 
+      {!busy &&
+        !answer &&
+        (requireMethodChoice || startOption === null) &&
+        note(
+          t(
+            options.length
+              ? 'balance.topUpOrder.chooseSupportedMethod'
+              : 'balance.topUpOrder.noSupportedMethod',
+          ),
+        )}
       {showOptions && (
         <div className="space-y-2">
           <p className="text-sm font-medium text-dark-400">{t('balance.paymentMethod')}</p>
@@ -458,9 +474,6 @@ export default function TopUpOrder({
                       ? t('balance.topUpOrder.morePeriodQuestion', { what, price: money(price) })
                       : t('balance.topUpOrder.morePeriodQuestionNoPrice', { what }),
                   )}
-                  <Button type="button" fullWidth size="lg" onClick={handleConfirmMore}>
-                    {t('balance.topUpOrder.morePeriodYes')}
-                  </Button>
                 </>
               )}
               <Button
@@ -472,6 +485,17 @@ export default function TopUpOrder({
               >
                 {t('balance.topUpOrder.morePeriodNo')}
               </Button>
+              {answer.purchased_at && (
+                <Button
+                  type="button"
+                  fullWidth
+                  size="lg"
+                  variant="secondary"
+                  onClick={handleConfirmMore}
+                >
+                  {t('balance.topUpOrder.morePeriodYes')}
+                </Button>
+              )}
             </>
           )}
 

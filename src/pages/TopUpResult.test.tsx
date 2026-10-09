@@ -31,6 +31,7 @@ vi.mock('../store/auth', () => ({
 // каждый вызов — проверить по нему было нечего.
 const hapticNotification = vi.hoisted(() => vi.fn());
 vi.mock('@/platform', () => ({
+  usePlatform: () => ({ openLink: vi.fn() }),
   useHaptic: () => ({ notification: hapticNotification, impact: vi.fn() }),
 }));
 

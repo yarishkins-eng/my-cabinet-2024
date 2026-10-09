@@ -339,7 +339,11 @@ describe('TopUpAmount — «Оплата заказа» (ВК-16 · 16в-1)', ()
     renderScreen(BOT_LINK);
     await settle();
 
-    fireEvent.click(screen.getByText('balance.topUpOrder.morePeriodNo'));
+    const no = screen.getByRole('button', { name: 'balance.topUpOrder.morePeriodNo' });
+    const yes = screen.getByRole('button', { name: 'balance.topUpOrder.morePeriodYes' });
+    expect(no.className).toBe(yes.className);
+    expect(no.compareDocumentPosition(yes) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    fireEvent.click(no);
     expect(location()).toBe('/');
     expect(createTopUp).toHaveBeenCalledTimes(1);
   });
@@ -541,7 +545,8 @@ describe('TopUpAmount — «Оплата заказа» (ВК-16 · 16в-1)', ()
   // Волна 1: признак не ответил — прежний экран выставил обычный счёт; признак перечитался — на «Оплату заказа» не
   // переключаемся, иначе на один заказ два живых счёта.
   it('обычный счёт уже выставлен — на «Оплату заказа» не переключаемся', async () => {
-    getOptions.mockRejectedValueOnce(new Error('сбой'));
+    // PF: обычный счёт допускается только после явного false, а не после ошибки.
+    getOptions.mockResolvedValueOnce({ eligible: true, topup_intent_enabled: false });
     createTopUp.mockResolvedValue(
       accepted({ intent_status: null, payment_url: 'https://app.platega.io/pay/plain' }),
     );
@@ -601,7 +606,7 @@ describe('TopUpAmount — «Оплата заказа» (ВК-16 · 16в-1)', ()
     expect(screen.queryByText('balance.topUpOrder.oldInvoiceVoid')).toBeNull();
   });
 
-  it('криптовалюты на «Оплате заказа» нет; касса с криптой — счёт по СБП', async () => {
+  it('16в-3: касса с криптой спрашивает способ, не подменяет на СБП', async () => {
     const withCrypto = {
       ...platega,
       options: [...platega.options, { id: '13', name: 'Крипта', description: '' }],
@@ -625,7 +630,14 @@ describe('TopUpAmount — «Оплата заказа» (ВК-16 · 16в-1)', ()
     await settle();
 
     expect(screen.queryByRole('button', { name: 'Крипта' })).toBeNull();
-    expect(createTopUp).toHaveBeenCalledWith(9900, 'platega', '2', { period_days: 90, devices: 3 });
+    expect(createTopUp).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'СБП' }));
+    await settle();
+    expect(createTopUp).toHaveBeenCalledWith(9900, 'platega', '2', {
+      period_days: 90,
+      devices: 3,
+      change_method: true,
+    });
   });
 
   it('скрытый счёт обычного пополнения (заказ нельзя оформить) в память ожидания не кладём', async () => {

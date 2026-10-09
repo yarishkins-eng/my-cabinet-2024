@@ -81,9 +81,12 @@ function LocationProbe() {
   return <output data-testid="location">{location.pathname + location.search}</output>;
 }
 
-function renderScreen(search: string) {
+function renderScreen(search: string, productionRetry = false) {
   const queryClient = new QueryClient({
-    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    defaultOptions: {
+      queries: { retry: productionRetry ? 1 : false, retryDelay: 0 },
+      mutations: { retry: false },
+    },
   });
   queryClient.setQueryData(['payment-methods'], [platega]);
   render(
@@ -351,7 +354,8 @@ describe('PROBE', () => {
   });
 
   it('P-A10 обычный счёт в полёте — на «Оплату заказа» не переключаемся', async () => {
-    getOptions.mockRejectedValueOnce(new Error('сбой'));
+    // 16в-3/PF: обычный счёт допустим только после подтверждённого отключения, не после сетевой ошибки.
+    getOptions.mockResolvedValueOnce({ eligible: true, topup_intent_enabled: false });
     createTopUp.mockReturnValue(new Promise(() => {}));
     const queryClient = renderScreen(`${BOT_LINK}&option=2&auto=1`);
     await settle();
@@ -365,7 +369,8 @@ describe('PROBE', () => {
   });
 
   it('P-A11 обычный счёт без ссылки — на «Оплату заказа» не переключаемся', async () => {
-    getOptions.mockRejectedValueOnce(new Error('сбой'));
+    // 16в-3/PF: обычный счёт допустим только после подтверждённого отключения, не после сетевой ошибки.
+    getOptions.mockResolvedValueOnce({ eligible: true, topup_intent_enabled: false });
     createTopUp.mockResolvedValue(accepted({ intent_status: null, payment_url: null }));
     const queryClient = renderScreen(`${BOT_LINK}&option=2&auto=1`);
     await settle();
@@ -387,4 +392,62 @@ describe('PROBE', () => {
     expect(location()).toBe(CHECKOUT_RETURN);
     useSuccessNotification.getState().hide();
   });
+
+  for (const auto of ['', '&option=2&auto=1']) {
+    it(`16в-3 PF: окончательный сбой с retry:1 блокирует обычный POST ${auto || 'вход бота'}`, async () => {
+      getOptions.mockRejectedValue(new Error('transport'));
+      renderScreen(`${BOT_LINK}${auto}`, true);
+      await settle();
+      expect(getOptions).toHaveBeenCalledTimes(2);
+      expect(screen.queryByText('balance.enterAmount')).toBeNull();
+      expect(createTopUp).not.toHaveBeenCalled();
+      expect(screen.getByRole('button', { name: 'common.retry' })).toBeTruthy();
+      getOptions.mockResolvedValue({ eligible: true, topup_intent_enabled: true });
+      fireEvent.click(screen.getByRole('button', { name: 'common.retry' }));
+      await settle();
+      expect(createTopUp).toHaveBeenCalledTimes(1);
+      expect(createTopUp).toHaveBeenCalledWith(9900, 'platega', '2', {
+        period_days: 90,
+        devices: 3,
+      });
+    });
+  }
+
+  it('16в-3 PF: прогретые данные и отказ refetch не разрешают обычное пополнение', async () => {
+    getOptions.mockResolvedValue({ eligible: true, topup_intent_enabled: false });
+    const client = renderScreen(BOT_LINK);
+    await settle();
+    getOptions.mockRejectedValue(new Error('transport'));
+    await act(async () => {
+      await client.refetchQueries({ queryKey: ['device-first-options'] });
+    });
+    await settle();
+    expect(screen.queryByText('balance.enterAmount')).toBeNull();
+    expect(createTopUp).not.toHaveBeenCalled();
+  });
+
+  for (const methods of [[platega], [{ ...platega, options: [{ id: '13', name: 'Крипта' }] }]]) {
+    it(`16в-3: крипта требует явный выбор до счёта (${methods[0].options.length})`, async () => {
+      getPaymentMethods.mockResolvedValue(methods);
+      renderFor('platega', `${BOT_LINK}&chooseMethod=1`, methods);
+      await settle();
+      expect(createTopUp).not.toHaveBeenCalled();
+      expect(
+        screen.getByText(
+          methods[0].options.length > 1
+            ? 'balance.topUpOrder.chooseSupportedMethod'
+            : 'balance.topUpOrder.noSupportedMethod',
+        ),
+      ).toBeTruthy();
+      if (methods[0].options.length > 1) {
+        fireEvent.click(screen.getByRole('button', { name: 'Карта' }));
+        await settle();
+        expect(createTopUp).toHaveBeenCalledWith(9900, 'platega', '11', {
+          period_days: 90,
+          devices: 3,
+          change_method: true,
+        });
+      }
+    });
+  }
 });

@@ -764,6 +764,7 @@
       "tryAgain": "重试",
       "intent": {
         "waitingTitle": "正在等待银行确认",
+        "continuePayment": "继续付款",
         "processingTitle": "已收到付款 — 正在开通订阅",
         "waitingDesc": "银行确认付款后，订阅会自动开通 — 您可以关闭此窗口。",
         "processingDesc": "通常不到一分钟 — 您可以关闭此窗口。",
@@ -805,6 +806,8 @@
     },
     "topUpOrder": {
       "title": "订单付款",
+      "noSupportedMethod": "目前没有可用的补款方式。请返回订单选择付款方式。",
+      "chooseSupportedMethod": "请选择 SBP 或银行卡补款。",
       "price": "价格",
       "fromBalance": "从您的余额",
       "toPay": "应付",
@@ -5075,6 +5078,7 @@
     "topUpBalanceApplied": "补足金额为 {{total}} 减去您的余额 {{balance}}。",
     "topUpShortage": "补足 {{amount}}",
     "topUpShortageHint": "支付后返回——只需下单即可。",
+    "topUpAutoHint": "补款到账后，订阅将自动开通。",
     "continueAndOrder": "继续并订阅",
     "needTopup": "需要充值余额",
     "armedNotice": "订单已确认。付款后将自动完成，因为您已明确授权扣款。",
@@ -5182,6 +5186,7 @@
     "autostartHeldText": "请支付全款——或只补足差额。",
     "payFullAmountNotice": "支付全款——您的 {{balance}} 将留在余额中",
     "otherMethods": "用其他方式支付",
+    "payFullPrice": "支付全额",
     "whatIsIncluded": "套餐包含什么"
   }
 }

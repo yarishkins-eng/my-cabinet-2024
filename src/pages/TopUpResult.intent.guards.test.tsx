@@ -24,6 +24,7 @@ vi.mock('../api/balance', () => ({
 }));
 
 const refreshUser = vi.fn();
+const openLink = vi.fn();
 vi.mock('../store/auth', () => ({
   useAuthStore: (selector: (s: { refreshUser: () => void }) => unknown) =>
     selector({ refreshUser }),
@@ -31,6 +32,7 @@ vi.mock('../store/auth', () => ({
 
 vi.mock('@/platform', () => ({
   useHaptic: () => ({ notification: vi.fn(), impact: vi.fn() }),
+  usePlatform: () => ({ openLink }),
 }));
 
 vi.mock('../hooks/useCurrency', () => ({
@@ -361,4 +363,75 @@ describe('PROBE-R', () => {
     await screen.findByText('balance.topUpResult.intent.readyTitle');
     await waitFor(() => expect(queryClient.getQueryData(['device-first-options'])).toBeUndefined());
   });
+
+  it('16в-3 PD: продолжить свой действующий счёт без создания нового', async () => {
+    vi.mocked(balanceApi.getPendingPayment).mockResolvedValue(intentPayment());
+    renderResult('?method=platega');
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'balance.topUpResult.intent.continuePayment' }),
+    );
+    expect(openLink).toHaveBeenCalledWith('https://pay.example/4242');
+    expect(location()).toBe('/balance/top-up/result?method=platega');
+  });
+
+  for (const [name, overrides] of Object.entries({
+    predecessor: { intent_payment_id: 4241 },
+    paid: { intent_paid: true },
+    paidRecord: { is_paid: true },
+    closed: { intent_outcome: 'closed' },
+    processing: { intent_outcome: 'processing' },
+    failed: { status: 'failed' },
+    unknown: { status: 'unexpected' },
+    expired: { expires_at: '2000-01-01T00:00:00Z' },
+    paidStatus: { status: 'paid' },
+    missingUrl: { payment_url: null },
+  } satisfies Record<string, Partial<PendingPayment>>)) {
+    it(`16в-3 PD: нет ссылки для ${name}`, async () => {
+      vi.mocked(balanceApi.getPendingPayment).mockResolvedValue(intentPayment(overrides));
+      renderResult('?method=platega');
+      await waitFor(() => expect(polls()).toBeGreaterThan(0));
+      await sleep(50);
+      expect(
+        screen.queryByRole('button', { name: 'balance.topUpResult.intent.continuePayment' }),
+      ).toBeNull();
+      expect(openLink).not.toHaveBeenCalled();
+    });
+  }
+
+  it('16в-3 PD: cached waiting после ошибки не разрешает ссылку', async () => {
+    vi.mocked(balanceApi.getPendingPayment).mockRejectedValue(new Error('offline'));
+    const { queryClient } = renderResult('?method=platega');
+    queryClient.setQueryData(['topup-status', 'platega', 4242], intentPayment());
+    await sleep(100);
+    expect(
+      screen.queryByRole('button', { name: 'balance.topUpResult.intent.continuePayment' }),
+    ).toBeNull();
+  });
+
+  for (const source of ['id', 'latest']) {
+    it(`16в-3 PD: 9 минут до оплаты не сокращают 10 минут оформления (${source})`, async () => {
+      vi.useFakeTimers();
+      if (source === 'latest') localStorage.clear();
+      const api = vi.mocked(
+        source === 'id' ? balanceApi.getPendingPayment : balanceApi.getLatestPayment,
+      );
+      api.mockResolvedValue(intentPayment());
+      renderResult('?method=platega');
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(9 * 60 * 1000);
+      });
+      api.mockResolvedValue(
+        intentPayment({ intent_outcome: 'processing', intent_paid: true, is_paid: true }),
+      );
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2 * 60 * 1000);
+      });
+      expect(screen.getByText('balance.topUpResult.intent.processingTitle')).toBeTruthy();
+      expect(screen.queryByText('balance.topUpResult.intent.delayedTitle')).toBeNull();
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(9 * 60 * 1000);
+      });
+      expect(screen.getByText('balance.topUpResult.intent.delayedTitle')).toBeTruthy();
+    });
+  }
 });
