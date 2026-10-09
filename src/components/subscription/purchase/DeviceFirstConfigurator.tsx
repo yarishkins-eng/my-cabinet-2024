@@ -152,7 +152,11 @@ export function DeviceFirstConfigurator({
     !!autostartPeriodParam &&
     !!autostartDevicesParam;
   const nativeLaunchRef = useRef<string | null>(null);
-  const chatPurchaseContext = useRef<{ confirmedId: number | null } | null>(null);
+  const chatPurchaseContext = useRef<{ confirmedId: number | null } | null>(
+    fixtureCheckout === undefined && initialCheckoutId && nativeLaunchMethod && nativeAutostart
+      ? { confirmedId: null }
+      : null,
+  );
   const [purchaseQuestion, setPurchaseQuestion] = useState<{
     purchase: RecentPurchase;
     proceed: () => void;
@@ -304,6 +308,8 @@ export function DeviceFirstConfigurator({
       // читал «Поэтому мы не открыли оплату… Вы выбирали «Карта российского банка»» про
       // заказ, которого больше нет, вместе с чужой залитой кнопкой и свёрткой.
       setHeldChatMethod(null);
+      chatPurchaseContext.current = null;
+      setPurchaseQuestion(null);
     }
   }, [fixtureCheckout, initialCheckoutId]);
 
@@ -1755,8 +1761,8 @@ export function DeviceFirstConfigurator({
       {/* 🔴 РЕК-18.1. Замер живым прогоном: главная кнопка стояла на 766 px при сгибе 499 — на
           267 px ниже, страница в 2,1 экрана. Две шапки подряд (h1 страницы и эта, с описанием)
           стоили 64 px и на подтверждении не несли ни одного факта о покупке.
-          ⛔ h1 страницы НЕ трогаем: он четырёхветочный, общий с классическим мастером покупки и
-          стоит над ОБОИМИ шагами — переименование сломало бы три чужих пути молча. */}
+          h1 страницы общий с классическим мастером покупки: для ?checkout показывает «Ваш заказ»,
+          остальные ветви сохраняют свой заголовок. */}
       <div
         hidden={!checkout && !!initialCheckoutId}
         className={isConfirmationStep ? 'mb-3' : 'mb-6'}
@@ -1790,7 +1796,7 @@ export function DeviceFirstConfigurator({
           бота. Теперь текст говорит то, что происходит на самом деле, и не обещает ничего.
           ⛔ Соседний экран `processing`/`provisioning` ниже НЕ тронут: там сервер уже подтвердил
           оплату, и «Оплата учтена» — правда. */}
-      {!checkout && initialCheckoutId && restoredCheckout.isLoading && (
+      {!checkout && !legacyDraft && initialCheckoutId && !restoredCheckout.isError && (
         <StateMessage
           title={t('deviceFirst.restoringOrderTitle')}
           text={t('deviceFirst.restoringOrderText')}

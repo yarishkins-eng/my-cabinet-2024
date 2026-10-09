@@ -1,10 +1,10 @@
 // @vitest-environment jsdom
 
-import { useState } from 'react';
+import { useLayoutEffect, useState } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { MemoryRouter, useLocation, useSearchParams } from 'react-router';
+import { MemoryRouter, useLocation, useNavigate, useSearchParams } from 'react-router';
 import { DeviceFirstConfigurator } from './DeviceFirstConfigurator';
 import {
   deviceFirstApi,
@@ -187,6 +187,11 @@ function LocationProbe() {
   return <output data-testid="location">{location.pathname + location.search}</output>;
 }
 
+function BrowserBackControl() {
+  const navigate = useNavigate();
+  return <button onClick={() => navigate(-1)}>Browser Back</button>;
+}
+
 // The page derives the restored checkout id from the URL; the test harness
 // mirrors that exactly so navigation (drain, Back, acceptCheckout) behaves
 // like production instead of freezing a static prop.
@@ -194,12 +199,16 @@ function ConfiguratorFromRoute({
   options: routeOptions = options,
   fixtureCheckout,
   fixtureMethods,
+  onFirstCommit,
 }: {
   options?: DeviceFirstOptions;
   fixtureCheckout?: DeviceFirstCheckout;
   fixtureMethods?: Array<{ key: string; provider_code: number }>;
+  onFirstCommit?: () => void;
 }) {
   const [searchParams] = useSearchParams();
+  // Read the committed DOM before DeviceFirstConfigurator's passive cache hydration.
+  useLayoutEffect(() => onFirstCommit?.(), [onFirstCommit]);
   return (
     <DeviceFirstConfigurator
       options={routeOptions}
@@ -216,10 +225,17 @@ function renderConfigurator(
     fixtureMethods?: Array<{ key: string; provider_code: number }>;
     options?: DeviceFirstOptions;
     initialPath?: string;
+    withBrowserBack?: boolean;
     seed?: (client: QueryClient) => void;
+    onFirstCommit?: () => void;
   } = {},
 ) {
-  const { initialPath = '/subscription/purchase', seed, ...componentProps } = props;
+  const {
+    initialPath = '/subscription/purchase',
+    withBrowserBack,
+    seed,
+    ...componentProps
+  } = props;
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
@@ -231,6 +247,7 @@ function renderConfigurator(
       <MemoryRouter initialEntries={[initialPath]}>
         <QueryClientProvider client={queryClient}>
           <LocationProbe />
+          {withBrowserBack && <BrowserBackControl />}
           <ConfiguratorFromRoute {...componentProps} />
         </QueryClientProvider>
       </MemoryRouter>,
@@ -273,7 +290,11 @@ describe('DeviceFirstConfigurator interaction safety', () => {
         options: { ...options, balance_kopeks: 0, recent_purchase: recent },
         initialPath: chatPath,
       });
-      const no = await screen.findByRole('button', { name: 'balance.topUpOrder.morePeriodNo' });
+      const no = await screen.findByRole(
+        'button',
+        { name: 'balance.topUpOrder.morePeriodNo' },
+        { timeout: 4000 },
+      );
       const yes = screen.getByRole('button', { name: 'balance.topUpOrder.morePeriodYes' });
       expect(no.compareDocumentPosition(yes) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
       expect(no.className).toBe(yes.className);
@@ -392,6 +413,141 @@ describe('DeviceFirstConfigurator interaction safety', () => {
         confirmed_purchase_id: null,
       });
     });
+
+    it('a restored old chat quote asks on 409 before creating another invoice', async () => {
+      vi.mocked(deviceFirstApi.get).mockResolvedValue({
+        ...directInvoice(),
+        lifecycle_state: 'confirmed',
+        ui_state: 'confirmation',
+        funding_state: 'unfunded',
+        funding_mode: null,
+      });
+      vi.mocked(deviceFirstApi.payDirect).mockRejectedValueOnce(confirmationRequired(735));
+      renderConfigurator({
+        options: { ...options, balance_kopeks: 0 },
+        initialPath: '/subscription/purchase?checkout=checkout-owned&method=sbp&autostart=1',
+      });
+      fireEvent.click(
+        await screen.findByRole('button', { name: 'deviceFirst.paymentMethodAmount:450 ₽' }),
+      );
+      await waitFor(() => expect(deviceFirstApi.payDirect).toHaveBeenCalledTimes(1));
+      expect(deviceFirstApi.payDirect).toHaveBeenCalledWith({
+        ...plategaPayPayload,
+        purchase_context: 'chat_autostart',
+        confirmed_purchase_id: null,
+      });
+      fireEvent.click(
+        await screen.findByRole('button', { name: 'balance.topUpOrder.morePeriodYes' }),
+      );
+      await waitFor(() => expect(deviceFirstApi.payDirect).toHaveBeenCalledTimes(2));
+      expect(deviceFirstApi.payDirect).toHaveBeenLastCalledWith({
+        ...plategaPayPayload,
+        purchase_context: 'chat_autostart',
+        confirmed_purchase_id: 735,
+      });
+      expect(deviceFirstApi.nativeLaunchDirect).not.toHaveBeenCalled();
+    });
+
+    it('ordinary restored quotes keep the old request without chat context', async () => {
+      vi.mocked(deviceFirstApi.get).mockResolvedValue({
+        ...directInvoice(),
+        lifecycle_state: 'confirmed',
+        ui_state: 'confirmation',
+        funding_state: 'unfunded',
+        funding_mode: null,
+      });
+      renderConfigurator({
+        options: { ...options, balance_kopeks: 0 },
+        initialPath: '/subscription/purchase?checkout=checkout-owned',
+      });
+      fireEvent.click(
+        await screen.findByRole('button', { name: 'deviceFirst.paymentMethodAmount:450 ₽' }),
+      );
+      await waitFor(() => expect(deviceFirstApi.payDirect).toHaveBeenCalledTimes(1));
+      expect(deviceFirstApi.payDirect).toHaveBeenCalledWith(plategaPayPayload);
+      expect(screen.queryByRole('button', { name: 'balance.topUpOrder.morePeriodYes' })).toBeNull();
+    });
+
+    it('restoring an existing invoice from an old chat link creates no new financial call', async () => {
+      vi.mocked(deviceFirstApi.get).mockResolvedValue(directInvoice());
+      renderConfigurator({
+        options: { ...options, balance_kopeks: 0, recent_purchase: recent },
+        initialPath: '/subscription/purchase?checkout=checkout-owned&method=sbp&autostart=1',
+      });
+      await screen.findByRole('dialog');
+      await settlePurchase();
+      expect(deviceFirstApi.payDirect).not.toHaveBeenCalled();
+      expect(deviceFirstApi.nativeLaunchDirect).not.toHaveBeenCalled();
+      expect(screen.queryByRole('button', { name: 'balance.topUpOrder.morePeriodYes' })).toBeNull();
+    });
+
+    it.each([null, 731])(
+      'clears chat context after Browser Back from ready (confirmed ID %s)',
+      async (confirmedId) => {
+        // A native replay/late response may already contain ready. Keep the same
+        // route/component instance while the real history returns from C2 to C1.
+        vi.mocked(deviceFirstApi.nativeLaunchDirect).mockResolvedValueOnce({
+          checkout: {
+            ...directInvoice(),
+            lifecycle_state: 'ready',
+            ui_state: 'ready',
+            funding_state: 'funded',
+            provisioning_state: 'ready',
+            shortage_kopeks: 0,
+          },
+        });
+        renderConfigurator({
+          initialPath: chatPath,
+          withBrowserBack: true,
+          options: {
+            ...options,
+            balance_kopeks: 0,
+            recent_purchase: confirmedId === null ? null : recent,
+            default_period_days: 90,
+            period_options: [30, 90],
+            price_matrix: [
+              options.price_matrix![0],
+              { ...options.price_matrix![0], period_days: 90 },
+            ],
+          },
+        });
+        if (confirmedId !== null)
+          fireEvent.click(
+            await screen.findByRole('button', { name: 'balance.topUpOrder.morePeriodYes' }),
+          );
+        await screen.findByText('deviceFirst.ready');
+        expect(deviceFirstApi.nativeLaunchDirect).toHaveBeenCalledExactlyOnceWith({
+          ...plategaPayPayload,
+          purchase_context: 'chat_autostart',
+          confirmed_purchase_id: confirmedId,
+        });
+        expect(screen.getByTestId('location').textContent).toBe(
+          '/subscription/purchase?checkout=checkout-owned',
+        );
+
+        fireEvent.click(screen.getByRole('button', { name: 'Browser Back' }));
+        await screen.findByRole('button', { name: 'deviceFirst.review' });
+        expect(screen.getByTestId('location').textContent).toBe('/subscription/purchase');
+        // The chat's 30-day selection survived rather than remounting with the
+        // 90-day default; the next 90-day selection is made manually.
+        expect(
+          screen
+            .getByRole('radio', { name: /deviceFirst.periodMonths:1/ })
+            .getAttribute('aria-checked'),
+        ).toBe('true');
+        fireEvent.click(screen.getByRole('radio', { name: /deviceFirst.periodMonths:3/ }));
+        fireEvent.click(screen.getByRole('button', { name: 'deviceFirst.review' }));
+        fireEvent.click(
+          await screen.findByRole('button', { name: 'deviceFirst.paymentMethodAmount:450 ₽' }),
+        );
+        await waitFor(() => expect(deviceFirstApi.payDirect).toHaveBeenCalledTimes(1));
+        expect(deviceFirstApi.payDirect).toHaveBeenCalledExactlyOnceWith({
+          ...plategaPayPayload,
+          period_days: 90,
+        });
+        expect(deviceFirstApi.nativeLaunchDirect).toHaveBeenCalledTimes(1);
+      },
+    );
 
     it('No after a held-wallet 409 causes no second financial request', async () => {
       vi.mocked(deviceFirstApi.payDirect).mockRejectedValueOnce(confirmationRequired(734));
@@ -1823,6 +1979,7 @@ describe('DeviceFirstConfigurator interaction safety', () => {
     ).toBeTruthy();
     expect(screen.queryByText('deviceFirst.refreshText')).toBeNull();
     expect(screen.queryByText('deviceFirst.refreshTitle')).toBeNull();
+    expect(screen.queryByText('deviceFirst.restoringOrderText')).toBeNull();
     // 🔴 Волна 2: текст просит «напишите в поддержку», значит выход в поддержку обязан быть на
     // экране. Раньше единственная кнопка называлась «Начать новый расчёт» и стирала
     // `?checkout=` — последнюю ссылку на заказ, за который человек мог заплатить.
@@ -2173,6 +2330,33 @@ describe('DeviceFirstConfigurator interaction safety', () => {
     expect(screen.queryByText('deviceFirst.processingText')).toBeNull();
     expect(screen.queryByText('deviceFirst.processing')).toBeNull();
     expect(screen.queryByRole('heading', { name: 'Premium' })).toBeNull();
+  });
+
+  it('16в-3 request2: cached checkout has a restoring message on its first commit', async () => {
+    vi.mocked(deviceFirstApi.get).mockReturnValue(new Promise(() => {}));
+    let firstCommit: { stateText: string | null; visibleTariffHeading: boolean } | undefined;
+    const { queryClient } = renderConfigurator({
+      initialPath: '/subscription/purchase?checkout=checkout-owned',
+      seed: (client) =>
+        client.setQueryData(['device-first-checkout', 'checkout-owned'], checkout('provisioning')),
+      onFirstCommit: () => {
+        const card = screen.getByTestId('device-first-configurator');
+        firstCommit = {
+          stateText: card.querySelector('[role="status"]')?.textContent ?? null,
+          visibleTariffHeading: screen.queryByRole('heading', { name: 'Premium' }) !== null,
+        };
+      },
+    });
+
+    expect(queryClient.getQueryState(['device-first-checkout', 'checkout-owned'])?.status).toBe(
+      'success',
+    );
+    expect(firstCommit).toEqual({
+      stateText: 'deviceFirst.restoringOrderTitledeviceFirst.restoringOrderText',
+      visibleTariffHeading: false,
+    });
+    expect(await screen.findByText('deviceFirst.processingText')).toBeTruthy();
+    expect(screen.queryByText('deviceFirst.restoringOrderText')).toBeNull();
   });
 
   it('restores a returned checkout without needing purchase options and resumes it by id', async () => {
