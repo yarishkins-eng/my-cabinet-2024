@@ -40,6 +40,7 @@ interface TopUpOrderProps {
   /** Касса с этим заказом (`from=checkout`) — «Изменить заказ» и адрес возврата экрана ожидания. */
   checkoutReturn: string;
   requireMethodChoice?: boolean;
+  onInvoiceStarted?: () => void;
 }
 
 const LIVE_INVOICE = new Set(['accepted', 'already_paying']);
@@ -57,6 +58,7 @@ export default function TopUpOrder({
   amountKopeks,
   checkoutReturn,
   requireMethodChoice = false,
+  onInvoiceStarted,
 }: TopUpOrderProps) {
   const { t, i18n } = useTranslation();
   const navigate = useNavigate();
@@ -128,6 +130,7 @@ export default function TopUpOrder({
       return balanceApi.createTopUp(amountKopeks, method.id, option ?? undefined, intent);
     },
     onSuccess: (data, variables) => {
+      if (data.payment_id) onInvoiceStarted?.();
       setReplacedOld(variables.replacing && data.intent_status === 'accepted');
       // Защита от отката 3а: сервер снова спросил ПРО ТУ ЖЕ покупку, на которую мы уже ответили «да», — значит
       // ответ он не принял. Задать тот же вопрос второй раз — замкнуть человека в круге.

@@ -774,6 +774,7 @@ export default function TopUpResult() {
   const closedPaidExpiredRef = useRef(false);
   closedPaidExpiredRef.current = closedPaidExpired;
   const [checking, setChecking] = useState(false);
+  const [, refreshInvoiceExpiry] = useState(0);
 
   // Load saved payment info from sessionStorage (once on mount)
   const [pendingInfo] = useState(() => loadTopUpPendingInfo());
@@ -803,15 +804,17 @@ export default function TopUpResult() {
 
   // ВК-16 16в-3 PD: API не отдаёт время зачисления. Полные 10 минут после первого
   // наблюдаемого intent_paid; Retry/повторный ответ не перевзводят часы этого платежа.
-  const pollingExpired = (payment: PendingPayment | undefined) => {
+  const pollingExpired = useCallback((payment: PendingPayment | undefined) => {
     const id = payment?.intent_payment_id ?? payment?.id;
     if (payment?.intent_paid && id != null && !paidClocks.current.has(id)) {
       paidClocks.current.set(id, Date.now());
+      // Ответ мог прийти после fetch-start, уже запершего waiting по старым данным.
+      setPollTimedOut(false);
     }
     const start =
       id != null ? (paidClocks.current.get(id) ?? pollStart.current) : pollStart.current;
     return Date.now() - start > MAX_POLL_MS;
-  };
+  }, []);
 
   // Poll payment status by specific ID (primary path — sessionStorage available)
   const {
@@ -823,6 +826,7 @@ export default function TopUpResult() {
     queryFn: () => balanceApi.getPendingPayment(pendingInfo!.method_id, parsedPaymentId),
     enabled: canPollById && !pollTimedOut,
     refetchInterval: (query) => {
+      if (!canPollById) return false;
       // 🔴 Этап В-1: проверка срока поднята НАД ранним выходом. Она стояла под ним, и пока
       // сервер не ответил ни разу, `payment` пуст — то есть десять минут не наступали НИКОГДА,
       // и экран таймаута с кнопкой «Повторить» был недостижим. До этапа это почти не всплывало:
@@ -858,6 +862,7 @@ export default function TopUpResult() {
     queryFn: () => balanceApi.getLatestPayment(methodFromUrl!),
     enabled: canPollByMethod && !pollTimedOut,
     refetchInterval: (query) => {
+      if (!canPollByMethod) return false;
       // 🔴 Этап В-1: проверка срока поднята НАД ранним выходом. Она стояла под ним, и пока
       // сервер не ответил ни разу, `payment` пуст — то есть десять минут не наступали НИКОГДА,
       // и экран таймаута с кнопкой «Повторить» был недостижим. До этапа это почти не всплывало:
@@ -885,6 +890,22 @@ export default function TopUpResult() {
 
   // Merge both polling sources
   const effectivePayment = paymentStatus ?? latestPayment;
+  // Disabled observer может получить уже начатый ответ без нового refetchInterval.
+  useEffect(() => {
+    if (effectivePayment?.intent_paid) pollingExpired(effectivePayment);
+  }, [effectivePayment, pollingExpired]);
+
+  const invoiceExpiresAt = effectivePayment?.expires_at;
+  useEffect(() => {
+    if (!invoiceExpiresAt) return;
+    const remaining = new Date(invoiceExpiresAt).getTime() - Date.now();
+    if (remaining <= 0 || !Number.isFinite(remaining)) return;
+    const timer = setTimeout(
+      () => refreshInvoiceExpiry((value) => value + 1),
+      Math.min(remaining, 2_147_483_647),
+    );
+    return () => clearTimeout(timer);
+  }, [invoiceExpiresAt]);
 
   const handleRetryPoll = useCallback(() => {
     pollStart.current = Date.now();
@@ -1223,7 +1244,14 @@ export default function TopUpResult() {
         checking={checking}
         onLeave={handleGoBack}
         leaveLabelKey={exit.labelKey}
-        onContinuePayment={canContinuePayment ? () => openLink(payment.payment_url!) : null}
+        onContinuePayment={
+          canContinuePayment
+            ? () => {
+                if (!payment.expires_at || new Date(payment.expires_at).getTime() > Date.now())
+                  openLink(payment.payment_url!);
+              }
+            : null
+        }
       />
     );
     const notPlaced = () => (

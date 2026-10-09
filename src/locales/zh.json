@@ -806,6 +806,7 @@
     },
     "topUpOrder": {
       "title": "订单付款",
+      "loadError": "无法加载订单价格。请重试。",
       "noSupportedMethod": "目前没有可用的补款方式。请返回订单选择付款方式。",
       "chooseSupportedMethod": "请选择 SBP 或银行卡补款。",
       "price": "价格",

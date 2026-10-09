@@ -158,10 +158,14 @@ export default function TopUpAmount() {
     queryFn: deviceFirstApi.getOptions,
     enabled: hasOrderTarget,
   });
+  const [orderInvoiceTarget, setOrderInvoiceTarget] = useState<string | null>(null);
+  const orderInvoiceStarted = hasOrderTarget && orderInvoiceTarget === checkoutReturn;
   // ВК-16 16в-3 (PF): ошибка не разрешает обычный счёт, в том числе при старых cached data.
-  const orderUndecided = hasOrderTarget && (orderOptionsPending || orderOptionsFailed);
+  const orderUndecided =
+    hasOrderTarget && !orderInvoiceStarted && (orderOptionsPending || orderOptionsFailed);
   const orderMode =
-    hasOrderTarget && !orderUndecided && orderOptions?.topup_intent_enabled === true;
+    hasOrderTarget &&
+    (orderInvoiceStarted || (!orderUndecided && orderOptions?.topup_intent_enabled === true));
 
   const handleNavigateBack = useCallback(() => {
     navigate(-1);
@@ -601,11 +605,11 @@ export default function TopUpAmount() {
   }
 
   const plainInvoiceStarted = !!paymentUrl || topUpMutation.isPending || !!topUpMutation.data;
-  if (hasOrderTarget && orderOptionsFailed && !plainInvoiceStarted) {
+  if (hasOrderTarget && orderOptionsFailed && !plainInvoiceStarted && !orderInvoiceStarted) {
     return (
       <div className="flex flex-col items-center gap-4 py-12 text-center">
         <p role="alert" className="text-sm text-dark-400">
-          {t('common.error')}
+          {t('balance.topUpOrder.loadError')}
         </p>
         <Button type="button" variant="secondary" onClick={() => refetchOrderOptions()}>
           {t('common.retry')}
@@ -639,6 +643,8 @@ export default function TopUpAmount() {
   ) {
     return (
       <TopUpOrder
+        key={checkoutReturn}
+        onInvoiceStarted={() => setOrderInvoiceTarget(checkoutReturn)}
         method={method}
         initialOptionId={pickOptionId(method.options)}
         tariffName={orderOptions?.tariff?.name ?? null}
@@ -646,7 +652,12 @@ export default function TopUpAmount() {
         devices={orderDevices}
         amountKopeks={Math.round(initialAmountRubles * 100)}
         checkoutReturn={checkoutReturn}
-        requireMethodChoice={searchParams.get('chooseMethod') === '1' || requestedOptionId === '13'}
+        requireMethodChoice={
+          searchParams.get('chooseMethod') === '1' ||
+          requestedOptionId === '13' ||
+          (!!requestedOptionId &&
+            !method.options?.some((option) => option.id === requestedOptionId))
+        }
       />
     );
   }

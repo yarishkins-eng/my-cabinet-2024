@@ -148,6 +148,34 @@ const sleep = (ms: number) =>
 const polls = () => vi.mocked(balanceApi.getPendingPayment).mock.calls.length;
 
 describe('PROBE-R', () => {
+  for (const source of ['id', 'latest']) {
+    it(`16в-3 PD: оплата на границе таймаута получает окно оформления (${source})`, async () => {
+      vi.useFakeTimers();
+      if (source === 'latest') localStorage.clear();
+      const api = vi.mocked(
+        source === 'id' ? balanceApi.getPendingPayment : balanceApi.getLatestPayment,
+      );
+      api.mockResolvedValue(intentPayment());
+      renderResult('?method=platega');
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(600_001);
+      });
+      api.mockResolvedValue(
+        intentPayment({ intent_outcome: 'processing', intent_paid: true, is_paid: true }),
+      );
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(3000);
+      });
+      const count = api.mock.calls.length;
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(6000);
+      });
+      expect(screen.queryByText('balance.topUpResult.intent.delayedTitle')).toBeNull();
+      expect(screen.getByText('balance.topUpResult.intent.processingTitle')).toBeTruthy();
+      expect(api.mock.calls.length).toBeGreaterThan(count);
+    });
+  }
+
   beforeEach(() => {
     vi.clearAllMocks();
     localStorage.clear();
@@ -434,4 +462,67 @@ describe('PROBE-R', () => {
       expect(screen.getByText('balance.topUpResult.intent.delayedTitle')).toBeTruthy();
     });
   }
+  // Независимый мутационный скептик: прежние сторожа пропускали эти семь веток.
+  it('G-M19: ответ с другим record id не доказывает свой живой счёт', async () => {
+    vi.mocked(balanceApi.getPendingPayment).mockResolvedValue(
+      intentPayment({ id: 4243, intent_payment_id: 4243, payment_url: 'https://pay.example/4243' }),
+    );
+    renderResult('?method=platega');
+    await screen.findByText('balance.topUpResult.intent.waitingTitle');
+    expect(
+      screen.queryByRole('button', { name: 'balance.topUpResult.intent.continuePayment' }),
+    ).toBeNull();
+    expect(openLink).not.toHaveBeenCalled();
+  });
+
+  it('G-M27: смена latest record не начинает часы оплаченного предшественника заново', async () => {
+    vi.useFakeTimers();
+    localStorage.clear();
+    const api = vi.mocked(balanceApi.getLatestPayment);
+    api.mockResolvedValue(
+      intentPayment({
+        id: 4242,
+        intent_payment_id: 4241,
+        intent_outcome: 'processing',
+        intent_paid: true,
+      }),
+    );
+    renderResult('?method=platega');
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(9 * 60 * 1000);
+    });
+    api.mockResolvedValue(
+      intentPayment({
+        id: 4243,
+        intent_payment_id: 4241,
+        intent_outcome: 'processing',
+        intent_paid: true,
+      }),
+    );
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2 * 60 * 1000);
+    });
+    expect(screen.getByText('balance.topUpResult.intent.delayedTitle')).toBeTruthy();
+    expect(screen.queryByText('balance.topUpResult.intent.processingTitle')).toBeNull();
+  });
+  it('16в-3 PD: ссылка исчезает по expires_at даже при неизменных ответах', async () => {
+    vi.useFakeTimers();
+    vi.mocked(balanceApi.getPendingPayment).mockResolvedValue(
+      intentPayment({ expires_at: new Date(Date.now() + 5000).toISOString() }),
+    );
+    renderResult('?method=platega');
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(50);
+    });
+    expect(
+      screen.getByRole('button', { name: 'balance.topUpResult.intent.continuePayment' }),
+    ).toBeTruthy();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(6100);
+    });
+    expect(
+      screen.queryByRole('button', { name: 'balance.topUpResult.intent.continuePayment' }),
+    ).toBeNull();
+    expect(openLink).not.toHaveBeenCalled();
+  });
 });

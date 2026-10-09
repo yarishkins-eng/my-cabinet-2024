@@ -1032,6 +1032,7 @@
     },
     "topUpOrder": {
       "title": "Order payment",
+      "loadError": "Could not load the order price. Try again.",
       "noSupportedMethod": "No top-up methods are available. Return to your order to choose how to pay.",
       "chooseSupportedMethod": "Choose SBP or a bank card for the top-up.",
       "price": "Price",

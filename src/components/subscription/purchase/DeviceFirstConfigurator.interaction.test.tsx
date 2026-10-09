@@ -3783,4 +3783,16 @@ describe('DeviceFirstConfigurator interaction safety', () => {
     expect(url.searchParams.has('auto')).toBe(false);
     expect(url.searchParams.get('chooseMethod')).toBe('1');
   });
+  // Независимый мутационный скептик: прежние сторожа пропускали эти семь веток.
+  it('G-M32: неизвестный provider code при включённом intent несёт chooseMethod=1', async () => {
+    vi.mocked(deviceFirstApi.paymentMethods).mockReturnValue(new Promise(() => {}));
+    getBalancePaymentMethods.mockResolvedValue(topUpMethodsResponse);
+    renderConfigurator({ options: { ...options, topup_intent_enabled: true } });
+    fireEvent.click(screen.getByRole('button', { name: 'deviceFirst.review' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'deviceFirst.topUpShortage:350 ₽' }));
+    const url = new URL(screen.getByTestId('location').textContent!, 'http://test');
+    expect(url.searchParams.has('option')).toBe(false);
+    expect(url.searchParams.has('auto')).toBe(false);
+    expect(url.searchParams.get('chooseMethod')).toBe('1');
+  });
 });

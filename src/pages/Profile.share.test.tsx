@@ -133,7 +133,7 @@ async function renderAndShare(botLink: string | undefined) {
       </MemoryRouter>
     </QueryClientProvider>,
   );
-  // Дождаться данных в отрисованном экране: кнопка появляется раньше referral-info.
+  // Подсказка подтверждает данные текущего рендера перед нажатием.
   await screen.findByText(
     (ruLocale.referral as Record<string, string>).shareHint.replace('{{percent}}', '25'),
   );

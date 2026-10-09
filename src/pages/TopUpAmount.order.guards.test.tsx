@@ -450,4 +450,89 @@ describe('PROBE', () => {
       }
     });
   }
+  // Независимый мутационный скептик: прежние сторожа пропускали эти семь веток.
+  it('G-M04: no-URL обычный ответ + ошибка options блокируют ручной второй POST', async () => {
+    getOptions.mockResolvedValueOnce({ eligible: true, topup_intent_enabled: false });
+    createTopUp.mockResolvedValue(accepted({ intent_status: null, payment_url: null }));
+    const client = renderScreen(`${BOT_LINK}&option=2&auto=1`);
+    await settle();
+    expect(createTopUp).toHaveBeenCalledTimes(1);
+    getOptions.mockRejectedValue(new Error('transport'));
+    await act(async () => {
+      await client.refetchQueries({ queryKey: ['device-first-options'] });
+    });
+    await settle();
+    fireEvent.click(screen.getByRole('button', { name: 'balance.getPaymentLink' }));
+    await settle();
+    expect(createTopUp).toHaveBeenCalledTimes(1);
+  });
+
+  it('G-M05: no-URL обычный ответ + позднее true блокируют ручной второй POST', async () => {
+    getOptions.mockResolvedValueOnce({ eligible: true, topup_intent_enabled: false });
+    createTopUp.mockResolvedValue(accepted({ intent_status: null, payment_url: null }));
+    const client = renderScreen(`${BOT_LINK}&option=2&auto=1`);
+    await settle();
+    expect(createTopUp).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      await client.refetchQueries({ queryKey: ['device-first-options'] });
+    });
+    await settle();
+    fireEvent.click(screen.getByRole('button', { name: 'balance.getPaymentLink' }));
+    await settle();
+    expect(createTopUp).toHaveBeenCalledTimes(1);
+  });
+
+  it('G-M11: бот без chooseMethod при только crypto options не шлёт null/default POST', async () => {
+    const onlyCrypto = [{ ...platega, options: [{ id: '13', name: 'Крипта', description: '' }] }];
+    getPaymentMethods.mockResolvedValue(onlyCrypto);
+    renderFor('platega', BOT_LINK, onlyCrypto);
+    await settle();
+    expect(createTopUp).not.toHaveBeenCalled();
+    expect(screen.getByText('balance.topUpOrder.noSupportedMethod')).toBeTruthy();
+  });
+
+  it('G-M14: явный выбор при единственной карте виден и отправляет именно 11/change_method', async () => {
+    const oneCard = [{ ...platega, options: [{ id: '11', name: 'Карта', description: '' }] }];
+    getPaymentMethods.mockResolvedValue(oneCard);
+    renderFor('platega', `${BOT_LINK}&chooseMethod=1`, oneCard);
+    await settle();
+    expect(createTopUp).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Карта' }));
+    await settle();
+    expect(createTopUp).toHaveBeenCalledWith(9900, 'platega', '11', {
+      period_days: 90,
+      devices: 3,
+      change_method: true,
+    });
+  });
+  it('16в-3 PF: ошибка цен после accepted сохраняет прежний счёт', async () => {
+    const client = renderScreen(BOT_LINK);
+    await settle();
+    expect(createTopUp).toHaveBeenCalledTimes(1);
+    const saved = localStorage.getItem('topup_pending_payment');
+    getOptions.mockRejectedValue(new Error('transport'));
+    await act(async () => {
+      await client.refetchQueries({ queryKey: ['device-first-options'] });
+    });
+    await settle();
+    expect(screen.getByText('balance.topUpOrder.title')).toBeTruthy();
+    expect(screen.queryByText('balance.topUpOrder.loadError')).toBeNull();
+    expect(localStorage.getItem('topup_pending_payment')).toBe(saved);
+    expect(createTopUp).toHaveBeenCalledTimes(1);
+  });
+
+  it('16в-3: выбранная карта исчезла из списка — нет подмены на СБП', async () => {
+    const onlySbp = [{ ...platega, options: [{ id: '2', name: 'СБП' }] }];
+    getPaymentMethods.mockResolvedValue(onlySbp);
+    renderFor('platega', `${BOT_LINK}&option=11&auto=1`, onlySbp);
+    await settle();
+    expect(createTopUp).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'СБП' }));
+    await settle();
+    expect(createTopUp).toHaveBeenCalledWith(9900, 'platega', '2', {
+      period_days: 90,
+      devices: 3,
+      change_method: true,
+    });
+  });
 });
