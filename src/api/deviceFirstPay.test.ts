@@ -30,6 +30,37 @@ function idempotencyKeyOf(call: number): string {
 }
 
 describe('device-first pay-time api', () => {
+  it.each(['payDirect', 'nativeLaunchDirect'] as const)(
+    '16в-3: %s separates ambiguous unconfirmed and confirmed purchases, preserving retries',
+    async (endpoint) => {
+      const unconfirmed = {
+        ...plategaRequest,
+        purchase_context: 'chat_autostart' as const,
+        confirmed_purchase_id: null,
+      };
+      postMock.mockRejectedValue(new Error('Network Error'));
+      await expect(deviceFirstApi[endpoint](unconfirmed)).rejects.toThrow();
+      await expect(deviceFirstApi[endpoint](unconfirmed)).rejects.toThrow();
+      const confirmed = { ...unconfirmed, confirmed_purchase_id: 731 };
+      await expect(deviceFirstApi[endpoint](confirmed)).rejects.toThrow();
+      await expect(deviceFirstApi[endpoint](confirmed)).rejects.toThrow();
+      await expect(
+        deviceFirstApi[endpoint]({ ...confirmed, confirmed_purchase_id: 732 }),
+      ).rejects.toThrow();
+      expect(postMock.mock.calls.map((call) => call[1])).toEqual([
+        unconfirmed,
+        unconfirmed,
+        confirmed,
+        confirmed,
+        { ...confirmed, confirmed_purchase_id: 732 },
+      ]);
+      expect(idempotencyKeyOf(0)).toBe(idempotencyKeyOf(1));
+      expect(idempotencyKeyOf(2)).toBe(idempotencyKeyOf(3));
+      expect(idempotencyKeyOf(0)).not.toBe(idempotencyKeyOf(2));
+      expect(idempotencyKeyOf(2)).not.toBe(idempotencyKeyOf(4));
+    },
+  );
+
   beforeEach(() => {
     vi.clearAllMocks();
     sessionStorage.clear();

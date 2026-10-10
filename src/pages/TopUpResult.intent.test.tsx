@@ -217,7 +217,8 @@ describe('TopUpResult — доплата под заказ ждёт заказ, 
     expect(screen.getByText('balance.topUpResult.intent.reasons.price_changed')).toBeTruthy();
     const offer = screen.getByRole('button', { name: /balance\.topUpResult\.intent\.offer/ });
     expect(offer.textContent).toContain('Базовый <&>');
-    expect(offer.textContent).toContain('249.00 ₽');
+    // 16в-3/2: whole rubles have no .00; the offer and its no-debit action stay unchanged.
+    expect(offer.textContent).toContain('249 ₽');
     fireEvent.click(offer);
     expect(location()).toBe('/subscription/purchase?from=checkout&period=30&devices=2');
     expect(balanceApi.checkPaymentStatus).not.toHaveBeenCalled();
@@ -329,8 +330,9 @@ describe('TopUpResult — доплата под заказ ждёт заказ, 
     renderResult('?method=platega');
 
     expect(await screen.findByText('balance.topUpResult.intent.notPlacedTitle')).toBeTruthy();
-    expect(screen.getByText('99.00')).toBeTruthy();
-    expect(screen.queryByText('60.00')).toBeNull();
+    // 16в-3/2: formatting changed; the amount still belongs to the paid predecessor.
+    expect(screen.getByText('99')).toBeTruthy();
+    expect(screen.queryByText('60')).toBeNull();
     expect(screen.queryByText('balance.topUpResult.failed')).toBeNull();
   });
 

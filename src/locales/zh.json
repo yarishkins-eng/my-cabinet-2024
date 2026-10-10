@@ -5038,6 +5038,8 @@
     "title": "我的订阅"
   },
   "deviceFirst": {
+    "orderTitle": "您的订单",
+    "recentPurchaseQuestion": "您在过去一小时内已经购买。要再支付一个订阅期吗？",
     "description": "先选择 VPN 时长，再选择设备数量。",
     "devicesQuestion": "需要几台设备？",
     "deviceShort": "{{count}} 台设备",

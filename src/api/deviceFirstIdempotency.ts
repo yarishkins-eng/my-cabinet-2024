@@ -44,10 +44,16 @@ export const payIntentName = (request: {
   funding_mode: 'wallet' | 'platega';
   method_key: string | null;
   expected_tariff_total_kopeks: number;
+  purchase_context?: 'chat_autostart';
+  confirmed_purchase_id?: number | null;
 }): string =>
   `pay:${request.period_days}:${request.selected_device_limit}:${request.funding_mode}:${
     request.method_key ?? ''
-  }:${request.expected_tariff_total_kopeks}`;
+  }:${request.expected_tariff_total_kopeks}${
+    request.purchase_context
+      ? `:${request.purchase_context}:${request.confirmed_purchase_id ?? ''}`
+      : ''
+  }`;
 
 export function getOrCreateIntentKey(
   storage: IntentStorage,

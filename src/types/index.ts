@@ -690,6 +690,7 @@ export interface PendingPayment {
   /** О каком платеже исход: не этот — деньги пришли по СТАРОМУ счёту того же человека. */
   intent_payment_id?: number | null;
   intent_paid?: boolean | null;
+  intent_paid_at?: string | null;
   intent_amount_kopeks?: number | null;
   intent_period_days?: number | null;
   intent_devices?: number | null;

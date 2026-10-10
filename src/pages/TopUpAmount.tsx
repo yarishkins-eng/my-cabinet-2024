@@ -152,6 +152,7 @@ export default function TopUpAmount() {
     data: orderOptions,
     isPending: orderOptionsPending,
     isError: orderOptionsFailed,
+    isFetching: orderOptionsFetching,
     refetch: refetchOrderOptions,
   } = useQuery({
     queryKey: ['device-first-options'],
@@ -162,7 +163,9 @@ export default function TopUpAmount() {
   const orderInvoiceStarted = hasOrderTarget && orderInvoiceTarget === checkoutReturn;
   // ВК-16 16в-3 (PF): ошибка не разрешает обычный счёт, в том числе при старых cached data.
   const orderUndecided =
-    hasOrderTarget && !orderInvoiceStarted && (orderOptionsPending || orderOptionsFailed);
+    hasOrderTarget &&
+    !orderInvoiceStarted &&
+    (orderOptionsPending || orderOptionsFailed || orderOptionsFetching);
   const orderMode =
     hasOrderTarget &&
     (orderInvoiceStarted || (!orderUndecided && orderOptions?.topup_intent_enabled === true));
@@ -605,7 +608,13 @@ export default function TopUpAmount() {
   }
 
   const plainInvoiceStarted = !!paymentUrl || topUpMutation.isPending || !!topUpMutation.data;
-  if (hasOrderTarget && orderOptionsFailed && !plainInvoiceStarted && !orderInvoiceStarted) {
+  if (
+    hasOrderTarget &&
+    orderOptionsFailed &&
+    !orderOptionsFetching &&
+    !plainInvoiceStarted &&
+    !orderInvoiceStarted
+  ) {
     return (
       <div className="flex flex-col items-center gap-4 py-12 text-center">
         <p role="alert" className="text-sm text-dark-400">
@@ -626,7 +635,11 @@ export default function TopUpAmount() {
   }
   if (isPaymentMethodsLoading || !method || (orderUndecided && !plainInvoiceStarted)) {
     return (
-      <div className="flex items-center justify-center py-12">
+      <div
+        className="flex items-center justify-center py-12"
+        role="status"
+        aria-label={t('common.loading')}
+      >
         <div className="h-8 w-8 animate-spin rounded-full border-2 border-accent-500 border-t-transparent" />
       </div>
     );

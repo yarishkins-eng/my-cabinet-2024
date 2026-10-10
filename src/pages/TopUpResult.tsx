@@ -107,7 +107,8 @@ function AmountDisplay({ amountKopeks, label }: { amountKopeks: number; label: s
     <div className="mt-4 rounded-xl bg-dark-800/50 px-6 py-4">
       <p className="text-xs text-dark-400">{label}</p>
       <p className="mt-1 text-2xl font-bold text-dark-50">
-        {formatAmount(amountRubles)} <span className="text-lg text-dark-400">{currencySymbol}</span>
+        {formatAmount(amountRubles).replace(/\.00$/, '')}{' '}
+        <span className="text-lg text-dark-400">{currencySymbol}</span>
       </p>
     </div>
   );
@@ -511,7 +512,7 @@ function IntentWaitingState({
         <p className="mt-2 text-sm text-dark-400">{t(`balance.topUpResult.intent.${mode}Desc`)}</p>
       </div>
       {amountKopeks != null && amountKopeks > 0 && (
-        <AmountDisplay amountKopeks={amountKopeks} label={t('balance.topUpResult.topUpAmount')} />
+        <AmountDisplay amountKopeks={amountKopeks} label={t('balance.topUpOrder.toPay')} />
       )}
       <div className="flex flex-wrap items-center justify-center gap-3">
         {onContinuePayment && mode === 'waiting' && (
@@ -621,7 +622,7 @@ function IntentNotPlacedState({
     main = {
       label: t('balance.topUpResult.intent.offer', {
         what,
-        price: `${formatAmount(offer / 100)} ${currencySymbol}`,
+        price: `${formatAmount(offer / 100).replace(/\.00$/, '')} ${currencySymbol}`,
       }),
       path: orderCheckoutPath(period, devices),
     };
@@ -656,7 +657,7 @@ function IntentNotPlacedState({
         )}
       </div>
       {amountKopeks != null && amountKopeks > 0 && (
-        <AmountDisplay amountKopeks={amountKopeks} label={t('balance.topUpResult.topUpAmount')} />
+        <AmountDisplay amountKopeks={amountKopeks} label={t('balance.topUpOrder.toPay')} />
       )}
       <div className="flex w-full flex-col gap-3">
         <button type="button" onClick={() => go(main.path)} className={MAIN_BUTTON}>
@@ -700,7 +701,7 @@ function IntentDelayedState({ amountKopeks }: { amountKopeks: number | null }) {
         <p className="mt-2 text-sm text-dark-400">{t('balance.topUpResult.intent.delayedDesc')}</p>
       </div>
       {amountKopeks != null && amountKopeks > 0 && (
-        <AmountDisplay amountKopeks={amountKopeks} label={t('balance.topUpResult.topUpAmount')} />
+        <AmountDisplay amountKopeks={amountKopeks} label={t('balance.topUpOrder.toPay')} />
       )}
       <div className="flex w-full flex-col gap-3">
         <button type="button" onClick={() => go('/support')} className={MAIN_BUTTON}>
@@ -802,14 +803,20 @@ export default function TopUpResult() {
   // Fallback: poll by method via /latest endpoint when no stored payment id
   const canPollByMethod = !canPollById && !!methodFromUrl;
 
-  // ВК-16 16в-3 PD: API не отдаёт время зачисления. Полные 10 минут после первого
-  // наблюдаемого intent_paid; Retry/повторный ответ не перевзводят часы этого платежа.
+  // PD: серверное время зачисления относится к intent_payment_id, включая предшественника.
+  // Старый бот не отдаёт время: сохраняем отсчёт от первого наблюдения оплаты.
   const pollingExpired = useCallback((payment: PendingPayment | undefined) => {
     const id = payment?.intent_payment_id ?? payment?.id;
-    if (payment?.intent_paid && id != null && !paidClocks.current.has(id)) {
-      paidClocks.current.set(id, Date.now());
-      // Ответ мог прийти после fetch-start, уже запершего waiting по старым данным.
-      setPollTimedOut(false);
+    const paidAt = payment?.intent_paid_at ? Date.parse(payment.intent_paid_at) : NaN;
+    if (
+      payment?.intent_paid &&
+      id != null &&
+      (!paidClocks.current.has(id) || Number.isFinite(paidAt))
+    ) {
+      const firstPaid = !paidClocks.current.has(id);
+      paidClocks.current.set(id, Number.isFinite(paidAt) ? paidAt : Date.now());
+      // Поздний первый ответ снимает прежний waiting timeout; следующий опрос часы не сбрасывает.
+      if (firstPaid) setPollTimedOut(false);
     }
     const start =
       id != null ? (paidClocks.current.get(id) ?? pollStart.current) : pollStart.current;
@@ -1166,9 +1173,13 @@ export default function TopUpResult() {
   const closedPaid = intentOutcome === 'closed' && intentPaid;
   useEffect(() => {
     if (!closedPaid || closedPaidExpired) return;
-    const timer = setTimeout(() => setClosedPaidExpired(true), CLOSED_PAID_GRACE_MS);
+    const paidAt = intentPayment?.intent_paid_at ? Date.parse(intentPayment.intent_paid_at) : NaN;
+    const remaining = Number.isFinite(paidAt)
+      ? Math.max(0, paidAt + CLOSED_PAID_GRACE_MS - Date.now())
+      : CLOSED_PAID_GRACE_MS;
+    const timer = setTimeout(() => setClosedPaidExpired(true), remaining);
     return () => clearTimeout(timer);
-  }, [closedPaid, closedPaidExpired]);
+  }, [closedPaid, closedPaidExpired, intentPayment?.intent_paid_at]);
 
   // Деньги по намерению пришли (в том числе по СТАРОМУ счёту или при сброшенном `is_paid`, мина OH) — касса,
   // куда ведут кнопки отказа, обязана взять свежий баланс, а не прежнее «Не хватает N» (мины EC, РЕК-3).

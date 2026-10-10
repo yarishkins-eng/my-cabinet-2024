@@ -228,13 +228,15 @@ export default function SubscriptionPurchase() {
             to={subscriptionId ? `/subscriptions/${subscriptionId}` : '/subscriptions'}
           />
           <h1 className="text-2xl font-bold text-dark-50 sm:text-3xl">
-            {isMultiTariff && !subscriptionId
-              ? t('subscription.newTariff', 'Новый тариф')
-              : !isMultiTariff && subscription?.is_daily && !subscription?.is_trial
-                ? t('subscription.switchTariff.title')
-                : subscription && !subscription.is_trial
-                  ? t('subscription.extend')
-                  : t('subscription.getSubscription')}
+            {deviceFirstCheckoutId
+              ? t('deviceFirst.orderTitle')
+              : isMultiTariff && !subscriptionId
+                ? t('subscription.newTariff', 'Новый тариф')
+                : !isMultiTariff && subscription?.is_daily && !subscription?.is_trial
+                  ? t('subscription.switchTariff.title')
+                  : subscription && !subscription.is_trial
+                    ? t('subscription.extend')
+                    : t('subscription.getSubscription')}
           </h1>
         </div>
       )}

@@ -5,7 +5,7 @@
 
 import { StrictMode } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router';
 import TopUpAmount from './TopUpAmount';
@@ -177,6 +177,48 @@ describe('PROBE', () => {
     // @ts-expect-error probe cleanup
     delete document.visibilityState;
   });
+
+  it.each(['success', 'failure'])(
+    '16в-3 request2: deferred options refetch exposes loading until %s and never creates an ordinary invoice',
+    async (outcome) => {
+      getOptions.mockRejectedValue(new Error('network'));
+      renderScreen(BOT_LINK, true);
+      await screen.findByRole('alert');
+      expect(createTopUp).not.toHaveBeenCalled();
+      let resolveOptions!: (options: unknown) => void;
+      let rejectOptions!: (error: Error) => void;
+      getOptions.mockImplementationOnce(
+        () =>
+          new Promise((resolve, reject) => {
+            resolveOptions = resolve;
+            rejectOptions = reject;
+          }),
+      );
+      fireEvent.click(screen.getByRole('button', { name: 'common.retry' }));
+      await settle();
+      expect(screen.getByRole('status', { name: 'common.loading' })).toBeTruthy();
+      expect(screen.queryByRole('alert')).toBeNull();
+      expect(createTopUp).not.toHaveBeenCalled();
+      await act(async () => {
+        if (outcome === 'success')
+          resolveOptions({
+            eligible: true,
+            topup_intent_enabled: true,
+            tariff: { id: 3, name: 'T' },
+          });
+        else rejectOptions(new Error('still offline'));
+      });
+      if (outcome === 'success') {
+        await waitFor(() => expect(createTopUp).toHaveBeenCalledTimes(1));
+        expect(createTopUp.mock.calls[0][3]).toEqual({ period_days: 90, devices: 3 });
+        expect(screen.queryByRole('status', { name: 'common.loading' })).toBeNull();
+      } else {
+        await screen.findByRole('alert');
+        expect(createTopUp).not.toHaveBeenCalled();
+        expect(screen.queryByRole('status', { name: 'common.loading' })).toBeNull();
+      }
+    },
+  );
 
   it('P-O06 rate limit гасит прежний счёт', async () => {
     renderScreen(BOT_LINK);
@@ -412,6 +454,39 @@ describe('PROBE', () => {
       });
     });
   }
+
+  it('16в-3 request2: warm cached failed options expose loading during deferred retry', async () => {
+    getOptions.mockResolvedValue({ eligible: true, topup_intent_enabled: false });
+    const client = renderScreen(BOT_LINK);
+    await settle();
+    getOptions.mockRejectedValue(new Error('transport'));
+    await act(async () => {
+      await client.refetchQueries({ queryKey: ['device-first-options'] });
+    });
+    await screen.findByRole('alert');
+    expect(createTopUp).not.toHaveBeenCalled();
+    let resolveOptions!: (options: unknown) => void;
+    getOptions.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveOptions = resolve;
+        }),
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'common.retry' }));
+    await settle();
+    const pending = client.getQueryState(['device-first-options']);
+    expect(pending?.data).toMatchObject({ topup_intent_enabled: false });
+    expect(pending?.status).toBe('error');
+    expect(pending?.fetchStatus).toBe('fetching');
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(screen.queryByRole('status', { name: 'common.loading' })).not.toBeNull();
+    expect(createTopUp).not.toHaveBeenCalled();
+    await act(async () => {
+      resolveOptions({ eligible: true, topup_intent_enabled: true });
+    });
+    await waitFor(() => expect(createTopUp).toHaveBeenCalledTimes(1));
+    expect(createTopUp.mock.calls[0][3]).toEqual({ period_days: 90, devices: 3 });
+  });
 
   it('16в-3 PF: прогретые данные и отказ refetch не разрешают обычное пополнение', async () => {
     getOptions.mockResolvedValue({ eligible: true, topup_intent_enabled: false });

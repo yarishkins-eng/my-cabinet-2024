@@ -187,6 +187,124 @@ describe('PROBE-R', () => {
     vi.useRealTimers();
   });
 
+  describe('16в-3 request2 server payment clock', () => {
+    const now = Date.parse('2026-10-10T00:00:00Z');
+    const processing = (paidAt: string | null) =>
+      intentPayment({
+        intent_outcome: 'processing',
+        intent_paid: true,
+        is_paid: true,
+        created_at: new Date(now).toISOString(),
+        intent_paid_at: paidAt,
+      });
+    const advance = (ms: number) => act(async () => void (await vi.advanceTimersByTimeAsync(ms)));
+
+    beforeEach(() => {
+      vi.useFakeTimers();
+      vi.setSystemTime(now);
+      seedPendingInfo();
+    });
+
+    for (const source of ['id', 'latest']) {
+      it(`old completed_at expires immediately through ${source}, independent of invoice creation`, async () => {
+        if (source === 'latest') localStorage.clear();
+        const api = vi.mocked(
+          source === 'id' ? balanceApi.getPendingPayment : balanceApi.getLatestPayment,
+        );
+        api.mockResolvedValue(processing(new Date(now - 11 * 60_000).toISOString()));
+        renderResult('?method=platega');
+        await advance(50);
+        expect(screen.getByText('balance.topUpResult.intent.delayedTitle')).toBeTruthy();
+        expect(screen.queryByText('balance.topUpResult.intent.processingTitle')).toBeNull();
+        expect(api).toHaveBeenCalledWith(...(source === 'id' ? ['platega', 4242] : ['platega']));
+      });
+    }
+
+    it('reload preserves the remainder of the ten minute server clock', async () => {
+      vi.mocked(balanceApi.getPendingPayment).mockResolvedValue(
+        processing(new Date(now - 9 * 60_000).toISOString()),
+      );
+      const first = renderResult('?method=platega');
+      await advance(50);
+      expect(screen.getByText('balance.topUpResult.intent.processingTitle')).toBeTruthy();
+      first.unmount();
+      first.queryClient.clear();
+      await advance(30_000);
+      seedPendingInfo();
+      renderResult('?method=platega');
+      await advance(50);
+      expect(screen.getByText('balance.topUpResult.intent.processingTitle')).toBeTruthy();
+      await advance(31_000);
+      expect(screen.getByText('balance.topUpResult.intent.delayedTitle')).toBeTruthy();
+      expect(screen.queryByText('balance.topUpResult.intent.processingTitle')).toBeNull();
+    });
+
+    it('Retry cannot renew an expired paid clock or start an automatic request loop', async () => {
+      const api = vi.mocked(balanceApi.getPendingPayment);
+      api.mockResolvedValue({
+        ...processing(new Date(now - 11 * 60_000).toISOString()),
+        intent_outcome: 'waiting',
+      });
+      renderResult('?method=platega');
+      await advance(50);
+      expect(screen.getByRole('button', { name: 'common.retry' })).toBeTruthy();
+      const count = api.mock.calls.length;
+      fireEvent.click(screen.getByRole('button', { name: 'common.retry' }));
+      await advance(6000);
+      expect(screen.getByRole('button', { name: 'common.retry' })).toBeTruthy();
+      expect(screen.queryByText('balance.topUpResult.intent.processingTitle')).toBeNull();
+      expect(api.mock.calls.length).toBeGreaterThan(count);
+      expect(api.mock.calls.length).toBeLessThanOrEqual(count + 2);
+    });
+
+    it.each([180_000, 90_000])(
+      'closed paid grace uses completed_at already %i ms old',
+      async (age) => {
+        vi.mocked(balanceApi.getPendingPayment).mockResolvedValue({
+          ...processing(new Date(now - age).toISOString()),
+          intent_outcome: 'closed',
+        });
+        renderResult('?method=platega');
+        await advance(50);
+        if (age < 120_000) {
+          expect(screen.getByText('balance.topUpResult.intent.checkingTitle')).toBeTruthy();
+          await advance(31_000);
+        }
+        expect(screen.getByText('balance.topUpResult.intent.notPlacedTitle')).toBeTruthy();
+        expect(screen.queryByText('balance.topUpResult.intent.checkingTitle')).toBeNull();
+      },
+    );
+
+    it.each([null, 'not-a-timestamp'])(
+      'old bot or malformed paid timestamp keeps a bounded observation clock (%s)',
+      async (paidAt) => {
+        vi.mocked(balanceApi.getPendingPayment).mockResolvedValue(processing(paidAt));
+        renderResult('?method=platega');
+        await advance(50);
+        expect(screen.getByText('balance.topUpResult.intent.processingTitle')).toBeTruthy();
+        await advance(11 * 60_000);
+        expect(screen.getByText('balance.topUpResult.intent.delayedTitle')).toBeTruthy();
+      },
+    );
+  });
+
+  it.each([
+    [14900, '149'],
+    [14950, '149.50'],
+  ] as const)(
+    '16в-3 request2 renders %i kopeks as %s with the order payment label',
+    async (amount, formatted) => {
+      vi.mocked(balanceApi.getPendingPayment).mockResolvedValue(
+        intentPayment({ intent_amount_kopeks: amount }),
+      );
+      renderResult('?method=platega');
+      await screen.findByText('balance.topUpResult.intent.waitingTitle');
+      expect(screen.getByText('balance.topUpOrder.toPay')).toBeTruthy();
+      expect(screen.getByText(formatted)).toBeTruthy();
+      if (amount === 14900) expect(screen.queryByText('149.00')).toBeNull();
+    },
+  );
+
   it('P-R04 отказ «к заказу» — опрос идёт дальше и подхватывает «оформлено»', async () => {
     vi.mocked(balanceApi.getPendingPayment)
       .mockResolvedValueOnce(
@@ -358,7 +476,8 @@ describe('PROBE-R', () => {
     );
     renderResult('?method=platega');
     await screen.findByText('balance.topUpResult.intent.waitingTitle');
-    expect(document.body.textContent).toContain('60.00');
+    // В request2 целые рубли показываются без .00; fallback по-прежнему берёт 6000 копеек из записи.
+    expect(screen.getByText('60')).toBeTruthy();
   });
 
   it('P-R50 «к заказу» без номера — к покупке', async () => {

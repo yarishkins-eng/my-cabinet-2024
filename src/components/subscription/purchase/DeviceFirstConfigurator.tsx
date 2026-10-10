@@ -19,7 +19,9 @@ import {
   type DeviceFirstCommitResponse,
   type DeviceFirstOptions,
   type DeviceFirstPaymentAttempt,
+  type RecentPurchase,
 } from '@/api/deviceFirst';
+import { Button } from '@/components/primitives/Button';
 import { XIcon } from '@/components/icons';
 import { useToast } from '@/components/Toast';
 import { getGlassColors } from '@/utils/glassTheme';
@@ -150,6 +152,15 @@ export function DeviceFirstConfigurator({
     !!autostartPeriodParam &&
     !!autostartDevicesParam;
   const nativeLaunchRef = useRef<string | null>(null);
+  const chatPurchaseContext = useRef<{ confirmedId: number | null } | null>(
+    fixtureCheckout === undefined && initialCheckoutId && nativeLaunchMethod && nativeAutostart
+      ? { confirmedId: null }
+      : null,
+  );
+  const [purchaseQuestion, setPurchaseQuestion] = useState<{
+    purchase: RecentPurchase;
+    proceed: () => void;
+  } | null>(null);
   const restoredHandledRef = useRef<string | null>(null);
   const pollStartedAt = useRef(Date.now());
   const dialogRef = useRef<HTMLDivElement>(null);
@@ -241,6 +252,8 @@ export function DeviceFirstConfigurator({
     // руками открыл подтверждение — и читает «Мы не открыли оплату» там, где никто ничего
     // не удерживал.
     setHeldChatMethod(null);
+    chatPurchaseContext.current = null;
+    setPurchaseQuestion(null);
     // 🔴 РЕК-14.2, тот же класс, что EW и РЕК-8а двумя строками выше: флаг, поставленный один
     // раз и не гаснущий ничем, переживает свой экран. Компонент между заказами НЕ
     // размонтируется. Без этой строки человек уходит «Изменить параметры», выбирает другое,
@@ -295,6 +308,8 @@ export function DeviceFirstConfigurator({
       // читал «Поэтому мы не открыли оплату… Вы выбирали «Карта российского банка»» про
       // заказ, которого больше нет, вместе с чужой залитой кнопкой и свёрткой.
       setHeldChatMethod(null);
+      chatPurchaseContext.current = null;
+      setPurchaseQuestion(null);
     }
   }, [fixtureCheckout, initialCheckoutId]);
 
@@ -885,6 +900,23 @@ export function DeviceFirstConfigurator({
     // без этой строки у возобновлённого счёта опрос не включался бы вовсе.
     pollStartedAt.current = Date.now();
   };
+  const askAboutPurchase = (error: unknown, proceed: () => void): boolean => {
+    if (deviceFirstErrorCode(error) !== 'recent_purchase_confirmation_required') return false;
+    const purchase = (
+      error as { response?: { data?: { detail?: { recent_purchase?: RecentPurchase } } } }
+    )?.response?.data?.detail?.recent_purchase;
+    if (!purchase || !Number.isInteger(purchase.transaction_id) || purchase.transaction_id <= 0)
+      return false;
+    setPurchaseQuestion({ purchase, proceed });
+    return true;
+  };
+  const purchaseConfirmation = () =>
+    chatPurchaseContext.current
+      ? {
+          purchase_context: 'chat_autostart' as const,
+          confirmed_purchase_id: chatPurchaseContext.current.confirmedId,
+        }
+      : {};
   const payMutation = useMutation({
     mutationFn: ({
       fundingMode,
@@ -901,6 +933,7 @@ export function DeviceFirstConfigurator({
         // The exact amount the person confirmed, never rounded: the raw matrix
         // price for a fresh selection, the row's immutable total for a resume.
         expected_tariff_total_kopeks: confirmTotalKopeks!,
+        ...purchaseConfirmation(),
       }),
     onMutate: () => {
       setActionError(null);
@@ -914,7 +947,9 @@ export function DeviceFirstConfigurator({
       rememberInvoiceRedirect(result);
       acceptCheckout(result.checkout);
     },
-    onError: handlePayError,
+    onError: (error, variables) => {
+      if (!askAboutPurchase(error, () => payMutation.mutate(variables))) void handlePayError(error);
+    },
   });
   const nativeLaunchMutation = useMutation({
     mutationFn: (launch: {
@@ -929,6 +964,7 @@ export function DeviceFirstConfigurator({
         funding_mode: 'platega',
         method_key: launch.method,
         expected_tariff_total_kopeks: launch.expectedKopeks,
+        ...purchaseConfirmation(),
       }),
     onMutate: () => {
       setActionError(null);
@@ -941,7 +977,10 @@ export function DeviceFirstConfigurator({
       rememberInvoiceRedirect(result);
       acceptCheckout(result.checkout);
     },
-    onError: handlePayError,
+    onError: (error, variables) => {
+      if (!askAboutPurchase(error, () => nativeLaunchMutation.mutate(variables)))
+        void handlePayError(error);
+    },
   });
   const paymentMutation = useMutation({
     mutationFn: () => deviceFirstApi.createPaymentAttempt(checkout!.id, methodKey),
@@ -1123,6 +1162,7 @@ export function DeviceFirstConfigurator({
     setPeriod(periodDays);
     setDevices(deviceLimit);
     setConfirmation(true);
+    chatPurchaseContext.current = { confirmedId: null };
     if (autostartHold) {
       // 🔴 Молчаливая остановка — единственная из четырёх веток без единого слова человеку.
       // Он нажал «Карта · 450 ₽», ждал банк, а получил экран с другим числом на кнопке: без
@@ -1137,12 +1177,18 @@ export function DeviceFirstConfigurator({
       setMethodKey(method);
       return;
     }
-    nativeLaunchMutation.mutate({
-      periodDays,
-      deviceLimit,
-      method,
-      expectedKopeks: selection.price_kopeks,
-    });
+    const proceed = () =>
+      nativeLaunchMutation.mutate({
+        periodDays,
+        deviceLimit,
+        method,
+        expectedKopeks: selection.price_kopeks,
+      });
+    if (options.recent_purchase) {
+      setPurchaseQuestion({ purchase: options.recent_purchase, proceed });
+    } else {
+      proceed();
+    }
   }, [
     autostartDevicesParam,
     autostartPeriodParam,
@@ -1156,6 +1202,7 @@ export function DeviceFirstConfigurator({
     nativeLaunchMethod,
     nativeLaunchMutation,
     options.balance_kopeks,
+    options.recent_purchase,
     priceFor,
   ]);
 
@@ -1546,7 +1593,10 @@ export function DeviceFirstConfigurator({
   // выбранный способ занимает первое место, доплата встаёт сразу под ним (а не в самый низ,
   // где её на телефоне не видно) и тихой — потому что главное действие теперь не она.
   const autoTopUpFirst =
-    options.topup_intent_enabled === true && showTopUpAction && topUpActionGoesFirst;
+    !actionErrorCode &&
+    options.topup_intent_enabled === true &&
+    showTopUpAction &&
+    topUpActionGoesFirst;
   const topUpSlot: 'first' | 'afterChosen' | 'last' = autoTopUpFirst
     ? 'first'
     : chatChosenMethod
@@ -1666,6 +1716,34 @@ export function DeviceFirstConfigurator({
     </div>
   ) : null;
 
+  if (purchaseQuestion) {
+    return (
+      <div className="space-y-4" role="region" aria-label={t('deviceFirst.recentPurchaseQuestion')}>
+        <p className="text-dark-50">{t('deviceFirst.recentPurchaseQuestion')}</p>
+        <Button
+          fullWidth
+          size="lg"
+          variant="secondary"
+          onClick={() => navigate('/', { replace: true })}
+        >
+          {t('balance.topUpOrder.morePeriodNo')}
+        </Button>
+        <Button
+          fullWidth
+          size="lg"
+          variant="secondary"
+          onClick={() => {
+            chatPurchaseContext.current = { confirmedId: purchaseQuestion.purchase.transaction_id };
+            const proceed = purchaseQuestion.proceed;
+            setPurchaseQuestion(null);
+            proceed();
+          }}
+        >
+          {t('balance.topUpOrder.morePeriodYes')}
+        </Button>
+      </div>
+    );
+  }
   return (
     <section
       data-testid="device-first-configurator"
@@ -1683,8 +1761,8 @@ export function DeviceFirstConfigurator({
       {/* 🔴 РЕК-18.1. Замер живым прогоном: главная кнопка стояла на 766 px при сгибе 499 — на
           267 px ниже, страница в 2,1 экрана. Две шапки подряд (h1 страницы и эта, с описанием)
           стоили 64 px и на подтверждении не несли ни одного факта о покупке.
-          ⛔ h1 страницы НЕ трогаем: он четырёхветочный, общий с классическим мастером покупки и
-          стоит над ОБОИМИ шагами — переименование сломало бы три чужих пути молча. */}
+          h1 страницы общий с классическим мастером покупки: для ?checkout показывает «Ваш заказ»,
+          остальные ветви сохраняют свой заголовок. */}
       <div
         hidden={!checkout && !!initialCheckoutId}
         className={isConfirmationStep ? 'mb-3' : 'mb-6'}
@@ -1718,7 +1796,7 @@ export function DeviceFirstConfigurator({
           бота. Теперь текст говорит то, что происходит на самом деле, и не обещает ничего.
           ⛔ Соседний экран `processing`/`provisioning` ниже НЕ тронут: там сервер уже подтвердил
           оплату, и «Оплата учтена» — правда. */}
-      {!checkout && initialCheckoutId && restoredCheckout.isLoading && (
+      {!checkout && !legacyDraft && initialCheckoutId && !restoredCheckout.isError && (
         <StateMessage
           title={t('deviceFirst.restoringOrderTitle')}
           text={t('deviceFirst.restoringOrderText')}

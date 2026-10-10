@@ -37,6 +37,12 @@ export interface DeviceFirstPrice {
   };
 }
 
+export interface RecentPurchase {
+  transaction_id: number;
+  purchased_at: string;
+  checkout_public_id?: string | null;
+}
+
 export interface DeviceFirstOptions {
   eligible: boolean;
   // Only an explicit fresh permission can enable the legacy tariff form.
@@ -59,6 +65,7 @@ export interface DeviceFirstOptions {
   price_matrix?: Array<{ period_days: number; prices: DeviceFirstPrice[] }>;
   /** ВК-16 (16а-1): доплата под заказ оформится сама — только тем, кому это включено. Нет поля — выключено. */
   topup_intent_enabled?: boolean;
+  recent_purchase?: RecentPurchase | null;
 }
 
 export interface DeviceFirstCheckout {
@@ -130,6 +137,8 @@ export interface DeviceFirstDirectCommitRequest {
   /** Strictly null for wallet; an available provider method for platega. */
   method_key: string | null;
   expected_tariff_total_kopeks: number;
+  purchase_context?: 'chat_autostart';
+  confirmed_purchase_id?: number | null;
 }
 
 function intentKey(intent: string): string {

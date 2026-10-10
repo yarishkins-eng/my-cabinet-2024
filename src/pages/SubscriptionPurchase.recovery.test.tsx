@@ -53,5 +53,8 @@ describe('SubscriptionPurchase payment-return recovery', () => {
 
     expect(screen.getByTestId('restored-checkout').textContent).toBe('owned-checkout');
     expect(screen.queryByText('subscription.loadError')).toBeNull();
+    expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('deviceFirst.orderTitle');
+    expect(screen.queryByText('subscription.extend')).toBeNull();
+    expect(screen.queryByText('subscription.getSubscription')).toBeNull();
   });
 });
