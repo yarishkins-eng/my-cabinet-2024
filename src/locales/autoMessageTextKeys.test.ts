@@ -26,6 +26,7 @@ const KEYS = [
   'textEdit',
   'textEditHint',
   'textEdited',
+  'textOnly',
   'textSave',
   'textCancel',
   'textReset',

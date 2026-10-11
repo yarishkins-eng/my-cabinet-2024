@@ -117,6 +117,7 @@ export interface AutoMessageDetail extends AutoMessageItem {
   text_has_english?: boolean;
   /** Уходит ли письмо фотографией с логотипом — только тогда потолок подписи что-то значит. */
   text_with_logo?: boolean;
+  text_only?: boolean;
   /** Пределы длины с сервера: `max` — отказ, `caption` — граница подписи под картинкой. */
   text_limits?: { max: number; caption: number };
 }

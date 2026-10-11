@@ -438,6 +438,9 @@ export default function AdminAutoMessageDetail() {
               </span>
             )}
           </div>
+          {data.text_only === true && (
+            <p className="mb-3 text-xs text-dark-300">{t('admin.autoMessages.detail.textOnly')}</p>
+          )}
           {/* 🔴 Про общий текст сказано ДО кнопки правки, а не под ней: пока поле открыто,
               всё, что ниже, уезжает за экран, и человек правит два письма, думая, что одно. */}
           {data.shares_text_with && (
