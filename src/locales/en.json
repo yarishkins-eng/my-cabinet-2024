@@ -3927,6 +3927,7 @@
         "textEditHint": "The new text starts going out with the next message. Anyone the bot already wrote to will not get it again. Leave the placeholders in braces alone — you will not be able to save without them. Tags like <b> mean bold: the preview above shows how it looks to the client.",
         "textEditHintPlain": "The new text starts going out with the next message. Anyone the bot already wrote to will not get it again.",
         "textEdited": "edited",
+        "textOnly": "Text message, no image",
         "textSave": "Save text",
         "textCancel": "Cancel",
         "textReset": "Restore original",
