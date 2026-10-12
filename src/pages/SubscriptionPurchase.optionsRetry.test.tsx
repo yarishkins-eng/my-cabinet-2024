@@ -4,6 +4,12 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-libra
 import { QueryClient, QueryClientProvider, onlineManager } from '@tanstack/react-query';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MemoryRouter } from 'react-router';
+
+const navigate = vi.fn();
+vi.mock('react-router', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('react-router')>()),
+  useNavigate: () => navigate,
+}));
 import SubscriptionPurchase from './SubscriptionPurchase';
 import { deviceFirstApi, type DeviceFirstOptions } from '@/api/deviceFirst';
 import { subscriptionApi } from '../api/subscription';
@@ -42,7 +48,11 @@ const PURCHASE_OPTIONS = {
   tariffs: [{ id: 3, name: 'Базовый', legacy_purchase_allowed: true }],
 } as unknown as Awaited<ReturnType<typeof subscriptionApi.getPurchaseOptions>>;
 const clients: QueryClient[] = [];
-function renderPurchase(options?: { cache?: DeviceFirstOptions; url?: string }) {
+function renderPurchase(options?: {
+  cache?: DeviceFirstOptions;
+  url?: string;
+  subscriptionCache?: unknown;
+}) {
   // Keep the component's real retry policy and React Query state transitions.
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
@@ -55,6 +65,8 @@ function renderPurchase(options?: { cache?: DeviceFirstOptions; url?: string }) 
     client.setQueryData(['purchase-options', undefined], PURCHASE_OPTIONS);
     client.setQueryData(['subscription', undefined], { subscription: null });
   }
+  if (options?.subscriptionCache)
+    client.setQueryData(['subscription', undefined], { subscription: options.subscriptionCache });
   render(
     <QueryClientProvider client={client}>
       <MemoryRouter
@@ -86,6 +98,7 @@ afterEach(() => {
   clients.splice(0).forEach((client) => client.clear());
   onlineManager.setOnline(true);
   vi.restoreAllMocks();
+  navigate.mockClear();
 });
 
 describe('Checkout loading and explicit legacy permission', () => {
@@ -284,4 +297,103 @@ describe('Checkout loading and explicit legacy permission', () => {
     expect(await screen.findByText('subscription.checkoutLoadError')).toBeTruthy();
     noPurchaseForm();
   });
+  it.each([false, true])(
+    'falls back only to a nonempty renewal screen (empty=%s)',
+    async (empty) => {
+      vi.mocked(subscriptionApi.getSubscription).mockResolvedValue({
+        subscription: { id: 42, tariff_id: 4, is_trial: false },
+      } as never);
+      vi.spyOn(deviceFirstApi, 'getOptions').mockResolvedValue({ eligible: false });
+      const renew = vi
+        .spyOn(subscriptionApi, 'getRenewalOptions')
+        .mockResolvedValue(empty ? [] : ([{ period_days: 365, price_kopeks: 180000 }] as never));
+      renderPurchase();
+      await waitFor(() => expect(renew).toHaveBeenCalledWith(42));
+      if (empty) {
+        expect(await screen.findByText('subscription.checkoutUnavailable')).toBeTruthy();
+        expect(screen.getByRole('link', { name: 'nav.support' })).toBeTruthy();
+        expect(navigate).not.toHaveBeenCalled();
+      } else {
+        await waitFor(() =>
+          expect(navigate).toHaveBeenCalledWith('/subscriptions/42/renew', { replace: true }),
+        );
+      }
+    },
+  );
+
+  it('a renewal-options network error stays retryable and retries the options', async () => {
+    vi.mocked(subscriptionApi.getSubscription).mockResolvedValue({
+      subscription: { id: 42, tariff_id: 4, is_trial: false },
+    } as never);
+    vi.spyOn(deviceFirstApi, 'getOptions').mockResolvedValue({ eligible: false });
+    const renew = vi
+      .spyOn(subscriptionApi, 'getRenewalOptions')
+      .mockRejectedValueOnce(new Error('network'))
+      .mockResolvedValue([{ period_days: 365 }] as never);
+    renderPurchase();
+    expect(await screen.findByText('subscription.checkoutLoadError')).toBeTruthy();
+    expect(navigate).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'common.retry' }));
+    await waitFor(() =>
+      expect(navigate).toHaveBeenCalledWith('/subscriptions/42/renew', { replace: true }),
+    );
+    expect(renew.mock.calls.length).toBeGreaterThan(1);
+  });
+
+  it.each(['trial', 'multi', 'pending-multi', 'legacy', 'invoice', 'network'])(
+    'never probes renewal options for %s',
+    async (kind) => {
+      vi.mocked(subscriptionApi.getSubscription).mockResolvedValue({
+        subscription: { id: 42, tariff_id: 4, is_trial: kind === 'trial' },
+      } as never);
+      if (kind === 'multi')
+        vi.mocked(subscriptionApi.getSubscriptions).mockResolvedValue({
+          multi_tariff_enabled: true,
+        } as never);
+      if (kind === 'pending-multi')
+        vi.mocked(subscriptionApi.getSubscriptions).mockImplementation(() => new Promise(() => {}));
+      const options = vi.spyOn(deviceFirstApi, 'getOptions');
+      if (kind === 'network') options.mockRejectedValue({ code: 'ECONNABORTED' });
+      else
+        options.mockResolvedValue({
+          eligible: false,
+          legacy_tariff_purchase_allowed: kind === 'legacy',
+        });
+      const renew = vi.spyOn(subscriptionApi, 'getRenewalOptions');
+      renderPurchase({
+        url: kind === 'invoice' ? '/subscription/purchase?checkout=owned' : undefined,
+      });
+      if (kind === 'invoice')
+        expect(await screen.findByTestId('device-first-configurator')).toBeTruthy();
+      else if (kind === 'legacy') expect(await screen.findByTestId('old-tariff-grid')).toBeTruthy();
+      else expect(await screen.findByRole('alert')).toBeTruthy();
+      expect(renew).not.toHaveBeenCalled();
+      expect(navigate).not.toHaveBeenCalled();
+    },
+  );
+  it.each(['cold-subscription', 'cached-subscription', 'cold-list'])(
+    'requires successful subscription reads and recovers them on retry: %s',
+    async (kind) => {
+      const paid = { id: 42, tariff_id: 4, is_trial: false };
+      const getSubscription = vi.mocked(subscriptionApi.getSubscription);
+      getSubscription.mockResolvedValue({ subscription: paid } as never);
+      const getList = vi.mocked(subscriptionApi.getSubscriptions);
+      if (kind === 'cold-list') getList.mockRejectedValue(new Error('network'));
+      else getSubscription.mockRejectedValue(new Error('network'));
+      vi.spyOn(deviceFirstApi, 'getOptions').mockResolvedValue({ eligible: false });
+      const renew = vi
+        .spyOn(subscriptionApi, 'getRenewalOptions')
+        .mockResolvedValue([{ period_days: 365 }] as never);
+      renderPurchase({ subscriptionCache: kind === 'cached-subscription' ? paid : undefined });
+      expect(await screen.findByText('subscription.checkoutLoadError')).toBeTruthy();
+      expect(renew).not.toHaveBeenCalled();
+      expect(navigate).not.toHaveBeenCalled();
+      getSubscription.mockResolvedValue({ subscription: paid } as never);
+      getList.mockResolvedValue({ multi_tariff_enabled: false } as never);
+      fireEvent.click(screen.getByRole('button', { name: 'common.retry' }));
+      await waitFor(() =>
+        expect(navigate).toHaveBeenCalledWith('/subscriptions/42/renew', { replace: true }),
+      );
+    },
+  );
 });
