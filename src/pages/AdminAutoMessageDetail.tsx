@@ -321,12 +321,15 @@ export default function AdminAutoMessageDetail() {
     if (data.enabled) {
       // 🔴 Диалог — последнее, что он прочитает. Умолчать здесь о паре значит
       // дать выключить «Подписка истекла» человеку, который этого не хотел.
-      const question = data.shares_switch_with
-        ? t('admin.autoMessages.confirmOffPair', {
-            title: data.title,
-            other: data.shares_switch_with,
-          })
-        : t('admin.autoMessages.confirmOff', { title: data.title });
+      const question =
+        data.stops_reminder === true
+          ? t('admin.autoMessages.confirmOffStopsReminder', { title: data.title })
+          : data.shares_switch_with
+            ? t('admin.autoMessages.confirmOffPair', {
+                title: data.title,
+                other: data.shares_switch_with,
+              })
+            : t('admin.autoMessages.confirmOff', { title: data.title });
       // Нативный диалог Telegram отказывается показывать текст длиннее 256 символов —
       // и тогда тумблер просто перестаёт работать, без ошибки и без окна. Обрезаем сами.
       const asked = question.length > 240 ? `${question.slice(0, 239)}…` : question;

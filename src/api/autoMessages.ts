@@ -31,6 +31,8 @@ export interface AutoMessageItem {
   shares_switch_with: string | null;
   /** Что случится с клиентом, если выключить. Только там, где последствие настоящее. */
   warning: string | null;
+  /** Отключение убирает момент напоминания целиком, без запасного письма панели. */
+  stops_reminder?: boolean;
   params: AutoMessageParams | null;
   /** null — отправки этого сообщения нигде не отмечаются; экран рисует прочерк, а не ноль. */
   sent_count: number | null;
