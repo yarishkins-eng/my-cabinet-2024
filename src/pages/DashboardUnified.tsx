@@ -329,7 +329,9 @@ export default function DashboardUnified() {
       navigate(
         deviceFirstRecovery
           ? `/subscription/purchase?checkout=${encodeURIComponent(deviceFirstRecovery.id)}`
-          : state.sellZone.kind === 'renew' && subscriptionId != null
+          : state.sellZone.kind === 'renew' &&
+              subscriptionId != null &&
+              multiSubData?.multi_tariff_enabled !== false
             ? `/subscriptions/${subscriptionId}/renew`
             : '/subscription/purchase',
       ),
