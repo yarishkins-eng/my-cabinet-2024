@@ -3971,7 +3971,7 @@
       "locked": {
         "hint": "No switch here: the lever kills the bonus itself, not the letter — turning it off would also cost the client their free days of VPN. It goes on and off only together with the bonus."
       },
-      "scope": "Messages the bot sends on its own: after trial activation, on a schedule and at the moment a subscription ends. Not listed here yet: the panel's own messages (its warnings 3 days, 2 days and 1 day before the end, \"expired yesterday\", \"new device\", \"first connection\" and others; clients get them on top of the messages below); receipts after a payment or top-up; referral messages.",
+      "scope": "Messages the bot sends on its own: after trial activation, on a schedule and when a subscription ends. Paid subscriptions no longer receive the panel’s expiration messages; the bot sends trial warnings 2 days and 1 day before the end. Subscriptions marked as trial on a regular tariff keep the panel’s existing warnings. Not listed here yet: the panel’s messages (new device, VPN settings received, device removed, traffic limit, subscription activated and other service events), payment and top-up receipts, and referral messages.",
       "lastCheck": "Last check:",
       "confirmOffPair": "Turn off «{{title}}»? «{{other}}» goes silent with it — inside the bot they are one and the same place. Clients stop getting both.",
       "pairShort": "one switch with «{{other}}»",
