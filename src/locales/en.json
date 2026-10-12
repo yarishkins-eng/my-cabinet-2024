@@ -3872,6 +3872,7 @@
       "empty": "Nothing has been sent yet",
       "error": "Could not load. Refresh the page",
       "confirmOff": "Turn off «{{title}}»? Clients will stop receiving it.",
+      "confirmOffStopsReminder": "Turn off «{{title}}»? The customer will not receive this reminder. No panel message will replace it. Other messages have separate switches.",
       "confirmOffAction": "Turn off",
       "state": {
         "quiet": "not sending",
