@@ -294,7 +294,7 @@ describe('Главная: карточка незавершённого зака
     renderHome(client);
     await waitFor(() => expect(client.isFetching()).toBe(0));
     fireEvent.click(screen.getByRole('button', { name: 'home.hero.renew' }));
-    expect(navigate).toHaveBeenCalledWith('/subscription/purchase');
+    expect(navigate).toHaveBeenCalledWith('/subscription/purchase?subscriptionId=42');
   });
 
   it('keeps an owned checkout ahead of renewal', async () => {

@@ -329,10 +329,10 @@ export default function DashboardUnified() {
       navigate(
         deviceFirstRecovery
           ? `/subscription/purchase?checkout=${encodeURIComponent(deviceFirstRecovery.id)}`
-          : state.sellZone.kind === 'renew' &&
-              subscriptionId != null &&
-              multiSubData?.multi_tariff_enabled !== false
-            ? `/subscriptions/${subscriptionId}/renew`
+          : state.sellZone.kind === 'renew' && subscriptionId != null
+            ? multiSubData?.multi_tariff_enabled === false
+              ? `/subscription/purchase?subscriptionId=${subscriptionId}`
+              : `/subscriptions/${subscriptionId}/renew`
             : '/subscription/purchase',
       ),
     // Докупка устройств/гигабайтов — инлайн-шторки (lazy), открываются прямо на экране.
