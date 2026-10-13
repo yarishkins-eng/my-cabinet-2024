@@ -80,6 +80,19 @@ function MessageRow({ item, onOpen }: { item: AutoMessageItem; onOpen: () => voi
         </div>
         <div className="mt-0.5 text-xs text-dark-400">{item.when}</div>
         {params && <div className="mt-0.5 text-xs text-accent-400">{params}</div>}
+        {item.discount_context?.enabled === true &&
+          item.discount_context.carrier_id === item.id && (
+            <div className="mt-0.5 text-xs text-accent-300">
+              {t('admin.autoMessages.discount.attachment', {
+                percent: item.discount_context.percent,
+              })}
+            </div>
+          )}
+        {item.id === 'trial-discount' && item.discount_context?.enabled === true && (
+          <div className="mt-0.5 text-xs text-dark-300">
+            {t('admin.autoMessages.discount.replacesLegacy')}
+          </div>
+        )}
         {counts && <div className="mt-0.5 text-xs text-dark-500">{counts}</div>}
         <div className="mt-1.5 flex flex-wrap gap-1.5">
           {tone === 'off' && (

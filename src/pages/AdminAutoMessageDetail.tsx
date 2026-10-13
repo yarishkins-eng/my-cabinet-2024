@@ -1,6 +1,6 @@
 import DOMPurify from 'dompurify';
 import { useEffect, useRef, useState } from 'react';
-import { useNavigate, useParams } from 'react-router';
+import { Link, useNavigate, useParams } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import axios from 'axios';
@@ -8,6 +8,7 @@ import { AutoMessageParams, AutoMessagePatch, autoMessagesApi } from '../api/aut
 import { useDestructiveConfirm } from '../platform/hooks/useNativeDialog';
 import { usePlatform } from '../platform/hooks/usePlatform';
 import { BackIcon } from '@/components/icons';
+import { Button } from '@/components/primitives/Button';
 
 // 🔴 Тексты писем размечены HTML Телеграма (`parse_mode='HTML'`), и клиент видит его как
 // оформление, а не как скобки. Печатать `<b>` буквально — показывать владельцу то, чего у
@@ -39,14 +40,18 @@ const FIELD_LABELS: Record<Field, string> = {
   valid_hours: 'admin.autoMessages.detail.hours',
   trigger_days: 'admin.autoMessages.detail.days',
   not_connected_after_hours: 'admin.autoMessages.detail.notConnectedHours',
+  carrier: 'admin.autoMessages.discount.carrier',
+  audience: 'admin.autoMessages.discount.audience',
+  post_trial_hours: 'admin.autoMessages.discount.postTrialHours',
 };
 
-const FIELD_HINTS: Record<Field, string> = {
+const FIELD_HINTS: Partial<Record<Field, string>> = {
   warn_hours: 'admin.autoMessages.detail.warnHoursHint',
   discount_percent: 'admin.autoMessages.detail.percentHint',
   valid_hours: 'admin.autoMessages.detail.hoursHint',
   trigger_days: 'admin.autoMessages.detail.daysHint',
   not_connected_after_hours: 'admin.autoMessages.detail.notConnectedHoursHint',
+  post_trial_hours: 'admin.autoMessages.discount.postTrialHoursHint',
 };
 
 /** Готовые значения вместо шага. Шаг 12 не давал попасть ни в сутки, ни в двое суток. */
@@ -58,7 +63,7 @@ const FIELD_CHOICES: Partial<Record<Field, number[]>> = {
 };
 
 /** Запасные границы. Настоящие приходят с сервера в `limits`. */
-const FALLBACK_RANGE: Record<Field, [number, number]> = {
+const FALLBACK_RANGE: Partial<Record<Field, [number, number]>> = {
   warn_hours: [2, 48],
   discount_percent: [1, 50],
   valid_hours: [1, 168],
@@ -116,8 +121,12 @@ function Choices({
   max,
   unit,
   onChange,
+  labels,
+  disabled,
 }: {
   value: number;
+  labels?: Array<{ value: number; label: string }>;
+  disabled?: boolean;
   choices: number[];
   min: number;
   max: number;
@@ -132,14 +141,16 @@ function Choices({
         <button
           key={choice}
           type="button"
+          disabled={disabled}
+          aria-pressed={choice === value}
           onClick={() => onChange(choice)}
-          className={`min-h-[36px] rounded-lg border px-3 text-sm tabular-nums transition-colors ${
+          className={`min-h-[44px] rounded-lg border px-3 text-sm tabular-nums transition-colors focus-visible:ring-2 focus-visible:ring-accent-300 disabled:opacity-60 ${
             choice === value
               ? 'border-accent-500 bg-accent-500/15 text-accent-300'
               : 'border-dark-700 text-dark-300 hover:border-dark-600'
           }`}
         >
-          {choice} {unit}
+          {labels?.find((option) => option.value === choice)?.label ?? `${choice} ${unit}`}
         </button>
       ))}
     </div>
@@ -152,7 +163,9 @@ function Stepper({
   min,
   max,
   onChange,
+  disabled,
 }: {
+  disabled?: boolean;
   value: number;
   unit: string;
   min: number;
@@ -164,7 +177,7 @@ function Stepper({
       <button
         type="button"
         aria-label="−"
-        disabled={value <= min}
+        disabled={disabled || value <= min}
         onClick={() => onChange(Math.max(min, value - 1))}
         className="h-11 w-11 bg-dark-700 text-dark-100 disabled:text-dark-600"
       >
@@ -176,7 +189,7 @@ function Stepper({
       <button
         type="button"
         aria-label="+"
-        disabled={value >= max}
+        disabled={disabled || value >= max}
         onClick={() => onChange(Math.min(max, value + 1))}
         className="h-11 w-11 bg-dark-700 text-dark-100 disabled:text-dark-600"
       >
@@ -194,9 +207,12 @@ export default function AdminAutoMessageDetail() {
   const confirmOff = useDestructiveConfirm();
   const { id } = useParams<{ id: string }>();
 
+  const activeId = useRef(id);
   const [draft, setDraft] = useState<AutoMessageParams | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
+  const [enableReview, setEnableReview] = useState(false);
+  const [confirming, setConfirming] = useState(false);
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ['admin-auto-message', id],
@@ -209,14 +225,22 @@ export default function AdminAutoMessageDetail() {
   // в котором уже выбрано «3 ч», молча возвращался к серверным «2 ч».
   const paramsSignature = data?.params ? JSON.stringify(data.params) : null;
   useEffect(() => {
+    activeId.current = id;
+    setEnableReview(false);
     if (paramsSignature) setDraft(JSON.parse(paramsSignature) as AutoMessageParams);
-  }, [paramsSignature]);
+    return () => {
+      activeId.current = undefined;
+    };
+  }, [paramsSignature, id]);
 
   const serverParams = data?.params ?? null;
+  const fields = (Object.keys(draft ?? {}) as Field[]).filter(
+    (field) =>
+      Object.prototype.hasOwnProperty.call(FIELD_LABELS, field) &&
+      (data?.limits?.[field] ?? FALLBACK_RANGE[field]),
+  );
   const changedFields: Field[] =
-    serverParams && draft
-      ? (Object.keys(draft) as Field[]).filter((field) => draft[field] !== serverParams[field])
-      : [];
+    serverParams && draft ? fields.filter((field) => draft[field] !== serverParams[field]) : [];
 
   const showError = (mutationError: unknown) => {
     const detail = axios.isAxiosError(mutationError)
@@ -306,7 +330,8 @@ export default function AdminAutoMessageDetail() {
 
   // Пока идёт любая из двух правок, вторая недоступна: иначе ответы приходят вразнобой
   // и плашка «Сохранено» всплывает уже после выключения сообщения.
-  const busy = saveMutation.isPending || toggleMutation.isPending || textMutation.isPending;
+  const busy =
+    confirming || saveMutation.isPending || toggleMutation.isPending || textMutation.isPending;
   // Пределы приезжают с сервера: правило раздела с этапа АС-1 — «экран берёт их оттуда,
   // а не зашивает у себя». Запасные значения только на случай старого бота.
   const textMax = data?.text_limits?.max ?? 4000;
@@ -316,8 +341,52 @@ export default function AdminAutoMessageDetail() {
   const hasMarkers = (data?.text_markers ?? []).length > 0 || (data?.text_inserts ?? []).length > 0;
   const manageable = data.control === 'toggle';
   const quiet = data.state === 'quiet';
-
+  const dt = (key: string, values?: Record<string, unknown>) =>
+    t(`admin.autoMessages.discount.${key}`, values);
+  const discountCard = data.id === 'trial-ending-discount';
+  const context = data.discount_context;
+  const carriesDiscount = context?.enabled === true && context.carrier_id === data.id;
+  const priceExample = (percent: number) => {
+    const row = data.discount_prices?.[String(percent)]?.find((price) => price.period_days === 30);
+    return row && Number.isSafeInteger(row.price_kopeks) && row.price_kopeks > 0
+      ? `${(row.price_kopeks / 100).toLocaleString('ru-RU')} ₽`
+      : null;
+  };
+  const enableBlocked =
+    busy ||
+    editorOpen ||
+    changedFields.length > 0 ||
+    !priceExample(serverParams?.discount_percent ?? 0);
+  const sameSettings = () => {
+    const latest = queryClient.getQueryData<typeof data>(['admin-auto-message', id]);
+    const unchanged =
+      activeId.current === id &&
+      JSON.stringify([latest?.params, latest?.discount_prices]) ===
+        JSON.stringify([data.params, data.discount_prices]);
+    if (!unchanged) setError(dt('changedWhileChecking'));
+    return unchanged;
+  };
+  const confirmPercent = async (percent: number) => {
+    if (!discountCard) return true;
+    const price = priceExample(percent);
+    if (!Number.isInteger(percent) || percent < 1 || percent > 30 || (percent > 20 && !price)) {
+      setError(dt('missingPrices'));
+      return false;
+    }
+    if (percent <= 20) return true;
+    setConfirming(true);
+    try {
+      return await confirmOff(dt('highPercent', { percent, price }), dt('confirmAction'));
+    } finally {
+      setConfirming(false);
+    }
+  };
   const handleToggle = async () => {
+    if (busy) return;
+    if (discountCard && !data.enabled) {
+      setEnableReview(true);
+      return;
+    }
     if (data.enabled) {
       // 🔴 Диалог — последнее, что он прочитает. Умолчать здесь о паре значит
       // дать выключить «Подписка истекла» человеку, который этого не хотел.
@@ -332,9 +401,15 @@ export default function AdminAutoMessageDetail() {
             : t('admin.autoMessages.confirmOff', { title: data.title });
       // Нативный диалог Telegram отказывается показывать текст длиннее 256 символов —
       // и тогда тумблер просто перестаёт работать, без ошибки и без окна. Обрезаем сами.
-      const asked = question.length > 240 ? `${question.slice(0, 239)}…` : question;
+      const linkedQuestion = discountCard
+        ? dt('discountOff')
+        : carriesDiscount
+          ? dt('carrierOff')
+          : question;
+      const asked =
+        linkedQuestion.length > 240 ? `${linkedQuestion.slice(0, 239)}…` : linkedQuestion;
       const ok = await confirmOff(asked, t('admin.autoMessages.confirmOffAction'));
-      if (!ok) return;
+      if (!ok || activeId.current !== id) return;
     }
     toggleMutation.mutate(!data.enabled);
   };
@@ -363,7 +438,7 @@ export default function AdminAutoMessageDetail() {
           {manageable ? (
             <Toggle
               on={Boolean(data.enabled)}
-              disabled={busy}
+              disabled={busy || (discountCard && !data.enabled && changedFields.length > 0)}
               label={data.title}
               onClick={handleToggle}
             />
@@ -403,6 +478,74 @@ export default function AdminAutoMessageDetail() {
           </div>
         </div>
 
+        {discountCard && changedFields.length > 0 && (
+          <p className="mt-3 text-xs text-warning-300">{dt('saveFirst')}</p>
+        )}
+        {context?.enabled === true && (carriesDiscount || data.id === 'trial-discount') && (
+          <p className="mt-3 text-sm text-dark-200">
+            {dt(carriesDiscount ? 'attachment' : 'replacesLegacy', { percent: context.percent })}{' '}
+            <Link
+              className="inline-flex min-h-[44px] items-center text-accent-300 underline"
+              to="/admin/auto-messages/trial-ending-discount"
+            >
+              {dt('configure')}
+            </Link>
+          </p>
+        )}
+        {context?.enabled === true && context.legacy_enabled === true && (
+          <p role="status" className="mt-3 text-sm text-warning-300">
+            {dt('bothEnabled')}
+          </p>
+        )}
+        {discountCard && enableReview && !data.enabled && (
+          <div
+            role="region"
+            aria-label={dt('checkTitle')}
+            className="mt-3 space-y-3 rounded-lg border border-warning-500/40 bg-warning-500/10 p-3"
+          >
+            <p className="font-semibold">{dt('checkTitle')}</p>
+            <p className="text-sm text-dark-200">
+              {dt('checkHint', {
+                price: priceExample(serverParams?.discount_percent ?? 0) ?? dt('missingPrices'),
+              })}
+            </p>
+            <p className="text-sm">
+              {fields
+                .map(
+                  (field) =>
+                    `${t(FIELD_LABELS[field])}: ${data.choices?.[field]?.find((choice) => choice.value === serverParams?.[field])?.label ?? serverParams?.[field]}`,
+                )
+                .join(' · ')}
+            </p>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                size="lg"
+                haptic={false}
+                variant="secondary"
+                onClick={() => setEnableReview(false)}
+              >
+                {dt('cancel')}
+              </Button>
+              <Button
+                size="lg"
+                haptic={false}
+                disabled={enableBlocked}
+                onClick={async () => {
+                  if (
+                    enableBlocked ||
+                    !(await confirmPercent(serverParams?.discount_percent ?? 0)) ||
+                    !sameSettings()
+                  )
+                    return;
+                  setEnableReview(false);
+                  toggleMutation.mutate(true);
+                }}
+              >
+                {dt('enable')}
+              </Button>
+            </div>
+          </div>
+        )}
         {data.shares_switch_with && (
           <p className="mt-3 rounded-lg border border-dark-700 bg-dark-900 px-3 py-2 text-xs text-dark-300">
             {t('admin.autoMessages.detail.sharesSwitch', { other: data.shares_switch_with })}
@@ -615,11 +758,22 @@ export default function AdminAutoMessageDetail() {
           )}
           {(data.text_inserts ?? []).length > 0 && (
             <div className="mt-3 rounded-lg border border-dark-500 bg-dark-900 px-3 py-2">
-              <p className="text-xs text-dark-200">{t('admin.autoMessages.detail.textInserts')}</p>
+              {data.text_inserts?.some((insert) => data.text?.includes(`{${insert.name}}`)) && (
+                <p className="text-xs text-dark-200">
+                  {t('admin.autoMessages.detail.textInserts')}
+                </p>
+              )}
               <ul className="mt-2 space-y-2">
                 {(data.text_inserts ?? []).map((insert) => (
                   <li key={insert.name}>
-                    <code className="text-xs text-dark-100">{`{${insert.name}}`}</code>
+                    {insert.name === 'price_lines' && !data.text?.includes('{price_lines}') ? (
+                      <p className="text-xs text-dark-100">
+                        {dt('autoTail')}
+                        <span className="block text-dark-300">{dt('autoTailHint')}</span>
+                      </p>
+                    ) : (
+                      <code className="text-xs text-dark-100">{`{${insert.name}}`}</code>
+                    )}
                     <ul className="mt-1 space-y-1">
                       {(insert.variants ?? []).map((variant) => (
                         <li key={variant.text} className="border-l border-dark-600 pl-2">
@@ -687,26 +841,35 @@ export default function AdminAutoMessageDetail() {
         </div>
 
         <div className="space-y-4">
-          {draft && Object.keys(draft).length > 0 && (
+          {draft && fields.length > 0 && (
             <div className="rounded-xl border border-dark-700 bg-dark-800 p-4">
               <div className="mb-3 text-[11px] uppercase tracking-wider text-dark-500">
                 {t('admin.autoMessages.detail.when')}
               </div>
-              {(Object.keys(draft) as Field[]).map((field) => {
-                const [min, max] =
-                  (data.limits?.[field] as [number, number]) ?? FALLBACK_RANGE[field];
-                const choices = FIELD_CHOICES[field];
+              {fields.map((field) => {
+                const [min, max] = (data.limits?.[field] ?? FALLBACK_RANGE[field]) as [
+                  number,
+                  number,
+                ];
+                const labelled = data.choices?.[field];
+                const choices = labelled?.map((choice) => choice.value) ?? FIELD_CHOICES[field];
                 return (
                   <div
                     key={field}
                     className="border-t border-dark-700 py-3 first:border-t-0 first:pt-0"
                   >
                     <div className="text-sm text-dark-100">{t(FIELD_LABELS[field])}</div>
-                    <div className="mb-2 text-xs text-dark-500">{t(FIELD_HINTS[field])}</div>
+                    <div className="mb-2 text-xs text-dark-500">
+                      {discountCard && field === 'discount_percent'
+                        ? dt('percentHint')
+                        : t(FIELD_HINTS[field] ?? '')}
+                    </div>
                     {choices ? (
                       <Choices
                         value={draft[field] as number}
                         choices={choices}
+                        labels={labelled}
+                        disabled={confirming}
                         min={min}
                         max={max}
                         unit={unitFor(field)}
@@ -717,6 +880,7 @@ export default function AdminAutoMessageDetail() {
                       />
                     ) : (
                       <Stepper
+                        disabled={confirming}
                         value={draft[field] as number}
                         unit={unitFor(field)}
                         min={min}
@@ -747,6 +911,7 @@ export default function AdminAutoMessageDetail() {
                   <div className="flex flex-none gap-2">
                     <button
                       type="button"
+                      disabled={busy}
                       onClick={() => setDraft({ ...(serverParams as AutoMessageParams) })}
                       className="min-h-[44px] rounded-lg border border-dark-600 px-4 text-sm text-dark-300"
                     >
@@ -755,13 +920,20 @@ export default function AdminAutoMessageDetail() {
                     <button
                       type="button"
                       disabled={busy}
-                      onClick={() =>
+                      onClick={async () => {
+                        if (
+                          busy ||
+                          (changedFields.includes('discount_percent') &&
+                            !(await confirmPercent(draft.discount_percent ?? 0)))
+                        )
+                          return;
+                        if (discountCard && !sameSettings()) return;
                         saveMutation.mutate(
                           Object.fromEntries(
                             changedFields.map((field) => [field, draft[field]]),
                           ) as AutoMessagePatch,
-                        )
-                      }
+                        );
+                      }}
                       className="min-h-[44px] rounded-lg bg-accent-500 px-4 text-sm font-semibold text-white disabled:opacity-60"
                     >
                       {t('admin.autoMessages.save.action')}
