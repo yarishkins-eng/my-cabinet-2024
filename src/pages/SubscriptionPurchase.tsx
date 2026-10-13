@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
-import { Link, useSearchParams } from 'react-router';
+import { Link, useNavigate, useSearchParams } from 'react-router';
 import { subscriptionApi } from '../api/subscription';
 import { WebBackButton } from '../components/WebBackButton';
 import { getGlassColors } from '../utils/glassTheme';
@@ -17,6 +17,7 @@ import { DeviceFirstConfigurator } from '@/components/subscription/purchase/Devi
 
 export default function SubscriptionPurchase() {
   const { t } = useTranslation();
+  const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const subscriptionId = searchParams.get('subscriptionId')
     ? parseInt(searchParams.get('subscriptionId')!, 10)
@@ -25,7 +26,14 @@ export default function SubscriptionPurchase() {
   const g = getGlassColors();
 
   // Subscription query (shares cache with /subscription page)
-  const { data: subscriptionResponse, isLoading } = useQuery({
+  const {
+    data: subscriptionResponse,
+    isLoading,
+    isFetching: subscriptionFetching,
+    isFetchedAfterMount: subscriptionFetched,
+    isError: subscriptionError,
+    refetch: refetchSubscription,
+  } = useQuery({
     queryKey: ['subscription', subscriptionId],
     queryFn: () => subscriptionApi.getSubscription(subscriptionId),
     retry: false,
@@ -81,7 +89,11 @@ export default function SubscriptionPurchase() {
       : [];
 
   // Multi-tariff: check via subscriptions list query
-  const { data: multiSubData } = useQuery({
+  const {
+    data: multiSubData,
+    isError: multiSubError,
+    refetch: refetchSubscriptions,
+  } = useQuery({
     queryKey: ['subscriptions-list'],
     queryFn: () => subscriptionApi.getSubscriptions(),
     staleTime: 60_000,
@@ -133,6 +145,62 @@ export default function SubscriptionPurchase() {
     deviceFirstOptions?.eligible === false &&
     (!isTariffsMode || deviceFirstOptions.legacy_tariff_purchase_allowed === true);
 
+  // A confirmed refusal may recover into renewal, but never into an empty page.
+  const canCheckRenewal =
+    !deviceFirstCheckoutId &&
+    !hasDeviceFirst &&
+    !legacyAllowed &&
+    deviceFirstFetched &&
+    !deviceFirstFetching &&
+    !deviceFirstError &&
+    deviceFirstOptions?.eligible === false &&
+    optionsFetched &&
+    !optionsFetching &&
+    !optionsError &&
+    !!purchaseOptions &&
+    subscriptionFetched &&
+    !subscriptionFetching &&
+    !subscriptionError &&
+    !multiSubError &&
+    subscription?.is_trial === false &&
+    !!subscription.tariff_id &&
+    multiSubData?.multi_tariff_enabled === false;
+  const {
+    data: renewalOptions,
+    isPending: renewalPending,
+    isFetching: renewalFetching,
+    isFetchedAfterMount: renewalFetched,
+    isError: renewalError,
+    fetchStatus: renewalFetchStatus,
+    refetch: refetchRenewal,
+  } = useQuery({
+    queryKey: ['renewal-options', subscription?.id],
+    queryFn: () => subscriptionApi.getRenewalOptions(subscription!.id),
+    enabled: canCheckRenewal,
+    retry: false,
+    staleTime: 0,
+    refetchOnMount: 'always',
+  });
+  useEffect(() => {
+    if (
+      canCheckRenewal &&
+      renewalFetched &&
+      !renewalFetching &&
+      !renewalError &&
+      renewalOptions?.length
+    ) {
+      navigate(`/subscriptions/${subscription!.id}/renew`, { replace: true });
+    }
+  }, [
+    canCheckRenewal,
+    renewalFetched,
+    renewalFetching,
+    renewalError,
+    renewalOptions,
+    subscription,
+    navigate,
+  ]);
+
   // Keep an already admitted configurator mounted during a failed background
   // refresh. Its local selection and in-flight payment must survive retry.
   // A cached response or first failed fetch can never admit a configurator.
@@ -149,6 +217,9 @@ export default function SubscriptionPurchase() {
     setSwitchTariffId(null);
     void refetchDeviceFirst();
     void refetchOptions();
+    void refetchSubscription();
+    void refetchSubscriptions();
+    if (canCheckRenewal) void refetchRenewal();
   };
   const handleCheckoutRequired = () => {
     // A definitive server rejection takes precedence even if the next options
@@ -166,11 +237,14 @@ export default function SubscriptionPurchase() {
       deviceFirstFetchStatus === 'paused' || (!hasDeviceFirst && optionsFetchStatus === 'paused');
     const loadFailed =
       offline ||
+      (canCheckRenewal && (renewalError || renewalFetchStatus === 'paused')) ||
+      (!hasDeviceFirst && !legacyAllowed && (subscriptionError || multiSubError)) ||
       deviceFirstError ||
       (!deviceFirstPending && typeof deviceFirstOptions?.eligible !== 'boolean') ||
       (!hasDeviceFirst && optionsError);
     const loading =
       deviceFirstPending ||
+      (canCheckRenewal && (renewalPending || renewalFetching || !renewalFetched)) ||
       !deviceFirstFetched ||
       (!hasDeviceFirst && deviceFirstFetching) ||
       (!hasDeviceFirst && (isLoading || optionsLoading || optionsFetching || !optionsFetched));
@@ -204,7 +278,7 @@ export default function SubscriptionPurchase() {
             </p>
             <button
               onClick={retryCheckout}
-              disabled={deviceFirstFetching}
+              disabled={deviceFirstFetching || renewalFetching}
               className="rounded-xl bg-accent-500 px-6 py-2 text-sm font-medium text-white transition-colors hover:bg-accent-600 disabled:opacity-50"
             >
               {t('common.retry')}

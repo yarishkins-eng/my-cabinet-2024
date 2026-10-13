@@ -5122,6 +5122,7 @@
     "abandonConfirm": "بله، سفارش را لغو کن",
     "abandonKeep": "بازگشت به پرداخت",
     "ready": "VPN آماده است",
+    "readyRenewed": "اشتراک تا {{date}} تمدید شد (به وقت مسکو)",
     "readyText": "مدت و تعداد دستگاه‌ها به‌روز شد.",
     "connectVpn": "اتصال به VPN",
     "home": "صفحه اصلی",

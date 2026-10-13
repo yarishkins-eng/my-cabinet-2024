@@ -30,12 +30,14 @@ vi.mock('@/hooks/useCurrency', () => ({
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
     i18n: { resolvedLanguage: 'ru' },
-    t: (key: string, values?: { count?: number; amount?: number | string }) =>
-      values?.amount !== undefined
-        ? `${key}:${values.amount}`
-        : values?.count === undefined
-          ? key
-          : `${key}:${values.count}`,
+    t: (key: string, values?: { count?: number; amount?: number | string; date?: string }) =>
+      values?.date !== undefined
+        ? `${key}:${values.date}`
+        : values?.amount !== undefined
+          ? `${key}:${values.amount}`
+          : values?.count === undefined
+            ? key
+            : `${key}:${values.count}`,
   }),
 }));
 
@@ -317,5 +319,16 @@ describe('DeviceFirstConfigurator real state rendering', () => {
     expect(html).toContain('deviceFirst.reviewUnknownText');
     expect(html).not.toContain('deviceFirst.paymentMismatchText');
     expect(html).not.toContain('deviceFirst.reviewUnpaidText');
+  });
+  it('names the Moscow renewal date even when UTC still has the previous day', () => {
+    const html = render({ ...checkout('ready'), estimated_end_at: '2026-08-29T22:30:00Z' });
+    expect(html).toContain('deviceFirst.readyRenewed:30 авг. 2026');
+    expect(html).not.toContain('deviceFirst.ready</');
+  });
+
+  it.each([true, null])('keeps first-purchase readiness for trial=%s', (isTrial) => {
+    const html = render({ ...checkout('ready'), current_subscription_is_trial: isTrial });
+    expect(html).toContain('deviceFirst.ready</');
+    expect(html).not.toContain('deviceFirst.readyRenewed');
   });
 });

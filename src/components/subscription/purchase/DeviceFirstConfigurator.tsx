@@ -2783,7 +2783,16 @@ export function DeviceFirstConfigurator({
       )}
       {checkout?.ui_state === 'ready' && (
         <div className="space-y-4">
-          <StateMessage title={t('deviceFirst.ready')} text={t('deviceFirst.readyText')} />
+          <StateMessage
+            title={
+              checkout.current_subscription_is_trial === false
+                ? t('deviceFirst.readyRenewed', {
+                    date: formatCheckoutEndDate(checkout.estimated_end_at, i18n?.resolvedLanguage),
+                  })
+                : t('deviceFirst.ready')
+            }
+            text={t('deviceFirst.readyText')}
+          />
           <button
             type="button"
             onClick={() => navigate('/connection')}
@@ -2962,6 +2971,14 @@ function deviceFirstErrorMessage(
     cabinet_return_unavailable: 'deviceFirst.errorUnavailable',
   };
   return t(messages[deviceFirstErrorCode(error) ?? ''] ?? 'deviceFirst.error');
+}
+
+function formatCheckoutEndDate(value: string, language?: string): string {
+  const rawEndDate = new Intl.DateTimeFormat(language, {
+    dateStyle: 'medium',
+    timeZone: 'Europe/Moscow',
+  }).format(new Date(value));
+  return language?.startsWith('ru') ? rawEndDate.replace(/\s*г\.$/u, '') : rawEndDate;
 }
 
 function Summary({

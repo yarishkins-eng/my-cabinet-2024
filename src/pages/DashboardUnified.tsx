@@ -330,7 +330,9 @@ export default function DashboardUnified() {
         deviceFirstRecovery
           ? `/subscription/purchase?checkout=${encodeURIComponent(deviceFirstRecovery.id)}`
           : state.sellZone.kind === 'renew' && subscriptionId != null
-            ? `/subscriptions/${subscriptionId}/renew`
+            ? multiSubData?.multi_tariff_enabled === false
+              ? `/subscription/purchase?subscriptionId=${subscriptionId}`
+              : `/subscriptions/${subscriptionId}/renew`
             : '/subscription/purchase',
       ),
     // Докупка устройств/гигабайтов — инлайн-шторки (lazy), открываются прямо на экране.

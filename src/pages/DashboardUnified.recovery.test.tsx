@@ -106,13 +106,14 @@ vi.mock('../api/deviceFirst', () => ({
   },
 }));
 let subscriptionOf: unknown = expiredSubscription;
+let subscriptionsList = () => Promise.resolve({ subscriptions: [], multi_tariff_enabled: false });
 vi.mock('../api/subscription', () => ({
   subscriptionApi: {
     getSubscription: () =>
       // `has_subscription` — то, по чему страница решает «подписки нет» и показывать ли
       // блок покупки (`DashboardUnified.tsx:337-339`).
       Promise.resolve({ subscription: subscriptionOf, has_subscription: subscriptionOf !== null }),
-    getSubscriptions: () => Promise.resolve({ subscriptions: [] }),
+    getSubscriptions: () => subscriptionsList(),
     getTrialInfo: () => Promise.resolve({ is_available: false }),
     getDevices: () => Promise.resolve({ devices: [] }),
     getPurchaseOptions: () => Promise.resolve({ multi_tariff_enabled: false }),
@@ -188,6 +189,7 @@ describe('Главная: карточка незавершённого зака
     getOpen = () => Promise.resolve(liveCheckout);
     getOpenCalls = 0;
     subscriptionOf = expiredSubscription;
+    subscriptionsList = () => Promise.resolve({ subscriptions: [], multi_tariff_enabled: false });
   });
 
   it('убирает заказ, когда сервер начал отвечать, что открытого заказа нет', async () => {
@@ -285,5 +287,30 @@ describe('Главная: карточка незавершённого зака
 
     fireEvent.click(await screen.findByText('Незавершённый заказ'));
     expect(navigate).toHaveBeenCalledWith('/subscription/purchase?checkout=checkout-owned');
+  });
+  it('opens the checkout for renewal after single-tariff settings load', async () => {
+    getOpen = () => Promise.reject(noOpenCheckout404);
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    renderHome(client);
+    await waitFor(() => expect(client.isFetching()).toBe(0));
+    fireEvent.click(screen.getByRole('button', { name: 'home.hero.renew' }));
+    expect(navigate).toHaveBeenCalledWith('/subscription/purchase?subscriptionId=42');
+  });
+
+  it('keeps an owned checkout ahead of renewal', async () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    renderHome(client);
+    await waitFor(() => expect(client.isFetching()).toBe(0));
+    fireEvent.click(screen.getByRole('button', { name: 'home.hero.renew' }));
+    expect(navigate).toHaveBeenCalledWith('/subscription/purchase?checkout=checkout-owned');
+  });
+
+  it('does not assume single-tariff mode before the settings response', async () => {
+    subscriptionsList = () => new Promise(() => {});
+    getOpen = () => Promise.reject(noOpenCheckout404);
+    renderHome(new QueryClient({ defaultOptions: { queries: { retry: false } } }));
+    fireEvent.click(await screen.findByRole('button', { name: 'home.hero.renew' }));
+    expect(navigate).toHaveBeenCalledWith('/subscriptions/42/renew');
+    expect(navigate).not.toHaveBeenCalledWith('/subscription/purchase');
   });
 });

@@ -5804,6 +5804,7 @@
     "abandonConfirm": "Yes, cancel order",
     "abandonKeep": "Return to payment",
     "ready": "VPN is ready",
+    "readyRenewed": "Subscription extended until {{date}} (Moscow time)",
     "readyText": "The term and device limit are updated.",
     "connectVpn": "Connect VPN",
     "home": "Go home",

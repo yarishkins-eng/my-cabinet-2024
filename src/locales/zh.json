@@ -5111,6 +5111,7 @@
     "abandonConfirm": "是，取消订单",
     "abandonKeep": "返回付款",
     "ready": "VPN 已就绪",
+    "readyRenewed": "订阅已续订至 {{date}}（莫斯科时间）",
     "readyText": "时长和设备数量已更新。",
     "connectVpn": "连接 VPN",
     "home": "返回首页",
