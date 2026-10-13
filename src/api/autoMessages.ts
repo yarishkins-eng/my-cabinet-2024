@@ -14,6 +14,9 @@ export interface AutoMessageParams {
   trigger_days?: number;
   /** Через сколько часов ПОСЛЕ начала пробного написать тому, кто не подключился. */
   not_connected_after_hours?: number;
+  carrier?: number;
+  audience?: number;
+  post_trial_hours?: number;
 }
 
 export interface AutoMessageItem {
@@ -34,6 +37,14 @@ export interface AutoMessageItem {
   /** Отключение убирает момент напоминания целиком, без запасного письма панели. */
   stops_reminder?: boolean;
   params: AutoMessageParams | null;
+  choices?: Record<string, Array<{ value: number; label: string }>>;
+  discount_context?: {
+    carrier_id: string;
+    percent: number;
+    enabled: boolean;
+    legacy_enabled: boolean;
+  };
+  discount_prices?: Record<string, Array<{ period_days: number; price_kopeks: number }>>;
   /** null — отправки этого сообщения нигде не отмечаются; экран рисует прочерк, а не ноль. */
   sent_count: number | null;
   claimed_count: number | null;
@@ -124,7 +135,7 @@ export interface AutoMessageDetail extends AutoMessageItem {
   text_limits?: { max: number; caption: number };
 }
 
-export interface AutoMessagePatch {
+export interface AutoMessagePatch extends AutoMessageParams {
   enabled?: boolean;
   /** Новый текст письма. */
   text?: string;
