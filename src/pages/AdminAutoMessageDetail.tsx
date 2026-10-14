@@ -123,10 +123,12 @@ function Choices({
   onChange,
   labels,
   disabled,
+  strictRange,
 }: {
   value: number;
   labels?: Array<{ value: number; label: string }>;
   disabled?: boolean;
+  strictRange?: boolean;
   choices: number[];
   min: number;
   max: number;
@@ -134,7 +136,10 @@ function Choices({
   onChange: (next: number) => void;
 }) {
   const allowed = choices.filter((choice) => choice >= min && choice <= max);
-  const list = allowed.includes(value) ? allowed : [...allowed, value].sort((a, b) => a - b);
+  const list =
+    allowed.includes(value) || (strictRange && (value < min || value > max))
+      ? allowed
+      : [...allowed, value].sort((a, b) => a - b);
   return (
     <div className="flex flex-wrap gap-1.5">
       {list.map((choice) => (
@@ -200,6 +205,11 @@ function Stepper({
 }
 
 export default function AdminAutoMessageDetail() {
+  const { id } = useParams<{ id: string }>();
+  return <AdminAutoMessageDetailCard key={id} />;
+}
+
+function AdminAutoMessageDetailCard() {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -344,10 +354,28 @@ export default function AdminAutoMessageDetail() {
   const dt = (key: string, values?: Record<string, unknown>) =>
     t(`admin.autoMessages.discount.${key}`, values);
   const discountCard = data.id === 'trial-ending-discount';
-  const context = data.discount_context;
+  const context = [
+    'trial-2d',
+    'trial-1d',
+    'trial-2h',
+    'trial-discount',
+    'trial-ending-discount',
+  ].includes(data.id)
+    ? data.discount_context
+    : undefined;
   const carriesDiscount = context?.enabled === true && context.carrier_id === data.id;
+  const choicesFor = (field: Field) =>
+    Array.isArray(data.choices?.[field]) ? data.choices[field] : undefined;
+  const fieldText = (field: Field, value: number | undefined) =>
+    choicesFor(field)?.find((choice) => choice.value === value)?.label ??
+    (field === 'carrier' || field === 'audience'
+      ? dt('missingLabel')
+      : `${value} ${field === 'discount_percent' ? '%' : dt(field === 'trigger_days' ? 'daysUnit' : 'hoursUnit')}`);
   const priceExample = (percent: number) => {
-    const row = data.discount_prices?.[String(percent)]?.find((price) => price.period_days === 30);
+    const prices = data.discount_prices?.[String(percent)];
+    const row = Array.isArray(prices)
+      ? prices.find((price) => price.period_days === 30)
+      : undefined;
     return row && Number.isSafeInteger(row.price_kopeks) && row.price_kopeks > 0
       ? `${(row.price_kopeks / 100).toLocaleString('ru-RU')} ₽`
       : null;
@@ -369,7 +397,11 @@ export default function AdminAutoMessageDetail() {
   const confirmPercent = async (percent: number) => {
     if (!discountCard) return true;
     const price = priceExample(percent);
-    if (!Number.isInteger(percent) || percent < 1 || percent > 30 || (percent > 20 && !price)) {
+    if (!Number.isInteger(percent) || percent < 1 || percent > 30) {
+      setError(dt('invalidPercent'));
+      return false;
+    }
+    if (percent > 20 && !price) {
       setError(dt('missingPrices'));
       return false;
     }
@@ -478,7 +510,7 @@ export default function AdminAutoMessageDetail() {
           </div>
         </div>
 
-        {discountCard && changedFields.length > 0 && (
+        {discountCard && !data.enabled && changedFields.length > 0 && (
           <p className="mt-3 text-xs text-warning-300">{dt('saveFirst')}</p>
         )}
         {context?.enabled === true && (carriesDiscount || data.id === 'trial-discount') && (
@@ -505,15 +537,15 @@ export default function AdminAutoMessageDetail() {
           >
             <p className="font-semibold">{dt('checkTitle')}</p>
             <p className="text-sm text-dark-200">
-              {dt('checkHint', {
-                price: priceExample(serverParams?.discount_percent ?? 0) ?? dt('missingPrices'),
-              })}
+              {priceExample(serverParams?.discount_percent ?? 0)
+                ? dt('checkHint', { price: priceExample(serverParams?.discount_percent ?? 0) })
+                : dt('missingPrices')}
             </p>
             <p className="text-sm">
               {fields
                 .map(
                   (field) =>
-                    `${t(FIELD_LABELS[field])}: ${data.choices?.[field]?.find((choice) => choice.value === serverParams?.[field])?.label ?? serverParams?.[field]}`,
+                    `${t(FIELD_LABELS[field])}: ${fieldText(field, serverParams?.[field])}`,
                 )
                 .join(' · ')}
             </p>
@@ -795,7 +827,7 @@ export default function AdminAutoMessageDetail() {
         </div>
       )}
 
-      {error && !editorOpen && (
+      {error && !editorOpen && !(draft && fields.length > 0) && (
         <div className="mb-4 rounded-xl border border-error-500/40 bg-error-500/10 p-3 text-sm text-error-300">
           {error}
         </div>
@@ -847,11 +879,13 @@ export default function AdminAutoMessageDetail() {
                 {t('admin.autoMessages.detail.when')}
               </div>
               {fields.map((field) => {
-                const [min, max] = (data.limits?.[field] ?? FALLBACK_RANGE[field]) as [
+                const [min, serverMax] = (data.limits?.[field] ?? FALLBACK_RANGE[field]) as [
                   number,
                   number,
                 ];
-                const labelled = data.choices?.[field];
+                const strictRange = discountCard && field === 'discount_percent';
+                const max = strictRange ? Math.min(serverMax, 30) : serverMax;
+                const labelled = choicesFor(field);
                 const choices = labelled?.map((choice) => choice.value) ?? FIELD_CHOICES[field];
                 return (
                   <div
@@ -864,12 +898,15 @@ export default function AdminAutoMessageDetail() {
                         ? dt('percentHint')
                         : t(FIELD_HINTS[field] ?? '')}
                     </div>
-                    {choices ? (
+                    {(field === 'carrier' || field === 'audience') && !labelled ? (
+                      <p className="text-xs text-warning-300">{dt('missingLabel')}</p>
+                    ) : choices ? (
                       <Choices
                         value={draft[field] as number}
                         choices={choices}
                         labels={labelled}
                         disabled={confirming}
+                        strictRange={strictRange}
                         min={min}
                         max={max}
                         unit={unitFor(field)}
@@ -895,6 +932,11 @@ export default function AdminAutoMessageDetail() {
                 );
               })}
 
+              {error && !editorOpen && (
+                <p role="alert" className="mt-3 text-sm text-error-300">
+                  {error}
+                </p>
+              )}
               {changedFields.length > 0 && (
                 <div className="mt-4 flex flex-col gap-3 border-t border-dark-700 pt-4 sm:flex-row sm:items-center sm:justify-between">
                   <div className="text-xs text-accent-400">
@@ -902,8 +944,8 @@ export default function AdminAutoMessageDetail() {
                       .map((field) =>
                         t('admin.autoMessages.save.changed', {
                           what: t(FIELD_LABELS[field]),
-                          from: serverParams?.[field],
-                          to: draft[field],
+                          from: fieldText(field, serverParams?.[field]),
+                          to: fieldText(field, draft[field]),
                         }),
                       )
                       .join(' · ')}
@@ -923,7 +965,8 @@ export default function AdminAutoMessageDetail() {
                       onClick={async () => {
                         if (
                           busy ||
-                          (changedFields.includes('discount_percent') &&
+                          (((discountCard && draft.discount_percent !== undefined) ||
+                            changedFields.includes('discount_percent')) &&
                             !(await confirmPercent(draft.discount_percent ?? 0)))
                         )
                           return;
