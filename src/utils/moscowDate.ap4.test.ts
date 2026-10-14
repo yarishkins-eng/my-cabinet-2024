@@ -12,7 +12,7 @@ describe('AP-4 explicit Moscow display dates', () => {
     (zone) => {
       process.env.TZ = zone;
       expect(formatMoscowDate('2026-10-14T22:30:00Z', 'ru')).toBe('15 окт. 2026 (МСК)');
-      expect(formatMoscowDate('2026-10-14T22:30:00Z', 'en')).toBe('Oct 15, 2026 (MSK)');
+      expect(formatMoscowDate('2026-10-14T22:30:00Z', 'en')).toBe('15.10.2026 (MSK)');
     },
   );
 
@@ -34,4 +34,21 @@ describe('AP-4 explicit Moscow display dates', () => {
       expect(formatMoscowDate(value, 'ru')).toBeNull();
     },
   );
+});
+
+it('English explicit long-month options still use the requested numeric Moscow calendar', () => {
+  expect(
+    formatMoscowDate('2026-10-14T21:30:00Z', 'en', {
+      dateStyle: 'short',
+      timeStyle: 'short',
+      hourCycle: 'h23',
+    }),
+  ).toBe('15.10.2026, 00:30 (MSK)');
+  expect(
+    formatMoscowDate('2026-10-14T21:30:00Z', 'en', {
+      day: 'numeric',
+      month: 'long',
+      year: 'numeric',
+    }),
+  ).toBe('15.10.2026 (MSK)');
 });

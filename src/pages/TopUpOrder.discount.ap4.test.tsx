@@ -283,7 +283,7 @@ describe('AP-4 TopUp invoice-owned discount receipt', () => {
       const { container } = mount();
       await screen.findByText(locale === 'ru' ? /Подписка.*до/ : /subscription is active until/);
       expect(container.textContent).toMatch(
-        locale === 'ru' ? /15 октября 2026.*\(МСК\)/ : /October 15, 2026.*\(MSK\)/,
+        locale === 'ru' ? /15 октября 2026.*\(МСК\)/ : /15\.10\.2026.*\(MSK\)/,
       );
       expect(container.textContent).not.toContain('14 октября');
     },

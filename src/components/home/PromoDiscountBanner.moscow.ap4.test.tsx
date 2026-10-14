@@ -57,7 +57,7 @@ describe('AP-4 actual promo banner deadlines in Moscow', () => {
       await language.changeLanguage(locale);
       const { container } = mount();
       await screen.findByText(language.t('promo.offers.discountActiveTitle', { percent: 17 }));
-      expect(container.textContent).toMatch(locale === 'ru' ? /15\.10.*01:30/ : /10\/15.*01:30/);
+      expect(container.textContent).toMatch(/15\.10\.2026.*01:30/);
       expect(container.textContent).toContain(locale === 'ru' ? '(МСК)' : '(MSK)');
       expect(container.textContent).not.toContain(locale === 'ru' ? '14.10' : '10/14');
     },
@@ -88,7 +88,7 @@ describe('AP-4 actual promo banner deadlines in Moscow', () => {
       ]);
       const { container } = mount();
       await screen.findByRole('button', { name: locale === 'ru' ? 'Активировать' : 'Activate' });
-      expect(container.textContent).toMatch(locale === 'ru' ? /15\.10.*01:30/ : /10\/15.*01:30/);
+      expect(container.textContent).toMatch(/15\.10\.2026.*01:30/);
       expect(container.textContent).toContain(locale === 'ru' ? '(МСК)' : '(MSK)');
     },
   );

@@ -225,7 +225,7 @@ describe('МД-1: правки по ревью (шаг выбора, скидк�
       shortage_kopeks: 0,
       top_up_surplus_kopeks: 0,
     } as DeviceFirstCheckout);
-    expect(html).toContain('2 → 2');
+    expect(html).toContain('deviceFirst.deviceCount:2');
     expect(html).not.toContain('deviceFirst.upgradeProrateNote');
   });
 

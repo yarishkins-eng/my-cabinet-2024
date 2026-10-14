@@ -3,7 +3,7 @@
 import { createInstance } from 'i18next';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { MemoryRouter } from 'react-router';
+import { MemoryRouter, useLocation } from 'react-router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import ru from '@/locales/ru.json';
 import en from '@/locales/en.json';
@@ -126,11 +126,35 @@ function checkout(over: Partial<DeviceFirstCheckout> = {}): DeviceFirstCheckout 
     ...over,
   };
 }
+function LocationProbe() {
+  const route = useLocation();
+  return <output data-testid="checkout-location">{route.pathname + route.search}</output>;
+}
+function directButton(rubles: number, method = 'sbp') {
+  const disclosure = screen.queryByText(language.t('deviceFirst.payFullPrice'));
+  if (disclosure) {
+    if (!(disclosure.closest('details') as HTMLDetailsElement).open) fireEvent.click(disclosure);
+  } else {
+    const primary = screen.queryByRole('button', {
+      name: language.t('deviceFirst.payExternalAndOrder', { amount: `${rubles} ₽` }),
+    });
+    if (primary) fireEvent.click(primary);
+  }
+  return screen.getByRole('button', {
+    name: new RegExp(
+      `${method === 'sbp' ? (language.language === 'ru' ? 'СБП' : 'SBP') : language.t('deviceFirst.cards')}.*${rubles} ₽`,
+    ),
+  });
+}
 function mount(
   ownOptions = options(),
   row?: DeviceFirstCheckout,
   seed?: (client: QueryClient) => void,
   initialPath = '/subscription/purchase',
+  fixtureMethods = [
+    { key: 'sbp', provider_code: 2 },
+    { key: 'cards_ru', provider_code: 11 },
+  ],
 ) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
@@ -139,13 +163,11 @@ function mount(
   const tree = (current: DeviceFirstOptions) => (
     <MemoryRouter initialEntries={[initialPath]}>
       <QueryClientProvider client={client}>
+        <LocationProbe />
         <DeviceFirstConfigurator
           options={current}
           fixtureCheckout={row}
-          fixtureMethods={[
-            { key: 'sbp', provider_code: 2 },
-            { key: 'cards_ru', provider_code: 11 },
-          ]}
+          fixtureMethods={fixtureMethods}
         />
       </QueryClientProvider>
     </MemoryRouter>
@@ -211,7 +233,7 @@ describe('AP-4 real local checkout discount selection', () => {
     await review();
     expect(rowValue(/^Цена$/)).toBe('149 ₽');
     expect(rowValue(/^Скидка 10%$/)).toBe('−15 ₽');
-    fireEvent.click(screen.getByRole('button', { name: /СБП.*134 ₽/ }));
+    fireEvent.click(directButton(134));
     await waitFor(() => expect(deviceFirstApi.payDirect).toHaveBeenCalledTimes(1));
     expect(deviceFirstApi.payDirect).toHaveBeenCalledWith({
       period_days: 30,
@@ -268,13 +290,14 @@ describe('AP-4 real local checkout discount selection', () => {
       await review();
       expect(rowValue(/^Цена$/)).toBe('149 ₽');
       expect(rowValue(/^Скидка 10%$/)).toBe('−15 ₽');
-      expect(rowValue(/^К оплате$/)).toBe(
-        wallet === 0 ? '134 ₽' : wallet === 5000 ? '84 ₽' : '0 ₽',
+      expect(rowValue(wallet === 50000 ? /^Спишем с баланса$/ : /^К оплате$/)).toBe(
+        wallet === 0 ? '134 ₽' : wallet === 5000 ? '100 ₽' : '134 ₽',
       );
-      if (wallet) expect(rowValue(/^С вашего баланса$/)).toBe(wallet === 5000 ? '−50 ₽' : '−134 ₽');
+      if (wallet === 5000) expect(rowValue(/^С баланса$/)).toBe('−34 ₽');
+      if (wallet === 50000) expect(screen.queryByText(/^К оплате$/)).toBeNull();
       if (wallet === 5000) {
-        expect(screen.getByText(ru.deviceFirst.walletReceiptNotice)).toBeTruthy();
-        fireEvent.click(screen.getByRole('button', { name: /СБП.*134 ₽/ }));
+        expect(screen.queryByText(ru.deviceFirst.walletReceiptNotice)).toBeNull();
+        fireEvent.click(directButton(134));
         await waitFor(() => expect(deviceFirstApi.payDirect).toHaveBeenCalledTimes(1));
         expect(deviceFirstApi.payDirect).toHaveBeenCalledWith({
           period_days: 30,
@@ -380,8 +403,8 @@ describe('AP-4 real local checkout discount selection', () => {
     expect(rowValue(/^Price$/)).toBe('149 ₽');
     expect(rowValue(/^Discount 10%$/)).toBe('−15 ₽');
     expect(rowValue(/^To pay$/)).toBe('134 ₽');
-    expect(screen.getByText('Your subscription starts immediately after payment.')).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: /SBP.*134 ₽/ }));
+    expect(screen.getByText('Your subscription starts immediately after payment')).toBeTruthy();
+    fireEvent.click(directButton(134));
     await waitFor(() => expect(deviceFirstApi.payDirect).toHaveBeenCalledTimes(1));
     expect(vi.mocked(deviceFirstApi.payDirect).mock.calls[0][0].expected_tariff_total_kopeks).toBe(
       13400,
@@ -394,19 +417,19 @@ describe('AP-4 real local checkout discount selection', () => {
       await language.changeLanguage(locale);
       mount(options({ balance_kopeks: 5000, promo_offer: applied }));
       await review();
-      const caption = screen.getByText(
-        locale === 'ru' ? ru.deviceFirst.walletReceiptNotice : en.deviceFirst.walletReceiptNotice,
-      );
-      expect(rowValue(locale === 'ru' ? /^С вашего баланса$/ : /^From your balance$/)).toBe(
-        '−50 ₽',
-      );
-      expect(rowValue(locale === 'ru' ? /^К оплате$/ : /^To pay$/)).toBe('84 ₽');
-      const direct = screen.getByRole('button', {
-        name: locale === 'ru' ? /СБП.*134 ₽/ : /SBP.*134 ₽/,
-      });
       expect(
-        caption.compareDocumentPosition(direct) & Node.DOCUMENT_POSITION_FOLLOWING,
+        screen.queryByText(
+          locale === 'ru' ? ru.deviceFirst.walletReceiptNotice : en.deviceFirst.walletReceiptNotice,
+        ),
+      ).toBeNull();
+      expect(rowValue(locale === 'ru' ? /^С баланса$/ : /^From balance$/)).toBe('−34 ₽');
+      expect(rowValue(locale === 'ru' ? /^К оплате$/ : /^To pay$/)).toBe('100 ₽');
+      expect(
+        screen.getByRole('button', {
+          name: language.t('deviceFirst.payExternalAndOrder', { amount: '100 ₽' }),
+        }),
       ).toBeTruthy();
+      const direct = directButton(134);
       fireEvent.click(direct);
       await waitFor(() => expect(deviceFirstApi.payDirect).toHaveBeenCalledTimes(1));
       expect(vi.mocked(deviceFirstApi.payDirect).mock.calls[0][0]).toEqual({
@@ -426,13 +449,12 @@ describe('AP-4 real local checkout discount selection', () => {
       undefined,
       '/subscription/purchase?period=30&devices=2&method=cards_ru&autostart=1',
     );
-    const card = await screen.findByRole('button', { name: /Карта российского банка.*134 ₽/ });
-    const caption = screen.getByText(ru.deviceFirst.walletReceiptNotice);
-    expect(caption.compareDocumentPosition(card) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(rowValue(/^К оплате$/)).toBe('84 ₽');
+    await screen.findByText(ru.deviceFirst.payFullPrice);
+    const card = directButton(134, 'cards_ru');
+    expect(screen.queryByText(ru.deviceFirst.walletReceiptNotice)).toBeNull();
+    await waitFor(() => expect(rowValue(/^К оплате$/)).toBe('100 ₽'));
     expect(vi.mocked(deviceFirstApi.payDirect)).not.toHaveBeenCalled();
     expect(vi.mocked(deviceFirstApi.nativeLaunchDirect)).not.toHaveBeenCalled();
-    expect(card.className).toContain('bg-accent-500');
     fireEvent.click(card);
     await waitFor(() => expect(deviceFirstApi.payDirect).toHaveBeenCalledTimes(1));
     expect(vi.mocked(deviceFirstApi.payDirect).mock.calls[0][0]).toEqual({
@@ -545,7 +567,7 @@ describe('AP-4 immutable checkout receipts and trial contract', () => {
       );
       await settle();
       expect(container.textContent).toContain(
-        locale === 'ru' ? '15 окт. 2026 (МСК)' : 'Oct 15, 2026 (MSK)',
+        locale === 'ru' ? '15 окт. 2026 (МСК)' : '15.10.2026 (MSK)',
       );
       unmount();
       const ready = mount(
@@ -553,7 +575,7 @@ describe('AP-4 immutable checkout receipts and trial contract', () => {
         checkout({ ui_state: 'ready', current_subscription_is_trial: false }),
       ).container;
       expect(ready.textContent).toContain(
-        locale === 'ru' ? '15 окт. 2026 (МСК)' : 'Oct 15, 2026 (MSK)',
+        locale === 'ru' ? '15 окт. 2026 (МСК)' : '15.10.2026 (MSK)',
       );
       expect(ready.textContent).not.toMatch(/\(МСК\).*\(МСК\)|\(MSK\).*\(MSK\)/);
     },
@@ -623,12 +645,12 @@ describe('AP-4 reprice reason and refreshed payment token', () => {
       await settle();
       clock.mockReturnValue(deadline + 1000);
       const invalidate = vi.spyOn(client, 'invalidateQueries').mockImplementation(async () => {});
-      fireEvent.click(screen.getByRole('button', { name: new RegExp(`СБП.*${expected / 100} ₽`) }));
+      fireEvent.click(directButton(expected / 100));
       await waitFor(() =>
         expect(invalidate).toHaveBeenCalledWith({ queryKey: ['device-first-options'] }),
       );
       expect(screen.getByText(ru.deviceFirst.refreshText)).toBeTruthy();
-      expect(screen.queryByText(/Скидка закончилась, пока вы выбирали/)).toBeNull();
+      expect(screen.queryByText(/Скидка закончилась — деньги не списаны/)).toBeNull();
       expect(
         vi.mocked(deviceFirstApi.payDirect).mock.calls[0][0].expected_tariff_total_kopeks,
       ).toBe(expected);
@@ -651,19 +673,19 @@ describe('AP-4 reprice reason and refreshed payment token', () => {
     const { client } = mount(options());
     await screen.findByText(/Скидка 10% уже/);
     await review();
-    fireEvent.click(screen.getByRole('button', { name: /СБП.*134 ₽/ }));
+    fireEvent.click(directButton(134));
     await waitFor(() => expect(deviceFirstApi.getOpen).toHaveBeenCalledTimes(1));
     await screen.findByText(/^Скидка$/);
     expect(rowValue(/^Скидка$/)).toBe('−15 ₽');
     await settle();
     clock.mockReturnValue(deadline + 1000);
     const invalidate = vi.spyOn(client, 'invalidateQueries').mockImplementation(async () => {});
-    fireEvent.click(screen.getByRole('button', { name: /СБП.*134 ₽/ }));
+    fireEvent.click(directButton(134));
     await waitFor(() =>
       expect(invalidate).toHaveBeenCalledWith({ queryKey: ['device-first-options'] }),
     );
     expect(screen.getByText(ru.deviceFirst.refreshText)).toBeTruthy();
-    expect(screen.queryByText(/Скидка закончилась, пока вы выбирали/)).toBeNull();
+    expect(screen.queryByText(/Скидка закончилась — деньги не списаны/)).toBeNull();
     expect(vi.mocked(deviceFirstApi.payDirect).mock.calls[1][0].expected_tariff_total_kopeks).toBe(
       13400,
     );
@@ -680,11 +702,11 @@ describe('AP-4 reprice reason and refreshed payment token', () => {
     await review();
     clock.mockReturnValue(deadline + 1000);
     const invalidate = vi.spyOn(client, 'invalidateQueries').mockImplementation(async () => {});
-    fireEvent.click(screen.getByRole('button', { name: /СБП.*134 ₽/ }));
+    fireEvent.click(directButton(134));
     await waitFor(() =>
       expect(invalidate).toHaveBeenCalledWith({ queryKey: ['device-first-options'] }),
     );
-    expect(screen.getByText(/Скидка закончилась, пока вы выбирали/)).toBeTruthy();
+    expect(screen.getByText(/Скидка закончилась — деньги не списаны/)).toBeTruthy();
     expect(vi.mocked(deviceFirstApi.payDirect).mock.calls[0][0].expected_tariff_total_kopeks).toBe(
       13400,
     );
@@ -724,18 +746,18 @@ describe('AP-4 reprice reason and refreshed payment token', () => {
           }),
         );
       });
-      fireEvent.click(screen.getByRole('button', { name: /СБП.*134 ₽/ }));
+      fireEvent.click(directButton(134));
       await waitFor(() =>
         expect(invalidate).toHaveBeenCalledWith({ queryKey: ['device-first-options'] }),
       );
-      const expiryCopy = screen.queryByText(/Скидка закончилась, пока вы выбирали/);
+      const expiryCopy = screen.queryByText(/Скидка закончилась — деньги не списаны/);
       expect(expiryCopy !== null).toBe(special);
       if (!special) expect(screen.getByText(ru.deviceFirst.refreshText)).toBeTruthy();
       expect(screen.getByText('1 мес.')).toBeTruthy();
       expect(
         vi.mocked(deviceFirstApi.payDirect).mock.calls[0][0].expected_tariff_total_kopeks,
       ).toBe(13400);
-      fireEvent.click(await screen.findByRole('button', { name: /СБП.*149 ₽/ }));
+      fireEvent.click(directButton(149));
       await waitFor(() => expect(deviceFirstApi.payDirect).toHaveBeenCalledTimes(2));
       expect(vi.mocked(deviceFirstApi.payDirect).mock.calls[1][0]).toEqual({
         period_days: 30,
@@ -781,8 +803,9 @@ describe('AP-4 reprice reason and refreshed payment token', () => {
         ],
       });
     });
-    fireEvent.click(screen.getByRole('button', { name: /СБП.*530 ₽/ }));
-    fireEvent.click(await screen.findByRole('button', { name: /СБП.*589 ₽/ }));
+    fireEvent.click(directButton(530));
+    await screen.findByRole('button', { name: /СБП.*589 ₽/ });
+    fireEvent.click(directButton(589));
     await waitFor(() => expect(deviceFirstApi.payDirect).toHaveBeenCalledTimes(2));
     expect(vi.mocked(deviceFirstApi.payDirect).mock.calls[1][0]).toEqual({
       period_days: 90,
@@ -793,3 +816,155 @@ describe('AP-4 reprice reason and refreshed payment token', () => {
     });
   });
 });
+
+describe('Owner compact checkout and surviving MX2/MX4 guards', () => {
+  it('MX2: cents in the wallet do not make the receipt disagree with the rounded invoice', async () => {
+    mount(options({ balance_kopeks: 1490, topup_intent_enabled: true, promo_offer: applied }));
+    await review();
+    expect(rowValue(/^Цена$/)).toBe('149 ₽');
+    expect(rowValue(/^Скидка 10%$/)).toBe('−15 ₽');
+    expect(rowValue(/^С баланса$/)).toBe('−14 ₽');
+    expect(rowValue(/^К оплате$/)).toBe('120 ₽');
+    expect(screen.getByText('Остаток 0,90 ₽ останется на балансе')).toBeTruthy();
+    expect(screen.queryByText(/^Баланс$/)).toBeNull();
+    expect(screen.queryByText(/^Не хватает$/)).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Оплатить 120 ₽' }));
+    const target = new URL(
+      screen.getByTestId('checkout-location').textContent!,
+      'https://local.test',
+    );
+    expect(target.pathname).toBe('/balance/top-up/platega');
+    expect(target.searchParams.get('amount')).toBe('120');
+    const returned = new URL(target.searchParams.get('returnTo')!, 'https://local.test');
+    expect(returned.searchParams.get('period')).toBe('30');
+    expect(returned.searchParams.get('devices')).toBe('2');
+    expect(deviceFirstApi.payDirect).not.toHaveBeenCalled();
+  });
+
+  it.each([-1, 0, 1])('MX4: banner deadline boundary now−deadline=%s ms', async (offset) => {
+    const deadline = Date.parse(applied.expires_at);
+    vi.spyOn(Date, 'now').mockReturnValue(deadline + offset);
+    mount(options({ promo_offer: applied }));
+    await settle();
+    expect(screen.queryByText(/Скидка 10% уже в ценах/) !== null).toBe(offset < 0);
+  });
+
+  it('an offer without a deadline has no invented expiry wording or doubled separators', async () => {
+    mount(options({ promo_offer: { ...applied, expires_at: null } }));
+    const banner = await screen.findByText(/Скидка 10% уже в ценах/);
+    expect(banner.textContent).toBe('🎁 Скидка 10% уже в ценах · любой срок и число устройств');
+  });
+
+  it('without discount or wallet the summary has only the total and one Pay action', async () => {
+    mount(
+      options({
+        promo_offer: null,
+        topup_intent_enabled: true,
+        price_matrix: [{ period_days: 30, prices: [cell(2, 14900, 0)] }],
+      }),
+    );
+    await review();
+    expect(screen.getByRole('heading', { name: 'Premium · 2 устройства · 1 мес.' })).toBeTruthy();
+    expect(screen.queryByText(/^Цена$/)).toBeNull();
+    expect(screen.queryByText(/^Скидка/)).toBeNull();
+    expect(screen.queryByText(/^С баланса$/)).toBeNull();
+    expect(rowValue(/^К оплате$/)).toBe('149 ₽');
+    expect(screen.getByRole('button', { name: 'Оплатить 149 ₽' })).toBeTruthy();
+    expect(screen.getByText('Подписка оформится сама после оплаты')).toBeTruthy();
+    expect(screen.queryByText(ru.deviceFirst.payFullPrice)).toBeNull();
+    expect(screen.queryByText(ru.deviceFirst.whatIsIncluded)).toBeNull();
+  });
+
+  it('one Pay opens all supported methods before creating any monetary request', async () => {
+    mount(options({ topup_intent_enabled: true, promo_offer: applied }));
+    await review();
+    expect(screen.queryByRole('button', { name: /Карта российского банка/ })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Оплатить 134 ₽' }));
+    await settle();
+    expect(deviceFirstApi.payDirect).not.toHaveBeenCalled();
+    const sbp = screen.getByRole('button', { name: /СБП.*134 ₽/ });
+    expect(document.activeElement).toBe(sbp);
+    fireEvent.click(screen.getByRole('button', { name: /Карта российского банка.*134 ₽/ }));
+    await waitFor(() => expect(deviceFirstApi.payDirect).toHaveBeenCalledTimes(1));
+    expect(deviceFirstApi.payDirect).toHaveBeenCalledWith({
+      period_days: 30,
+      selected_device_limit: 2,
+      funding_mode: 'platega',
+      method_key: 'cards_ru',
+      expected_tariff_total_kopeks: 13400,
+    });
+  });
+
+  it('legacy manual top-up does not promise immediate trial activation', async () => {
+    mount(
+      options({
+        balance_kopeks: 5000,
+        topup_intent_enabled: false,
+        current_subscription: { id: 660, device_limit: 2, is_trial: true, tariff_id: 3 },
+        promo_offer: applied,
+      }),
+    );
+    await review();
+    expect(screen.getByText(ru.deviceFirst.topUpShortageHint)).toBeTruthy();
+    expect(screen.queryByText(ru.deviceFirst.trialStartsAfterPayment)).toBeNull();
+    expect(screen.queryByText(ru.deviceFirst.topUpAutoHint)).toBeNull();
+  });
+
+  it('choosing crypto with a known positive amount still opens an automatic order', async () => {
+    getPaymentMethods.mockResolvedValue([
+      { id: 'platega', is_available: true, min_amount_kopeks: 100 },
+    ]);
+    mount(
+      options({ balance_kopeks: 5000, topup_intent_enabled: true, promo_offer: applied }),
+      undefined,
+      undefined,
+      '/subscription/purchase',
+      [{ key: 'crypto', provider_code: 13 }],
+    );
+    await review();
+    expect(screen.queryByText(ru.deviceFirst.topUpAutoHint)).toBeTruthy();
+    expect(screen.queryByText(ru.deviceFirst.topUpShortageHint)).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Оплатить 84 ₽' }));
+    const href = screen.getByTestId('checkout-location').textContent!;
+    const params = new URL(href, 'https://example.test').searchParams;
+    expect(params.get('amount')).toBe('84');
+    expect(params.get('chooseMethod')).toBe('1');
+    expect(params.has('auto')).toBe(false);
+    expect(params.get('returnTo')).toBe('/subscription/purchase?from=checkout&period=30&devices=2');
+    expect(deviceFirstApi.payDirect).not.toHaveBeenCalled();
+  });
+
+  it('a minimum above net separates extra credit from the entire resulting wallet', async () => {
+    getPaymentMethods.mockResolvedValue([
+      { id: 'platega', is_available: true, min_amount_kopeks: 20000 },
+    ]);
+    mount(options({ balance_kopeks: 5000, topup_intent_enabled: true, promo_offer: applied }));
+    await review();
+    expect(rowValue(/^Цена$/)).toBe('149 ₽');
+    expect(rowValue(/^Скидка 10%$/)).toBe('−15 ₽');
+    expect(screen.queryByText(/^С баланса$/)).toBeNull();
+    expect(rowValue(/^Сверх цены на баланс$/)).toBe('66 ₽');
+    expect(rowValue(/^К оплате$/)).toBe('200 ₽');
+    expect(screen.getByText('Остаток 116 ₽ останется на балансе')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Оплатить 200 ₽' })).toBeTruthy();
+  });
+});
+
+it.each([undefined, {}])(
+  'a resumed order without its own breakdown %s cannot borrow the current discount',
+  async (breakdown) => {
+    mount(
+      options({ promo_offer: applied }),
+      checkout({
+        ui_state: 'confirmation',
+        tariff_total_kopeks: 14900,
+        quoted_price_kopeks: 14900,
+        price_breakdown: breakdown as DeviceFirstCheckout['price_breakdown'],
+      }),
+    );
+    await screen.findByText(/^К оплате$/);
+    expect(screen.queryByText(/^Скидка/)).toBeNull();
+    expect(rowValue(/^К оплате$/)).toBe('149 ₽');
+    expect(screen.queryByText('164 ₽')).toBeNull();
+  },
+);

@@ -34,7 +34,7 @@ describe('VK-5 renewal readiness translations', () => {
     expect(rendered).not.toContain('{{');
     expect(rendered.match(/\((?:МСК|MSK)\)/g)).toHaveLength(1);
     if (language === 'ru') expect(rendered).toBe('Подписка продлена до 30 авг. 2026 (МСК)');
-    if (language === 'en') expect(rendered).toBe('Subscription extended until Aug 30, 2026 (MSK)');
+    if (language === 'en') expect(rendered).toBe('Subscription extended until 30.08.2026 (MSK)');
   });
 
   it.each([

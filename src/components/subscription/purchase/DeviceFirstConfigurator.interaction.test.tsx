@@ -2,7 +2,7 @@
 
 import { useLayoutEffect, useState } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MemoryRouter, useLocation, useNavigate, useSearchParams } from 'react-router';
 import { DeviceFirstConfigurator } from './DeviceFirstConfigurator';
@@ -76,6 +76,8 @@ vi.mock('react-i18next', () => ({
         method?: string;
       },
     ) => {
+      if (key === 'deviceFirst.paymentMethodAmount')
+        return `${key}:${values?.amount}:${values?.method}`;
       if (values?.amount) return `${key}:${values.amount}`;
       // 🔴 РЕК-8б: у строки про арифметику баланса ДВА числа, и оба обязаны доехать.
       // Без этой ветки мок вернул бы голый ключ, и сторож проверял бы наличие строки,
@@ -256,6 +258,87 @@ function renderConfigurator(
   };
 }
 
+// Owner UX: full-price payment is under the balance disclosure. With no balance,
+// one Pay opens the real method picker (or submits immediately for a single method).
+function openFullPrice() {
+  const summary = screen.queryByText('deviceFirst.payFullPrice', { selector: 'summary' });
+  const disclosure = summary?.closest('details');
+  if (summary && disclosure && !disclosure.open) fireEvent.click(summary);
+  return disclosure;
+}
+
+async function peekDirectButton(amount = '450 ₽', index = 0, method?: string) {
+  await waitFor(() => {
+    expect(
+      screen.queryByText('deviceFirst.payFullPrice', { selector: 'summary' }) ||
+        screen.queryByRole('button', { name: `deviceFirst.payExternalAndOrder:${amount}` }),
+    ).toBeTruthy();
+  });
+  const disclosure = openFullPrice();
+  if (disclosure) {
+    const buttons = await within(disclosure).findAllByRole('button', {
+      name: new RegExp(
+        `^deviceFirst\\.paymentMethodAmount:${amount}:` +
+          (typeof method !== 'undefined' ? `deviceFirst\\.${method}$` : ''),
+      ),
+    });
+    expect(buttons[index]).toBeTruthy();
+    return buttons[index];
+  }
+  return screen.getByRole('button', { name: `deviceFirst.payExternalAndOrder:${amount}` });
+}
+
+function directMethodButtons(amount = '450 ₽', method?: string) {
+  openFullPrice();
+  return screen.getAllByRole('button', {
+    name: new RegExp(
+      `^deviceFirst\\.paymentMethodAmount:${amount}:` +
+        (typeof method !== 'undefined' ? `deviceFirst\\.${method}$` : ''),
+    ),
+  });
+}
+
+async function openDirectMethods(amount = '450 ₽', method?: string) {
+  const button = await peekDirectButton(amount);
+  if (!button.closest('details')) {
+    // A peek must never submit a one-method request. Callers of this helper
+    // explicitly supplied multiple methods, so Pay only opens the local picker.
+    expect(deviceFirstApi.payDirect).not.toHaveBeenCalled();
+    fireEvent.click(button);
+    expect(deviceFirstApi.payDirect).not.toHaveBeenCalled();
+  }
+  return screen.getAllByRole('button', {
+    name: new RegExp(
+      `^deviceFirst\\.paymentMethodAmount:${amount}:` +
+        (typeof method !== 'undefined' ? `deviceFirst\\.${method}$` : ''),
+    ),
+  });
+}
+
+async function clickDirect(amount = '450 ₽', index = 0, method?: string) {
+  const disclosure = screen.queryByText('deviceFirst.payFullPrice', { selector: 'summary' });
+  if (disclosure) {
+    fireEvent.click(await peekDirectButton(amount, index, method));
+    return;
+  }
+  fireEvent.click(await peekDirectButton(amount, index, method));
+  const picker = screen.queryByRole('group', { name: 'deviceFirst.paymentMethodQuestion' });
+  if (picker) {
+    const buttons = within(picker).getAllByRole('button', {
+      name: new RegExp(
+        `^deviceFirst\\.paymentMethodAmount:${amount}:` +
+          (typeof method !== 'undefined' ? `deviceFirst\\.${method}$` : ''),
+      ),
+    });
+    expect(buttons[index]).toBeTruthy();
+    fireEvent.click(buttons[index]);
+  }
+}
+
+function receiptValue(key: string) {
+  return screen.getByText(key).parentElement?.querySelector('strong')?.textContent;
+}
+
 describe('DeviceFirstConfigurator interaction safety', () => {
   describe('16в-3 request2 recent purchase contract', () => {
     const chatPath = '/subscription/purchase?period=30&devices=2&method=sbp&autostart=1';
@@ -427,9 +510,7 @@ describe('DeviceFirstConfigurator interaction safety', () => {
         options: { ...options, balance_kopeks: 0 },
         initialPath: '/subscription/purchase?checkout=checkout-owned&method=sbp&autostart=1',
       });
-      fireEvent.click(
-        await screen.findByRole('button', { name: 'deviceFirst.paymentMethodAmount:450 ₽' }),
-      );
+      await clickDirect('450 ₽');
       await waitFor(() => expect(deviceFirstApi.payDirect).toHaveBeenCalledTimes(1));
       expect(deviceFirstApi.payDirect).toHaveBeenCalledWith({
         ...plategaPayPayload,
@@ -460,9 +541,7 @@ describe('DeviceFirstConfigurator interaction safety', () => {
         options: { ...options, balance_kopeks: 0 },
         initialPath: '/subscription/purchase?checkout=checkout-owned',
       });
-      fireEvent.click(
-        await screen.findByRole('button', { name: 'deviceFirst.paymentMethodAmount:450 ₽' }),
-      );
+      await clickDirect('450 ₽');
       await waitFor(() => expect(deviceFirstApi.payDirect).toHaveBeenCalledTimes(1));
       expect(deviceFirstApi.payDirect).toHaveBeenCalledWith(plategaPayPayload);
       expect(screen.queryByRole('button', { name: 'balance.topUpOrder.morePeriodYes' })).toBeNull();
@@ -541,9 +620,7 @@ describe('DeviceFirstConfigurator interaction safety', () => {
         ).toBe('true');
         fireEvent.click(screen.getByRole('radio', { name: /deviceFirst.periodMonths:3/ }));
         fireEvent.click(screen.getByRole('button', { name: 'deviceFirst.review' }));
-        fireEvent.click(
-          await screen.findByRole('button', { name: 'deviceFirst.paymentMethodAmount:450 ₽' }),
-        );
+        await clickDirect('450 ₽');
         await waitFor(() => expect(deviceFirstApi.payDirect).toHaveBeenCalledTimes(1));
         expect(deviceFirstApi.payDirect).toHaveBeenCalledExactlyOnceWith({
           ...plategaPayPayload,
@@ -576,7 +653,7 @@ describe('DeviceFirstConfigurator interaction safety', () => {
         expect(deviceFirstApi[name]).not.toHaveBeenCalled();
     });
 
-    it('after a direct-payment error, every method leaves the full-price disclosure', async () => {
+    it('after a direct-payment error, every method remains available through the full-price disclosure', async () => {
       vi.mocked(deviceFirstApi.paymentMethods).mockResolvedValue({
         methods: [
           { key: 'sbp', provider_code: 2 },
@@ -588,18 +665,14 @@ describe('DeviceFirstConfigurator interaction safety', () => {
       });
       renderConfigurator({ options: { ...options, topup_intent_enabled: true } });
       fireEvent.click(screen.getByRole('button', { name: 'deviceFirst.review' }));
-      const methods = await screen.findAllByRole('button', {
-        name: 'deviceFirst.paymentMethodAmount:450 ₽',
-      });
+      const methods = await openDirectMethods('450 ₽');
       expect(methods.every((button) => button.closest('details'))).toBe(true);
       fireEvent.click(methods[0]);
       await screen.findByRole('alert');
       await waitFor(() => {
-        const visibleMethods = screen.getAllByRole('button', {
-          name: 'deviceFirst.paymentMethodAmount:450 ₽',
-        });
+        const visibleMethods = directMethodButtons('450 ₽');
         expect(visibleMethods).toHaveLength(2);
-        expect(visibleMethods.every((button) => !button.closest('details'))).toBe(true);
+        expect(visibleMethods.every((button) => !!button.closest('details'))).toBe(true);
       });
     });
   });
@@ -686,7 +759,8 @@ describe('DeviceFirstConfigurator interaction safety', () => {
     const { rerender } = render(tree(options));
     fireEvent.click(await screen.findByText('deviceFirst.review'));
     // Цена подтверждённого выбора стоит прямо на кнопке оплаты: 45000 копеек → 450.
-    await waitFor(() => expect(screen.getByText(/paymentMethodAmount:450/)).toBeTruthy());
+    await peekDirectButton('450 ₽');
+    expect(deviceFirstApi.payDirect).not.toHaveBeenCalled();
 
     // Тариф под открытым подтверждением поменялся: другой набор вариантов и другая цена.
     rerender(
@@ -912,12 +986,13 @@ describe('DeviceFirstConfigurator interaction safety', () => {
     // кабинета» стало бы там ложью — и это первый экран каждого покупателя.
     renderConfigurator();
     fireEvent.click(await screen.findByText('deviceFirst.review'));
-    const method = await screen.findByText(/deviceFirst\.paymentMethodAmount/);
+    const method = await peekDirectButton();
     expect(screen.queryByText('deviceFirst.leavingForProvider')).toBeNull();
     // 🔴 Но и молчать нельзя: покупка стала двухтаповой, а кнопка с суммой читается как
     // «заплатить». Ожидание выставляется ДО тапа и стоит выше кнопок — под ними на телефоне
     // 375×667 строка уходит за сгиб, а скринридер читает её после нажатия.
-    const hint = screen.getByText('deviceFirst.twoStepPayHint');
+    const hint = screen.getByText('deviceFirst.topUpShortageHint');
+    expect(screen.queryByText('deviceFirst.twoStepPayHint')).toBeNull();
     expect(hint.compareDocumentPosition(method) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     cleanup();
 
@@ -1030,7 +1105,7 @@ describe('DeviceFirstConfigurator interaction safety', () => {
 
     renderConfigurator();
     fireEvent.click(await screen.findByText('deviceFirst.review'));
-    fireEvent.click(await screen.findByText(/deviceFirst\.paymentMethodAmount/));
+    await clickDirect();
 
     expect(await screen.findByText('deviceFirst.invoiceReadyTitle')).toBeTruthy();
     expect(screen.getByText('deviceFirst.invoiceReadyText')).toBeTruthy();
@@ -1076,7 +1151,7 @@ describe('DeviceFirstConfigurator interaction safety', () => {
 
     renderConfigurator();
     fireEvent.click(await screen.findByText('deviceFirst.review'));
-    fireEvent.click(await screen.findByText(/deviceFirst\.paymentMethodAmount/));
+    await clickDirect();
 
     fireEvent.click(
       await screen.findByRole('button', { name: 'deviceFirst.continueExistingInvoice' }),
@@ -1165,7 +1240,7 @@ describe('DeviceFirstConfigurator interaction safety', () => {
 
     renderConfigurator();
     fireEvent.click(await screen.findByText('deviceFirst.review'));
-    fireEvent.click(await screen.findByText(/deviceFirst\.paymentMethodAmount/));
+    await clickDirect();
 
     // 🔴 Здесь же лежит самый опасный случай этого состояния: сервер гасит адрес и когда
     // человек УЖЕ ЗАПЛАТИЛ, а вебхук не дошёл (`payment.is_paid` в заборе
@@ -1689,9 +1764,7 @@ describe('DeviceFirstConfigurator interaction safety', () => {
     expect(deviceFirstApi.payDirect).not.toHaveBeenCalled();
     expect(deviceFirstApi.create).not.toHaveBeenCalled();
     expect(screen.getByTestId('location').textContent).toBe('/subscription/purchase');
-    const financialConsent = await screen.findByRole('button', {
-      name: 'deviceFirst.paymentMethodAmount:450 ₽',
-    });
+    const financialConsent = await peekDirectButton('450 ₽');
     // The balance does not cover the price: provider methods are the only
     // payment CTAs, no wallet button and no duplicate order action.
     expect(screen.queryByRole('button', { name: /deviceFirst.payAndOrder/ })).toBeNull();
@@ -1743,9 +1816,7 @@ describe('DeviceFirstConfigurator interaction safety', () => {
     fireEvent.click(screen.getByRole('button', { name: 'deviceFirst.review' }));
     expect(deviceFirstApi.create).not.toHaveBeenCalled();
     expect(deviceFirstApi.confirm).not.toHaveBeenCalled();
-    fireEvent.click(
-      await screen.findByRole('button', { name: 'deviceFirst.paymentMethodAmount:450 ₽' }),
-    );
+    await clickDirect('450 ₽');
 
     // The server resolves the resume: the same invoice comes back and no new
     // payment transition was ever requested from the browser.
@@ -1836,9 +1907,7 @@ describe('DeviceFirstConfigurator interaction safety', () => {
     renderConfigurator();
 
     fireEvent.click(screen.getByRole('button', { name: 'deviceFirst.review' }));
-    fireEvent.click(
-      await screen.findByRole('button', { name: 'deviceFirst.paymentMethodAmount:450 ₽' }),
-    );
+    await clickDirect('450 ₽');
 
     await waitFor(() => expect(screen.getByText('deviceFirst.openingPayment')).toBeTruthy());
     expect(
@@ -2111,9 +2180,7 @@ describe('DeviceFirstConfigurator interaction safety', () => {
     renderConfigurator();
 
     fireEvent.click(screen.getByRole('button', { name: 'deviceFirst.review' }));
-    fireEvent.click(
-      await screen.findByRole('button', { name: 'deviceFirst.paymentMethodAmount:450 ₽' }),
-    );
+    await clickDirect('450 ₽');
 
     expect(await screen.findByText('deviceFirst.errorInvoiceTerminal')).toBeTruthy();
     // Улика: безликого «попробуйте ещё раз» больше нет.
@@ -2130,16 +2197,14 @@ describe('DeviceFirstConfigurator interaction safety', () => {
     renderConfigurator();
 
     fireEvent.click(screen.getByRole('button', { name: 'deviceFirst.review' }));
-    fireEvent.click(
-      await screen.findByRole('button', { name: 'deviceFirst.paymentMethodAmount:450 ₽' }),
-    );
+    await clickDirect('450 ₽');
 
     expect(await screen.findByText('deviceFirst.errorProviderNoInvoice')).toBeTruthy();
     // Улики: ни безликого «попробуйте ещё раз», ни ложного «не оплачивайте повторно».
     expect(screen.queryByText('deviceFirst.error')).toBeNull();
     expect(screen.queryByText('deviceFirst.errorPaymentChecking')).toBeNull();
 
-    fireEvent.click(screen.getByRole('button', { name: 'deviceFirst.paymentMethodAmount:450 ₽' }));
+    await clickDirect('450 ₽');
     await waitFor(() => expect(deviceFirstApi.payDirect).toHaveBeenCalledTimes(2));
   });
 
@@ -2159,7 +2224,7 @@ describe('DeviceFirstConfigurator interaction safety', () => {
     expect(screen.queryByText('deviceFirst.error')).toBeNull();
     expect(deviceFirstApi.nativeLaunchDirect).toHaveBeenCalledTimes(1);
 
-    fireEvent.click(screen.getByRole('button', { name: 'deviceFirst.paymentMethodAmount:450 ₽' }));
+    await clickDirect('450 ₽');
     await waitFor(() => expect(deviceFirstApi.payDirect).toHaveBeenCalledTimes(1));
     expect(deviceFirstApi.nativeLaunchDirect).toHaveBeenCalledTimes(1);
   });
@@ -2379,9 +2444,7 @@ describe('DeviceFirstConfigurator interaction safety', () => {
     renderConfigurator();
 
     fireEvent.click(screen.getByRole('button', { name: 'deviceFirst.review' }));
-    fireEvent.click(
-      await screen.findByRole('button', { name: 'deviceFirst.paymentMethodAmount:450 ₽' }),
-    );
+    await clickDirect('450 ₽');
 
     await waitFor(() => expect(deviceFirstApi.getOpen).toHaveBeenCalledTimes(1));
     // The canonical invoice screen explains itself instead of a dead generic
@@ -2401,9 +2464,7 @@ describe('DeviceFirstConfigurator interaction safety', () => {
     renderConfigurator();
 
     fireEvent.click(screen.getByRole('button', { name: 'deviceFirst.review' }));
-    fireEvent.click(
-      await screen.findByRole('button', { name: 'deviceFirst.paymentMethodAmount:450 ₽' }),
-    );
+    await clickDirect('450 ₽');
 
     await waitFor(() => expect(deviceFirstApi.clearCreateIntents).toHaveBeenCalledTimes(1));
     expect(await screen.findByText('deviceFirst.errorResumeUnavailable')).toBeTruthy();
@@ -2416,9 +2477,7 @@ describe('DeviceFirstConfigurator interaction safety', () => {
     renderConfigurator();
 
     fireEvent.click(screen.getByRole('button', { name: 'deviceFirst.review' }));
-    fireEvent.click(
-      await screen.findByRole('button', { name: 'deviceFirst.paymentMethodAmount:450 ₽' }),
-    );
+    await clickDirect('450 ₽');
 
     expect(await screen.findByText('deviceFirst.errorLegacyTrialReconciliation')).toBeTruthy();
     expect(screen.getByRole('button', { name: 'deviceFirst.contactSupport' })).toBeTruthy();
@@ -2536,9 +2595,7 @@ describe('DeviceFirstConfigurator interaction safety', () => {
     renderConfigurator();
 
     fireEvent.click(screen.getByRole('button', { name: 'deviceFirst.review' }));
-    expect(
-      await screen.findByRole('button', { name: 'deviceFirst.paymentMethodAmount:450 ₽' }),
-    ).toBeTruthy();
+    expect(await peekDirectButton('450 ₽')).toBeTruthy();
 
     fireEvent.click(screen.getByRole('button', { name: 'deviceFirst.changeOptions' }));
 
@@ -2586,9 +2643,7 @@ describe('DeviceFirstConfigurator interaction safety', () => {
     renderConfigurator();
 
     fireEvent.click(screen.getByRole('button', { name: 'deviceFirst.review' }));
-    fireEvent.click(
-      await screen.findByRole('button', { name: 'deviceFirst.paymentMethodAmount:450 ₽' }),
-    );
+    await clickDirect('450 ₽');
 
     // The price moved: the confirmation stays, explains itself and never
     // shows a dead generic error. No automatic retry is fired.
@@ -2597,7 +2652,7 @@ describe('DeviceFirstConfigurator interaction safety', () => {
     expect(screen.queryByText('deviceFirst.error')).toBeNull();
     expect(deviceFirstApi.payDirect).toHaveBeenCalledTimes(1);
 
-    fireEvent.click(screen.getByRole('button', { name: 'deviceFirst.paymentMethodAmount:450 ₽' }));
+    await clickDirect('450 ₽');
     await waitFor(() => expect(deviceFirstApi.payDirect).toHaveBeenCalledTimes(2));
     expect(deviceFirstApi.payDirect).toHaveBeenLastCalledWith(plategaPayPayload);
   });
@@ -2615,7 +2670,12 @@ describe('DeviceFirstConfigurator interaction safety', () => {
     // No row was created: the person stays on the confirmation and gets an
     // explicit top-up path instead of a generic failure.
     expect(screen.getByRole('button', { name: 'deviceFirst.needTopup' })).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'deviceFirst.payAndOrder:450 ₽' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'deviceFirst.payAndOrder:450 ₽' })).toBeNull();
+    expect(deviceFirstApi.payDirect).toHaveBeenCalledExactlyOnceWith({
+      ...plategaPayPayload,
+      funding_mode: 'wallet',
+      method_key: null,
+    });
     expect(deviceFirstApi.getOpen).not.toHaveBeenCalled();
   });
 
@@ -2671,14 +2731,12 @@ describe('DeviceFirstConfigurator interaction safety', () => {
     // The row is live (born at pay time, its attempt never finished): resume
     // it through the row-wired confirmation. The drain/cancel screen and any
     // cancellation are never offered for it.
-    expect(
-      await screen.findByRole('button', { name: 'deviceFirst.paymentMethodAmount:450 ₽' }),
-    ).toBeTruthy();
+    expect(await peekDirectButton('450 ₽')).toBeTruthy();
     expect(screen.queryByText('deviceFirst.refreshTitle')).toBeNull();
     expect(screen.queryByRole('button', { name: 'deviceFirst.startNew' })).toBeNull();
     expect(deviceFirstApi.cancel).not.toHaveBeenCalled();
 
-    fireEvent.click(screen.getByRole('button', { name: 'deviceFirst.paymentMethodAmount:450 ₽' }));
+    await clickDirect('450 ₽');
 
     // The retry goes through the fused route with the row's own selection and
     // the row's immutable total as the optimistic price token.
@@ -2701,9 +2759,7 @@ describe('DeviceFirstConfigurator interaction safety', () => {
     renderConfigurator();
 
     fireEvent.click(screen.getByRole('button', { name: 'deviceFirst.review' }));
-    fireEvent.click(
-      await screen.findByRole('button', { name: 'deviceFirst.paymentMethodAmount:450 ₽' }),
-    );
+    await clickDirect('450 ₽');
 
     await waitFor(() => expect(deviceFirstApi.getOpen).toHaveBeenCalledTimes(1));
     // The concurrent winner's row sits in the birth window (confirmed, no
@@ -2714,7 +2770,7 @@ describe('DeviceFirstConfigurator interaction safety', () => {
     expect(deviceFirstApi.cancel).not.toHaveBeenCalled();
     expect(await screen.findByText('deviceFirst.errorResumeOrder')).toBeTruthy();
 
-    fireEvent.click(screen.getByRole('button', { name: 'deviceFirst.paymentMethodAmount:450 ₽' }));
+    await clickDirect('450 ₽');
 
     await waitFor(() => expect(deviceFirstApi.payDirect).toHaveBeenCalledTimes(2));
     expect(deviceFirstApi.payDirect).toHaveBeenLastCalledWith(plategaPayPayload);
@@ -2737,9 +2793,7 @@ describe('DeviceFirstConfigurator interaction safety', () => {
     renderConfigurator({ initialPath: '/subscription/purchase?checkout=checkout-owned' });
 
     // The resumed row honestly shows its own immutable total first.
-    fireEvent.click(
-      await screen.findByRole('button', { name: 'deviceFirst.paymentMethodAmount:460 ₽' }),
-    );
+    await clickDirect('460 ₽');
     await waitFor(() =>
       expect(deviceFirstApi.payDirect).toHaveBeenNthCalledWith(1, {
         ...plategaPayPayload,
@@ -2756,9 +2810,7 @@ describe('DeviceFirstConfigurator interaction safety', () => {
     await waitFor(() =>
       expect(screen.getByTestId('location').textContent).toBe('/subscription/purchase'),
     );
-    const freshCta = await screen.findByRole('button', {
-      name: 'deviceFirst.paymentMethodAmount:450 ₽',
-    });
+    const freshCta = await peekDirectButton('450 ₽');
 
     fireEvent.click(freshCta);
     await waitFor(() =>
@@ -2775,9 +2827,7 @@ describe('DeviceFirstConfigurator interaction safety', () => {
     renderConfigurator();
 
     fireEvent.click(screen.getByRole('button', { name: 'deviceFirst.review' }));
-    fireEvent.click(
-      await screen.findByRole('button', { name: 'deviceFirst.paymentMethodAmount:450 ₽' }),
-    );
+    await clickDirect('450 ₽');
 
     await waitFor(() => expect(deviceFirstApi.getOpen).toHaveBeenCalledTimes(1));
     expect(await screen.findByRole('button', { name: 'deviceFirst.changeOptions' })).toBeTruthy();
@@ -2795,16 +2845,12 @@ describe('DeviceFirstConfigurator interaction safety', () => {
     renderConfigurator();
 
     fireEvent.click(screen.getByRole('button', { name: 'deviceFirst.review' }));
-    fireEvent.click(
-      await screen.findByRole('button', { name: 'deviceFirst.paymentMethodAmount:450 ₽' }),
-    );
+    await clickDirect('450 ₽');
 
     await waitFor(() => expect(deviceFirstApi.getOpen).toHaveBeenCalledTimes(1));
     // Nothing survived the race: the selection is still on screen and no
     // dead-end error is shown — nothing was charged.
-    expect(
-      await screen.findByRole('button', { name: 'deviceFirst.paymentMethodAmount:450 ₽' }),
-    ).toBeTruthy();
+    expect(await peekDirectButton('450 ₽')).toBeTruthy();
     expect(screen.queryByRole('alert')).toBeNull();
     expect(deviceFirstApi.cancel).not.toHaveBeenCalled();
   });
@@ -2824,9 +2870,7 @@ describe('DeviceFirstConfigurator interaction safety', () => {
     expect(await screen.findByText('deviceFirst.refreshTitle')).toBeTruthy();
     // The person lands on an honest confirmation screen, not on a generic
     // error: the same selection is mirrored locally and can be paid again.
-    expect(
-      await screen.findByRole('button', { name: 'deviceFirst.paymentMethodAmount:450 ₽' }),
-    ).toBeTruthy();
+    expect(await peekDirectButton('450 ₽')).toBeTruthy();
     expect(screen.queryByText('deviceFirst.error')).toBeNull();
   });
 
@@ -2853,11 +2897,9 @@ describe('DeviceFirstConfigurator interaction safety', () => {
     // Человек стоит на денежном экране: недостача названа доплатой, а способ оплаты, ради
     // которого он шёл, лежит тут же — в одно касание. Суммы зашиты литералами: 450 − 100.
     expect(
-      await screen.findByRole('button', { name: 'deviceFirst.topUpShortage:350 ₽' }),
+      await screen.findByRole('button', { name: 'deviceFirst.payExternalAndOrder:350 ₽' }),
     ).toBeTruthy();
-    expect(
-      screen.getByRole('button', { name: 'deviceFirst.paymentMethodAmount:450 ₽' }),
-    ).toBeTruthy();
+    expect(await peekDirectButton('450 ₽')).toBeTruthy();
     // 🔴 И экран ОБЪЯСНЯЕТ, почему человек здесь, а не в банке. Три соседние ветки
     // «не стрелять» ставят сообщение; молчаливой осталась бы только эта, и человек
     // прочитал бы остановку как поломку.
@@ -2964,7 +3006,7 @@ describe('DeviceFirstConfigurator interaction safety', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'deviceFirst.review' }));
 
     expect(
-      await screen.findByRole('button', { name: 'deviceFirst.topUpShortage:350 ₽' }),
+      await screen.findByRole('button', { name: 'deviceFirst.payExternalAndOrder:350 ₽' }),
     ).toBeTruthy();
     expect(screen.queryByText('deviceFirst.autostartHeldTitle')).toBeNull();
   });
@@ -3011,7 +3053,9 @@ describe('DeviceFirstConfigurator interaction safety', () => {
       initialPath: '/subscription/purchase?period=30&devices=2&method=cards_ru&autostart=1',
     });
 
-    fireEvent.click(await screen.findByRole('button', { name: 'deviceFirst.topUpShortage:350 ₽' }));
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'deviceFirst.payExternalAndOrder:350 ₽' }),
+    );
 
     const target = screen.getByTestId('location').textContent ?? '';
     const query = new URLSearchParams(target.slice(target.indexOf('?') + 1));
@@ -3025,7 +3069,7 @@ describe('DeviceFirstConfigurator interaction safety', () => {
   // ⛔ Опознаём кнопки НЕ по подписи: у всех способов она одна и та же (`…:450 ₽`), и сторож
   // по тексту доказывал бы совпадение. Опознаём НАЖАТИЕМ — по тому, какой способ уходит на
   // сервер: это то же самое, что случится с человеком.
-  it('puts the method chosen in the bot first and keeps the top-up under it', async () => {
+  it('keeps the chosen card available under the one-Pay top-up action', async () => {
     vi.mocked(deviceFirstApi.paymentMethods).mockResolvedValue({
       methods: [
         { key: 'sbp', provider_code: 2 },
@@ -3038,22 +3082,20 @@ describe('DeviceFirstConfigurator interaction safety', () => {
       initialPath: '/subscription/purchase?period=30&devices=2&method=cards_ru&autostart=1',
     });
 
-    const methodButtons = await screen.findAllByRole('button', {
-      name: 'deviceFirst.paymentMethodAmount:450 ₽',
-    });
+    const methodButtons = await openDirectMethods('450 ₽');
     expect(methodButtons).toHaveLength(2);
-    const topUp = screen.getByRole('button', { name: 'deviceFirst.topUpShortage:350 ₽' });
+    const topUp = screen.getByRole('button', { name: 'deviceFirst.payExternalAndOrder:350 ₽' });
 
-    // Порядок в документе: сначала ЕГО способ, потом доплата, и только потом остальные.
+    // Owner UX: один Pay доплаты первый, карта сохраняется в явной свёртке полной оплаты.
     expect(
-      methodButtons[0].compareDocumentPosition(topUp) & Node.DOCUMENT_POSITION_FOLLOWING,
+      topUp.compareDocumentPosition(methodButtons[0]) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
     expect(
       topUp.compareDocumentPosition(methodButtons[1]) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
 
-    // И первая кнопка — именно карта, а не первый попавшийся способ из ответа сервера.
-    fireEvent.click(methodButtons[0]);
+    // Выбираем именно карту из списка: прежний денежный payload cards_ru остаётся строгим.
+    fireEvent.click(methodButtons[1]);
     await waitFor(() => expect(deviceFirstApi.payDirect).toHaveBeenCalled());
     expect(vi.mocked(deviceFirstApi.payDirect).mock.calls[0][0]).toMatchObject({
       funding_mode: 'platega',
@@ -3090,21 +3132,19 @@ describe('DeviceFirstConfigurator interaction safety', () => {
         seed: (client) =>
           client.setQueryData(['device-first-payment-methods'], methodList, { updatedAt: 1 }),
       });
-      const chosen = await screen.findByRole('button', {
-        name: 'deviceFirst.paymentMethodAmount:450 ₽',
-      });
+      const chosen = await peekDirectButton('450 ₽', balanceKopeks ? 1 : 0);
       const topUp = screen.queryByRole('button', { name: 'deviceFirst.needTopup' });
       expect(topUp === null).toBe(balanceKopeks === 0);
       if (topUp)
         expect(
-          chosen.compareDocumentPosition(topUp) & Node.DOCUMENT_POSITION_FOLLOWING,
+          topUp.compareDocumentPosition(chosen) & Node.DOCUMENT_POSITION_FOLLOWING,
         ).toBeTruthy();
       expect((chosen as HTMLButtonElement).disabled).toBe(true);
       resolveMethods(methodList);
       await waitFor(() => expect((chosen as HTMLButtonElement).disabled).toBe(false));
       if (topUp)
         expect(
-          chosen.compareDocumentPosition(topUp) & Node.DOCUMENT_POSITION_FOLLOWING,
+          topUp.compareDocumentPosition(chosen) & Node.DOCUMENT_POSITION_FOLLOWING,
         ).toBeTruthy();
       expect(screen.queryAllByText('deviceFirst.needTopup')).toHaveLength(balanceKopeks ? 2 : 0);
       void queryClient.refetchQueries({ queryKey: ['device-first-payment-methods'] });
@@ -3117,16 +3157,11 @@ describe('DeviceFirstConfigurator interaction safety', () => {
       expect(await screen.findByText('deviceFirst.errorPaymentMethodsLoad')).toBeTruthy();
       expect(
         screen.getByRole('button', {
-          name: /deviceFirst\.(topUpShortage|topUpAmount|needTopup)/,
+          name: /deviceFirst\.(payExternalAndOrder|needTopup)/,
         }),
       ).toBeTruthy();
       await queryClient.refetchQueries({ queryKey: ['device-first-payment-methods'] });
-      const recovered = (
-        await screen.findAllByRole('button', {
-          name: 'deviceFirst.paymentMethodAmount:450 ₽',
-        })
-      )[0];
-      fireEvent.click(recovered);
+      await clickDirect('450 ₽', 0, 'cards');
       await waitFor(() => expect(deviceFirstApi.payDirect).toHaveBeenCalled());
       expect(vi.mocked(deviceFirstApi.payDirect).mock.calls[0][0].method_key).toBe('cards_ru');
     },
@@ -3136,7 +3171,7 @@ describe('DeviceFirstConfigurator interaction safety', () => {
   // залитую кнопку своего способа и переплатить ровно на свой баланс. Строка над кнопками
   // обязана называть это ЧИСЛОМ, а не нейтральным «деньги не спишутся»: сумма зашита
   // литералом (100 ₽ — его баланс, а НЕ цена 450 и не доплата 350).
-  it('names how much money stays behind when paying the full amount', async () => {
+  it('names the optional full payment as leaving the wallet untouched', async () => {
     vi.mocked(deviceFirstApi.paymentMethods).mockResolvedValue({
       methods: [
         { key: 'sbp', provider_code: 2 },
@@ -3149,13 +3184,18 @@ describe('DeviceFirstConfigurator interaction safety', () => {
       initialPath: '/subscription/purchase?period=30&devices=2&method=cards_ru&autostart=1',
     });
 
-    expect(await screen.findByText('deviceFirst.payFullAmountNotice:100 ₽')).toBeTruthy();
+    const summary = await screen.findByText('deviceFirst.payFullPrice', { selector: 'summary' });
+    expect(summary.className).toContain('text-xs');
+    expect(summary.className).toContain('text-dark-300');
+    expect(screen.queryByText('deviceFirst.payFullAmountNotice:100 ₽')).toBeNull();
+    expect(receiptValue('balance.topUpOrder.fromBalanceShort')).toBe('−100 ₽');
+    expect(receiptValue('balance.topUpOrder.toPay')).toBe('350 ₽');
   });
 
   // 🔴 И вторая половина того же решения: остальные способы человек уже проходил в чате,
   // поэтому лежат под свёрткой. Сторож проверяет, что свёртка настоящая (второй способ
   // ВНУТРИ неё), — иначе «свернули» осталось бы словом в отчёте.
-  it('folds the methods the person did not choose', async () => {
+  it('folds every full-price method below the one Pay', async () => {
     vi.mocked(deviceFirstApi.paymentMethods).mockResolvedValue({
       methods: [
         { key: 'sbp', provider_code: 2 },
@@ -3168,13 +3208,13 @@ describe('DeviceFirstConfigurator interaction safety', () => {
       initialPath: '/subscription/purchase?period=30&devices=2&method=cards_ru&autostart=1',
     });
 
-    const methodButtons = await screen.findAllByRole('button', {
-      name: 'deviceFirst.paymentMethodAmount:450 ₽',
-    });
-    const fold = screen.getByText('deviceFirst.otherMethods').closest('details');
+    const methodButtons = await openDirectMethods('450 ₽');
+    const fold = screen.getByText('deviceFirst.payFullPrice').closest('details');
     expect(fold).toBeTruthy();
     expect(fold!.contains(methodButtons[1])).toBe(true);
-    expect(fold!.contains(methodButtons[0])).toBe(false);
+    expect(fold!.contains(methodButtons[0])).toBe(true);
+    expect(methodButtons).toHaveLength(2);
+    expect(deviceFirstApi.payDirect).not.toHaveBeenCalled();
   });
 
   it('keeps a way to buy when an existing checkout method cannot be validated', async () => {
@@ -3187,7 +3227,7 @@ describe('DeviceFirstConfigurator interaction safety', () => {
     });
     expect(await screen.findByText('deviceFirst.errorPaymentMethodsLoad')).toBeTruthy();
     expect(
-      screen.getByRole('button', { name: /deviceFirst\.(topUpShortage|topUpAmount|needTopup)/ }),
+      screen.getByRole('button', { name: /deviceFirst\.(payExternalAndOrder|needTopup)/ }),
     ).toBeTruthy();
   });
 
@@ -3215,7 +3255,7 @@ describe('DeviceFirstConfigurator interaction safety', () => {
 
     expect(
       await screen.findByRole('button', {
-        name: /deviceFirst\.(topUpShortage|topUpAmount|needTopup)/,
+        name: /deviceFirst\.(payExternalAndOrder|needTopup)/,
       }),
     ).toBeTruthy();
   });
@@ -3239,19 +3279,17 @@ describe('DeviceFirstConfigurator interaction safety', () => {
       initialPath: '/subscription/purchase?period=30&devices=2&method=cards_ru&autostart=1',
     });
 
-    await screen.findAllByRole('button', { name: 'deviceFirst.paymentMethodAmount:450 ₽' });
+    await openDirectMethods('450 ₽');
     await queryClient.refetchQueries({ queryKey: ['device-first-payment-methods'] });
-    await waitFor(() =>
-      expect(
-        screen.getAllByRole('button', { name: 'deviceFirst.paymentMethodAmount:450 ₽' }),
-      ).toHaveLength(1),
-    );
+    await waitFor(() => expect(directMethodButtons('450 ₽')).toHaveLength(1));
 
     // Карты у провайдера больше нет — значит «его выбор» показать нечем: раскладка обязана
     // вернуться к обычной, а свёртка «Оплатить другим способом» исчезнуть.
     expect(screen.queryByText('deviceFirst.otherMethods')).toBeNull();
-    const topUp = screen.getByRole('button', { name: 'deviceFirst.topUpShortage:350 ₽' });
-    const method = screen.getByRole('button', { name: 'deviceFirst.paymentMethodAmount:450 ₽' });
+    expect(directMethodButtons('450 ₽')).toHaveLength(1);
+    expect(screen.queryByText('deviceFirst.autostartHeldNoTopUpText:deviceFirst.sbp')).toBeNull();
+    const topUp = screen.getByRole('button', { name: 'deviceFirst.payExternalAndOrder:350 ₽' });
+    const method = await peekDirectButton('450 ₽');
     expect(topUp.compareDocumentPosition(method) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
@@ -3279,19 +3317,20 @@ describe('DeviceFirstConfigurator interaction safety', () => {
 
     // Улика, что экран поднялся именно в удержанном состоянии, а не остался на выборе.
     expect(await screen.findByText('deviceFirst.autostartHeldTitle')).toBeTruthy();
-    const methods = await screen.findAllByRole('button', {
-      name: 'deviceFirst.paymentMethodAmount:450 ₽',
-    });
-    const topUp = screen.getByRole('button', { name: 'deviceFirst.topUpShortage:500 ₽' });
+    const methods = await openDirectMethods('450 ₽');
+    const topUp = screen.getByRole('button', { name: 'deviceFirst.payExternalAndOrder:500 ₽' });
     expect(
-      methods[0].compareDocumentPosition(topUp) & Node.DOCUMENT_POSITION_FOLLOWING,
+      topUp.compareDocumentPosition(methods[0]) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
+    expect(screen.getByText('deviceFirst.autostartHeldTitle')).toBeTruthy();
+    expect(methods.every((button) => !!button.closest('details'))).toBe(true);
+    expect(deviceFirstApi.payDirect).not.toHaveBeenCalled();
   });
 
   // 🔴 Критик полноты: человеку, которому банк отказал, альтернативы нужны СЕЙЧАС — а мы их
   // спрятали под свёртку, да ещё и текст отказа печатается ниже неё. После любой неудачи
   // раскладка обязана вернуться к обычной.
-  it('unfolds the other methods once a payment attempt failed', async () => {
+  it('keeps both full-price alternatives available after a payment attempt failed', async () => {
     vi.mocked(deviceFirstApi.paymentMethods).mockResolvedValue({
       methods: [
         { key: 'sbp', provider_code: 2 },
@@ -3308,16 +3347,19 @@ describe('DeviceFirstConfigurator interaction safety', () => {
       initialPath: '/subscription/purchase?period=30&devices=2&method=cards_ru&autostart=1',
     });
 
-    const buttons = await screen.findAllByRole('button', {
-      name: 'deviceFirst.paymentMethodAmount:450 ₽',
-    });
-    expect(screen.getByText('deviceFirst.otherMethods')).toBeTruthy();
+    const buttons = await openDirectMethods('450 ₽', 'cards');
+    expect(screen.getByText('deviceFirst.payFullPrice')).toBeTruthy();
     fireEvent.click(buttons[0]);
 
-    await waitFor(() => expect(screen.queryByText('deviceFirst.otherMethods')).toBeNull());
-    expect(
-      screen.getAllByRole('button', { name: 'deviceFirst.paymentMethodAmount:450 ₽' }),
-    ).toHaveLength(2);
+    expect((await screen.findByRole('alert')).textContent).toContain('deviceFirst.error');
+    expect(screen.getByText('deviceFirst.payFullPrice').closest('details')?.open).toBe(true);
+    expect(deviceFirstApi.payDirect).toHaveBeenCalledExactlyOnceWith({
+      ...plategaPayPayload,
+      method_key: 'cards_ru',
+      purchase_context: 'chat_autostart',
+      confirmed_purchase_id: null,
+    });
+    expect(directMethodButtons('450 ₽')).toHaveLength(2);
   });
 
   // 🔴 НЕ-регрессия, и она важнее обеих проверок выше. `methodKey` лежит умолчанием `'sbp'`
@@ -3335,10 +3377,8 @@ describe('DeviceFirstConfigurator interaction safety', () => {
     renderConfigurator({ options: { ...options, balance_kopeks: 10000 } });
     fireEvent.click(screen.getByRole('button', { name: 'deviceFirst.review' }));
 
-    const methodButtons = await screen.findAllByRole('button', {
-      name: 'deviceFirst.paymentMethodAmount:450 ₽',
-    });
-    const topUp = screen.getByRole('button', { name: 'deviceFirst.topUpShortage:350 ₽' });
+    const methodButtons = await openDirectMethods('450 ₽');
+    const topUp = screen.getByRole('button', { name: 'deviceFirst.payExternalAndOrder:350 ₽' });
     expect(
       topUp.compareDocumentPosition(methodButtons[0]) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
@@ -3347,14 +3387,20 @@ describe('DeviceFirstConfigurator interaction safety', () => {
 
   // 🔴 Сторож РЕК-8б. Связь денег с ценой на экране не была названа ни одной строкой: стояло
   // слово «Баланс», и вычитание человек должен был делать в уме.
-  it('names the balance arithmetic under the top-up button', async () => {
+  it('shows the balance arithmetic once in the compact receipt', async () => {
     renderConfigurator({ options: { ...options, balance_kopeks: 10000 } });
 
     fireEvent.click(screen.getByRole('button', { name: 'deviceFirst.review' }));
 
     // Оба числа зашиты литералами: свои 100 ₽ и полная цена 450 ₽, а НЕ доплата 350 ₽ —
     // строка объясняет, откуда взялось число на кнопке, а не повторяет его.
-    expect(await screen.findByText('deviceFirst.topUpBalanceApplied:100 ₽:450 ₽')).toBeTruthy();
+    await screen.findByRole('button', { name: 'deviceFirst.payExternalAndOrder:350 ₽' });
+    expect(receiptValue('balance.topUpOrder.price')).toBe('450 ₽');
+    expect(receiptValue('balance.topUpOrder.fromBalanceShort')).toBe('−100 ₽');
+    expect(receiptValue('balance.topUpOrder.toPay')).toBe('350 ₽');
+    expect(screen.queryByText('deviceFirst.topUpBalanceApplied:100 ₽:450 ₽')).toBeNull();
+    expect(screen.queryByText('deviceFirst.balance')).toBeNull();
+    expect(screen.queryByText('deviceFirst.shortage')).toBeNull();
   });
 
   // 🔴 И граница: когда минимум провайдера поднял счёт выше честной недостачи, на карточке
@@ -3370,7 +3416,7 @@ describe('DeviceFirstConfigurator interaction safety', () => {
     // Улика, что мы на нужном экране и доплата предложена — иначе «строки нет» доказывало бы
     // только то, что экран не открылся.
     expect(
-      await screen.findByRole('button', { name: 'deviceFirst.topUpShortage:1 ₽' }),
+      await screen.findByRole('button', { name: 'deviceFirst.payExternalAndOrder:1 ₽' }),
     ).toBeTruthy();
     expect(screen.queryByText(/deviceFirst\.topUpBalanceApplied/)).toBeNull();
   });
@@ -3440,10 +3486,14 @@ describe('DeviceFirstConfigurator interaction safety', () => {
     fireEvent.click(screen.getByRole('button', { name: 'deviceFirst.review' }));
 
     // Сводка честно говорит про 50 ₽ недостачи — это разные числа, и оба правдивы.
-    expect(await screen.findByText('deviceFirst.shortage')).toBeTruthy();
-    await screen.findByRole('button', { name: 'deviceFirst.paymentMethodAmount:450 ₽' });
+    await screen.findByRole('button', { name: 'deviceFirst.payExternalAndOrder:100 ₽' });
+    expect(receiptValue('balance.topUpOrder.fromBalanceShort')).toBe('−350 ₽');
+    expect(receiptValue('balance.topUpOrder.toPay')).toBe('100 ₽');
+    expect(screen.getByText('deviceFirst.topUpSurplusHint:50 ₽')).toBeTruthy();
+    expect(screen.queryByText('deviceFirst.shortage')).toBeNull();
+    await peekDirectButton('450 ₽');
     const topUp = await screen.findByRole('button', {
-      name: 'deviceFirst.topUpShortage:100 ₽',
+      name: 'deviceFirst.payExternalAndOrder:100 ₽',
     });
 
     fireEvent.click(topUp);
@@ -3479,8 +3529,8 @@ describe('DeviceFirstConfigurator interaction safety', () => {
     // Ждём именно КНОПКУ СПОСОБА: она появляется только после того, как список способов
     // приехал и предохранитель `methodKey` подменил зашитый `sbp` на то, что даёт сервер.
     // Без этого ожидания сторож проверял бы окно, в котором способа ещё нет вовсе.
-    await screen.findByRole('button', { name: 'deviceFirst.paymentMethodAmount:450 ₽' });
-    fireEvent.click(screen.getByRole('button', { name: 'deviceFirst.topUpShortage:350 ₽' }));
+    await peekDirectButton('450 ₽');
+    fireEvent.click(screen.getByRole('button', { name: 'deviceFirst.payExternalAndOrder:350 ₽' }));
 
     const target = screen.getByTestId('location').textContent ?? '';
     const query = new URLSearchParams(target.slice(target.indexOf('?') + 1));
@@ -3512,7 +3562,9 @@ describe('DeviceFirstConfigurator interaction safety', () => {
     renderConfigurator({ options: { ...options, balance_kopeks: 10000 } });
 
     fireEvent.click(screen.getByRole('button', { name: 'deviceFirst.review' }));
-    fireEvent.click(await screen.findByRole('button', { name: 'deviceFirst.topUpShortage:350 ₽' }));
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'deviceFirst.payExternalAndOrder:350 ₽' }),
+    );
 
     const target = screen.getByTestId('location').textContent ?? '';
     const query = new URLSearchParams(target.slice(target.indexOf('?') + 1));
@@ -3550,7 +3602,7 @@ describe('DeviceFirstConfigurator interaction safety', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'deviceFirst.review' }));
 
-    expect(await screen.findByText(/deviceFirst\.paymentMethodAmount/)).toBeTruthy();
+    expect(await peekDirectButton()).toBeTruthy();
     expect(screen.queryByText('deviceFirst.balance')).toBeNull();
     expect(screen.queryByText('deviceFirst.shortage')).toBeNull();
     expect(screen.queryByRole('button', { name: /deviceFirst\.topUpShortage/ })).toBeNull();
@@ -3559,7 +3611,8 @@ describe('DeviceFirstConfigurator interaction safety', () => {
     // «ИЛИ оплатите полной суммой» — союз при двух вариантах. Второго варианта у него нет.
     expect(screen.queryByText('deviceFirst.paymentMethodsAvailable')).toBeNull();
     // Заголовок не зовёт «проверить итог»: проверять, кроме цены, нечего.
-    expect(screen.getByText('deviceFirst.chooseMethodNotice')).toBeTruthy();
+    expect(screen.getByText('deviceFirst.topUpAutoHint')).toBeTruthy();
+    expect(screen.queryByText('deviceFirst.chooseMethodNotice')).toBeNull();
     expect(screen.queryByText('deviceFirst.chargeNotice')).toBeNull();
   });
 
@@ -3572,7 +3625,9 @@ describe('DeviceFirstConfigurator interaction safety', () => {
     expect(
       await screen.findByRole('button', { name: 'deviceFirst.payAndOrder:450 ₽' }),
     ).toBeTruthy();
-    expect(screen.getByText('deviceFirst.reviewBeforeCharge')).toBeTruthy();
+    expect(receiptValue('balance.topUpOrder.walletCharge')).toBe('450 ₽');
+    expect(screen.getByText('deviceFirst.topUpAutoHint')).toBeTruthy();
+    expect(screen.queryByText('deviceFirst.reviewBeforeCharge')).toBeNull();
     expect(screen.queryByText('deviceFirst.chargeNotice')).toBeNull();
     expect(screen.queryByText('deviceFirst.chooseMethodNotice')).toBeNull();
   });
@@ -3589,7 +3644,9 @@ describe('DeviceFirstConfigurator interaction safety', () => {
     fireEvent.click(screen.getByRole('button', { name: 'deviceFirst.review' }));
 
     expect(await screen.findByText('deviceFirst.errorPaymentMethodsLoad')).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'deviceFirst.topUpAmount:450 ₽' })).toBeTruthy();
+    expect(
+      screen.getByRole('button', { name: 'deviceFirst.payExternalAndOrder:450 ₽' }),
+    ).toBeTruthy();
     expect(screen.queryByRole('button', { name: /deviceFirst\.topUpShortage/ })).toBeNull();
   });
 
@@ -3637,7 +3694,7 @@ describe('DeviceFirstConfigurator interaction safety', () => {
   // 🔴 ТЗ требовало кнопку «первой, АКЦЕНТНОЙ». Она была рамочной — значит в ветке частичного
   // баланса на экране не оставалось ни одной залитой кнопки, хотя у соседней ветки главное
   // действие залито. Различать действия одним цветом рамки нельзя.
-  it('fills the top-up button only where it is the main action, and leaves it quiet elsewhere', async () => {
+  it('fills the only Pay action for the wallet and the provider recovery path', async () => {
     getBalancePaymentMethods.mockResolvedValue([
       {
         id: 'platega',
@@ -3649,7 +3706,9 @@ describe('DeviceFirstConfigurator interaction safety', () => {
     ]);
     renderConfigurator({ options: { ...options, balance_kopeks: 10000 } });
     fireEvent.click(screen.getByRole('button', { name: 'deviceFirst.review' }));
-    const primary = await screen.findByRole('button', { name: 'deviceFirst.topUpShortage:350 ₽' });
+    const primary = await screen.findByRole('button', {
+      name: 'deviceFirst.payExternalAndOrder:350 ₽',
+    });
     expect(primary.className).toContain('bg-accent-500');
     cleanup();
 
@@ -3658,25 +3717,29 @@ describe('DeviceFirstConfigurator interaction safety', () => {
     vi.mocked(deviceFirstApi.paymentMethods).mockRejectedValue(new Error('methods are down'));
     renderConfigurator({ options: { ...options, balance_kopeks: 0 } });
     fireEvent.click(screen.getByRole('button', { name: 'deviceFirst.review' }));
-    const fallback = await screen.findByRole('button', { name: 'deviceFirst.topUpAmount:450 ₽' });
-    expect(fallback.className).not.toContain('bg-accent-500');
+    const fallback = await screen.findByRole('button', {
+      name: 'deviceFirst.payExternalAndOrder:450 ₽',
+    });
+    expect(fallback.className).toContain('bg-accent-500');
+    expect(screen.queryByText('deviceFirst.payFullPrice')).toBeNull();
   });
 
   // 🔴 С копейками на балансе доплата округляется до ПОЛНОЙ цены — то есть человек заплатит
   // столько же, но пройдёт на три экрана больше. Делать такую дорогу громкой — ровно то, за
   // что ревью отклонило кандидата «А».
-  it('does not make the longer road loud when topping up costs the same as paying outright', async () => {
+  it('keeps only one Pay with the same charge and preserves optional direct payment', async () => {
     renderConfigurator({ options: { ...options, balance_kopeks: 50 } });
 
     fireEvent.click(screen.getByRole('button', { name: 'deviceFirst.review' }));
 
-    const full = await screen.findByRole('button', {
-      name: 'deviceFirst.paymentMethodAmount:450 ₽',
-    });
-    const topUp = screen.getByRole('button', { name: 'deviceFirst.topUpShortage:450 ₽' });
+    const full = await peekDirectButton('450 ₽');
+    const topUp = screen.getByRole('button', { name: 'deviceFirst.payExternalAndOrder:450 ₽' });
     // Прямая оплата идёт ПЕРВОЙ, доплата ушла вниз и осталась тихой.
-    expect(full.compareDocumentPosition(topUp) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(topUp.className).not.toContain('bg-accent-500');
+    expect(topUp.compareDocumentPosition(full) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(topUp.className).toContain('bg-accent-500');
+    expect(screen.getByText('deviceFirst.payFullPrice').closest('details')).toBeTruthy();
+    expect(receiptValue('balance.topUpOrder.toPay')).toBe('450 ₽');
+    expect(screen.getByText('deviceFirst.topUpSurplusHint:0,50 ₽')).toBeTruthy();
   });
 
   // 🔴 Сводка печатает честную недостачу, кнопка — сумму счёта. Когда минимум провайдера
@@ -3696,7 +3759,7 @@ describe('DeviceFirstConfigurator interaction safety', () => {
     fireEvent.click(screen.getByRole('button', { name: 'deviceFirst.review' }));
 
     expect(
-      await screen.findByRole('button', { name: 'deviceFirst.topUpShortage:100 ₽' }),
+      await screen.findByRole('button', { name: 'deviceFirst.payExternalAndOrder:100 ₽' }),
     ).toBeTruthy();
     // 100 ₽ уйдёт в счёт, 50 ₽ не хватало — 50 ₽ останется. Число зашито литералом.
     expect(screen.getByText('deviceFirst.topUpSurplusHint:50 ₽')).toBeTruthy();
@@ -3714,13 +3777,16 @@ describe('DeviceFirstConfigurator interaction safety', () => {
 
     // Ждём именно кнопку СПОСОБА: до неё блок способов ещё не отрисован, и проверка
     // «объяснение развилки на месте» проходила бы по пустому экрану.
-    await screen.findByRole('button', { name: 'deviceFirst.paymentMethodAmount:450 ₽' });
-    expect(screen.getByRole('button', { name: 'deviceFirst.topUpShortage:350 ₽' })).toBeTruthy();
+    await peekDirectButton('450 ₽');
+    expect(
+      screen.getByRole('button', { name: 'deviceFirst.payExternalAndOrder:350 ₽' }),
+    ).toBeTruthy();
     expect(screen.queryByText('deviceFirst.chargeNotice')).toBeNull();
     expect(screen.queryByText('deviceFirst.chooseMethodNotice')).toBeNull();
     expect(screen.queryByText('deviceFirst.reviewBeforeCharge')).toBeNull();
     // Объяснение развилки при этом на месте — иначе мы просто сняли текст.
-    expect(screen.getByText('deviceFirst.paymentMethodsAvailable')).toBeTruthy();
+    expect(screen.getByText('deviceFirst.payFullPrice', { selector: 'summary' })).toBeTruthy();
+    expect(screen.queryByText('deviceFirst.paymentMethodsAvailable')).toBeNull();
     expect(screen.getByText('deviceFirst.topUpShortageHint')).toBeTruthy();
   });
 
@@ -3741,20 +3807,23 @@ describe('DeviceFirstConfigurator interaction safety', () => {
   // КНОПКАМИ. Прямая оплата — единственный путь, который сам доводит до подписки (вебхук
   // выдаёт VPN), и он на одно нажатие короче доплаты. Опустить его в серую строку значит
   // сделать громкой худшую половину.
-  it('keeps paying the full price a real button next to the top-up, not a paragraph', async () => {
+  it('keeps full-price payment as a real button under the quiet balance disclosure', async () => {
     renderConfigurator({ options: { ...options, balance_kopeks: 10000 } });
 
     fireEvent.click(screen.getByRole('button', { name: 'deviceFirst.review' }));
 
-    const full = await screen.findByRole('button', {
-      name: 'deviceFirst.paymentMethodAmount:450 ₽',
-    });
+    const full = await peekDirectButton('450 ₽');
     expect(full.tagName).toBe('BUTTON');
-    const topUp = screen.getByRole('button', { name: 'deviceFirst.topUpShortage:350 ₽' });
+    const topUp = screen.getByRole('button', { name: 'deviceFirst.payExternalAndOrder:350 ₽' });
     // Доплата стоит ПЕРВОЙ: на телефоне до нижних кнопок надо доскроллить.
     expect(topUp.compareDocumentPosition(full) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     // И ровно одна кнопка доплаты на экране, а не две: ветки развода взаимоисключающие.
-    expect(screen.getAllByRole('button', { name: /deviceFirst\.topUp/ })).toHaveLength(1);
+    expect(
+      screen.getAllByRole('button', { name: 'deviceFirst.payExternalAndOrder:350 ₽' }),
+    ).toHaveLength(1);
+    const summary = screen.getByText('deviceFirst.payFullPrice', { selector: 'summary' });
+    expect(summary.className).toContain('text-xs');
+    expect(full.closest('details')).toBe(summary.closest('details'));
   });
 
   // 🔴 Обратная половина того же сторожа: у кого денег ХВАТАЕТ, тому предлагать
@@ -3772,6 +3841,10 @@ describe('DeviceFirstConfigurator interaction safety', () => {
     // 🔴 Этап Б-2 завёл ВТОРУЮ надпись той же кнопке. Сторож, знающий только первую, остаётся
     // зелёным и пустым: предлагать доплату тому, у кого хватает, он бы уже не поймал.
     expect(screen.queryByRole('button', { name: /deviceFirst.topUpShortage/ })).toBeNull();
+    expect(
+      screen.queryByRole('button', { name: 'deviceFirst.payExternalAndOrder:450 ₽' }),
+    ).toBeNull();
+    expect(receiptValue('balance.topUpOrder.walletCharge')).toBe('450 ₽');
   });
 
   // 🔴 Сторож на посев выбора. Человек ушёл с 90 днями и 5 устройствами — обязан вернуться
@@ -3838,7 +3911,7 @@ describe('DeviceFirstConfigurator interaction safety', () => {
     // именно сводку — на подтверждении карточек срока нет, и старая проверка `aria-checked`
     // здесь доказывала бы отсутствие экрана, а не сохранность выбора.
     expect(screen.getByText('deviceFirst.periodMonths:3')).toBeTruthy();
-    expect(screen.getByText('5')).toBeTruthy();
+    expect(screen.getByText('deviceFirst.deviceCount:5')).toBeTruthy();
     // 🔴 ГЛАВНОЕ. Приземление НИЧЕГО не списывает и ничего не создаёт: подтверждение локальное,
     // заказ рождается только от нажатия. Мутация «позвать оплату заодно» падает здесь.
     expect(deviceFirstApi.create).not.toHaveBeenCalled();
@@ -3855,7 +3928,7 @@ describe('DeviceFirstConfigurator interaction safety', () => {
   // 🔴 РЕК-14.2. Человек вернулся из банка — на карточке заказа под балансом стоит подстрочник
   // о том, что доплата уже внутри этого числа. ⛔ Проверяем ЧИСЛО в строке, а не наличие
   // строки: сторож на голый ключ был бы зелёным и на подставленной не той сумме.
-  it('РЕК-14.2: подтверждённая доплата названа подстрочником под балансом', async () => {
+  it('РЕК-14.2: подтверждённая доплата названа после короткого чека', async () => {
     renderConfigurator({
       options: topUpReturnOptions,
       initialPath: `${TOP_UP_RETURN_PATH}&topup=19900`,
@@ -3866,7 +3939,9 @@ describe('DeviceFirstConfigurator interaction safety', () => {
     // местами — и «199 ₽» окажется над «249 ₽», то есть снова прочитается как слагаемое, ради
     // чего вся эта возня и затевалась. Мутационный прогон показал, что перестановку не ловил
     // ни один тест: они искали текст, а не место.
-    const balanceRow = screen.getByText('deviceFirst.balance');
+    const balanceRow = screen.getByText('balance.topUpOrder.walletCharge');
+    expect(balanceRow.parentElement?.querySelector('strong')?.textContent).toBe('900 ₽');
+    expect(screen.queryByText('deviceFirst.balance')).toBeNull();
     expect(
       balanceRow.compareDocumentPosition(subline) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
@@ -4040,7 +4115,7 @@ describe('DeviceFirstConfigurator interaction safety', () => {
     });
 
     expect(
-      await screen.findByRole('button', { name: 'deviceFirst.topUpShortage:400 ₽' }),
+      await screen.findByRole('button', { name: 'deviceFirst.payExternalAndOrder:400 ₽' }),
     ).toBeTruthy();
     expect(screen.queryByRole('button', { name: /deviceFirst\.payAndOrder/ })).toBeNull();
     expect(screen.queryByRole('button', { name: 'deviceFirst.review' })).toBeNull();
@@ -4147,11 +4222,11 @@ describe('DeviceFirstConfigurator interaction safety', () => {
       options: { ...options, topup_intent_enabled: true },
       initialPath: '/subscription/purchase?period=30&devices=2&method=cards_ru&autostart=1',
     });
-    const topup = await screen.findByRole('button', { name: 'deviceFirst.topUpShortage:350 ₽' });
+    const topup = await screen.findByRole('button', {
+      name: 'deviceFirst.payExternalAndOrder:350 ₽',
+    });
     expect(topup.className).toContain('bg-accent-500');
-    for (const button of screen.getAllByRole('button', {
-      name: 'deviceFirst.paymentMethodAmount:450 ₽',
-    })) {
+    for (const button of directMethodButtons('450 ₽')) {
       expect(button.closest('details')).toBeTruthy();
     }
     expect(screen.getByText('deviceFirst.topUpAutoHint')).toBeTruthy();
@@ -4172,7 +4247,9 @@ describe('DeviceFirstConfigurator interaction safety', () => {
       options: { ...options, topup_intent_enabled: true },
       initialPath: '/subscription/purchase?period=30&devices=2&method=crypto&autostart=1',
     });
-    fireEvent.click(await screen.findByRole('button', { name: 'deviceFirst.topUpShortage:350 ₽' }));
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'deviceFirst.payExternalAndOrder:350 ₽' }),
+    );
     await waitFor(() =>
       expect(screen.getByTestId('location').textContent).toContain('/balance/top-up/platega'),
     );
@@ -4187,7 +4264,9 @@ describe('DeviceFirstConfigurator interaction safety', () => {
     getBalancePaymentMethods.mockResolvedValue(topUpMethodsResponse);
     renderConfigurator({ options: { ...options, topup_intent_enabled: true } });
     fireEvent.click(screen.getByRole('button', { name: 'deviceFirst.review' }));
-    fireEvent.click(await screen.findByRole('button', { name: 'deviceFirst.topUpShortage:350 ₽' }));
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'deviceFirst.payExternalAndOrder:350 ₽' }),
+    );
     const url = new URL(screen.getByTestId('location').textContent!, 'http://test');
     expect(url.searchParams.has('option')).toBe(false);
     expect(url.searchParams.has('auto')).toBe(false);

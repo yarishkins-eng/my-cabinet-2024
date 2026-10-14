@@ -113,6 +113,6 @@ describe('МД-1: локальное подтверждение после «Д�
     expect(
       (await screen.findAllByText('deviceFirst.upgradeProrateNote:608 ₽:365')).length,
     ).toBeGreaterThanOrEqual(1);
-    expect(screen.getByText('2 → 3')).toBeTruthy();
+    expect(screen.getByText('deviceFirst.deviceCount:3')).toBeTruthy();
   });
 });
