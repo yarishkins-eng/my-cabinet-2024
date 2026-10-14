@@ -12,6 +12,9 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useSearchParams } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { balanceApi } from '@/api/balance';
+import { usePromoDiscount } from '@/hooks/usePromoDiscount';
+import { personalDiscount, formatCheckoutMoney } from '@/utils/checkoutDiscount';
+import { formatMoscowDate } from '@/utils/moscowDate';
 import {
   deviceFirstApi,
   type DeviceFirstCheckout,
@@ -115,6 +118,7 @@ export function DeviceFirstConfigurator({
   // payment button is pressed.
   const [confirmation, setConfirmation] = useState(false);
   const [repriced, setRepriced] = useState(false);
+  const [discountExpired, setDiscountExpired] = useState(false);
   const [actionError, setActionError] = useState<unknown>(null);
   const [confirmAbandon, setConfirmAbandon] = useState(false);
   // 🔴 Три состояния, а не два. Раньше отказ писал `false` в состояние, которое и так
@@ -418,7 +422,24 @@ export function DeviceFirstConfigurator({
         ?.prices.find((item) => item.device_limit === deviceLimit),
     [options.price_matrix],
   );
+  const originalPrice = (cell?: DeviceFirstPrice) =>
+    personalDiscount(cell?.price_kopeks, cell?.breakdown.promo_offer_discount_kopeks)?.before;
   const price = priceFor(period, devices);
+  const { activeDiscount } = usePromoDiscount();
+  const legacyOffer = activeDiscount?.is_active ? activeDiscount : null;
+  const localOffer = options.promo_offer === undefined ? legacyOffer : options.promo_offer;
+  const offer = checkout ? checkout.promo_offer : localOffer;
+  const deadline = formatMoscowDate(offer?.expires_at, i18n?.resolvedLanguage, {
+    dateStyle: 'short',
+    timeStyle: 'short',
+    hourCycle: 'h23',
+  });
+  const shownDiscount = personalDiscount(
+    checkout?.tariff_total_kopeks ?? price?.price_kopeks,
+    checkout?.price_breakdown.promo_offer_discount_kopeks ??
+      price?.breakdown.promo_offer_discount_kopeks,
+    offer,
+  );
 
   // A fused-born direct order interrupted between its pay-time birth and the
   // payment attempt resumes through the local confirmation, but wired to the
@@ -797,6 +818,13 @@ export function DeviceFirstConfigurator({
   const handlePayError = async (error: unknown) => {
     const code = deviceFirstErrorCode(error);
     if (code === 'reprice_required') {
+      const detail = (error as { response?: { data?: { detail?: { reason?: string } } } })?.response
+        ?.data?.detail;
+      const offerExpired =
+        shownDiscount?.percent && offer?.expires_at && Date.parse(offer.expires_at) <= Date.now();
+      setDiscountExpired(
+        (detail?.reason ?? (offerExpired ? 'promo_offer_expired' : '')) === 'promo_offer_expired',
+      );
       // No new row and no invoice cancellation: re-read the server prices and
       // redraw the confirmation. The next click sends the NEW price under a
       // NEW idempotency key (the price is part of the pay intent). A resumed
@@ -1451,9 +1479,9 @@ export function DeviceFirstConfigurator({
   const paymentMethodAmountLabel = (key: string, amount: string) =>
     t('deviceFirst.paymentMethodAmount', { method: paymentMethodLabel(key), amount });
   const invoiceDeadline = checkout?.provider_invoice_expires_at
-    ? new Intl.DateTimeFormat(i18n?.resolvedLanguage, { timeStyle: 'short' }).format(
-        new Date(checkout.provider_invoice_expires_at),
-      )
+    ? formatMoscowDate(checkout.provider_invoice_expires_at, i18n?.resolvedLanguage, {
+        timeStyle: 'short',
+      })
     : null;
   // Мина F: заказ приходит уже закрытым. На этом экране обязано остаться предупреждение про
   // старую ссылку Platega (она ещё принимает деньги), а если по ней всё-таки заплатили —
@@ -1856,6 +1884,18 @@ export function DeviceFirstConfigurator({
       )}
       {!checkout && !legacyDraft && !confirmation && !initialCheckoutId && !landingPending && (
         <div className="space-y-6">
+          {shownDiscount?.percent &&
+            offer &&
+            (!offer.expires_at || Date.parse(offer.expires_at) > Date.now()) && (
+              <p className="rounded-xl border border-success-500/30 bg-success-500/10 p-3 text-sm text-dark-100">
+                {t('deviceFirst.discountBanner', {
+                  percent: shownDiscount.percent,
+                  deadline: deadline
+                    ? t('deviceFirst.discountDeadline', { date: deadline })
+                    : t('deviceFirst.noDiscountDeadline'),
+                })}
+              </p>
+            )}
           <fieldset>
             <legend className="mb-3 text-sm font-medium text-dark-200">
               {t('deviceFirst.periodQuestion')}
@@ -1868,6 +1908,7 @@ export function DeviceFirstConfigurator({
               {options.period_options?.map((value) =>
                 (() => {
                   const optionPrice = priceFor(value, devices);
+                  const original = originalPrice(optionPrice);
                   const isSelected = period === value;
                   return (
                     <button
@@ -1899,6 +1940,11 @@ export function DeviceFirstConfigurator({
                           ? periodLabel(value)
                           : `${periodLabel(value)} · ${t('deviceFirst.unavailable')}`}
                       </span>
+                      {original !== undefined && optionPrice && (
+                        <span className="ml-2 text-xs">
+                          <s>{formatPrice(original)}</s> · {formatPrice(optionPrice.price_kopeks)}
+                        </span>
+                      )}
                       {isSelected && <span className="sr-only">{t('deviceFirst.selected')}</span>}
                     </button>
                   );
@@ -1918,6 +1964,7 @@ export function DeviceFirstConfigurator({
               {options.device_options?.map((value) =>
                 (() => {
                   const optionPrice = priceFor(period, value);
+                  const original = originalPrice(optionPrice);
                   const deviceMonthlyRate = optionPrice
                     ? pricePerDeviceMonth(
                         optionPrice.price_kopeks,
@@ -1956,6 +2003,11 @@ export function DeviceFirstConfigurator({
                         {t('deviceFirst.deviceCount', { count: value })}
                       </span>
                       <span className="mt-2 text-lg font-bold tabular-nums text-dark-100">
+                        {original !== undefined && (
+                          <s className="mr-2 text-xs font-normal text-dark-400">
+                            {formatPrice(original)}
+                          </s>
+                        )}
                         {optionPrice
                           ? formatPrice(optionPrice.price_kopeks)
                           : t('deviceFirst.unavailable')}
@@ -2086,10 +2138,16 @@ export function DeviceFirstConfigurator({
                   <p className="text-sm font-semibold text-dark-100">
                     {t('deviceFirst.refreshTitle')}
                   </p>
-                  <p className="text-sm text-dark-300">{t('deviceFirst.refreshText')}</p>
+                  <p className="text-sm text-dark-300">
+                    {t(discountExpired ? 'deviceFirst.discountExpired' : 'deviceFirst.refreshText')}
+                  </p>
                 </div>
               )}
+              {hasWallet && !walletCoversTotal && (
+                <p className="text-xs text-dark-300">{t('deviceFirst.walletReceiptNotice')}</p>
+              )}
               <SelectionSummary
+                discount={shownDiscount}
                 topUpJustPaidKopeks={topUpJustPaidKopeks}
                 periodDays={confirmPeriodDays}
                 deviceLimit={confirmDeviceLimit}
@@ -2119,6 +2177,14 @@ export function DeviceFirstConfigurator({
                 }
                 formatPrice={formatPrice}
               />
+              {!checkout &&
+                options.current_subscription?.is_trial === true &&
+                options.current_subscription.tariff_id !== undefined &&
+                options.current_subscription.tariff_id !== options.tariff?.id && (
+                  <p className="text-sm text-dark-300">
+                    {t('deviceFirst.trialStartsAfterPayment')}
+                  </p>
+                )}
               {/* 🔴 Этап Б-2. Одна строка на три развилки врала двум из трёх: у кого баланса
                   нет — «проверьте итог» нечего проверять, кроме цены; у кого он всё покрывает —
                   выбирать способ не из чего, кнопка одна.
@@ -2974,11 +3040,7 @@ function deviceFirstErrorMessage(
 }
 
 function formatCheckoutEndDate(value: string, language?: string): string {
-  const rawEndDate = new Intl.DateTimeFormat(language, {
-    dateStyle: 'medium',
-    timeZone: 'Europe/Moscow',
-  }).format(new Date(value));
-  return language?.startsWith('ru') ? rawEndDate.replace(/\s*г\.$/u, '') : rawEndDate;
+  return formatMoscowDate(value, language) ?? '—';
 }
 
 function Summary({
@@ -2995,12 +3057,17 @@ function Summary({
       : checkout.period_days % 30 === 0
         ? t('deviceFirst.periodMonths', { count: checkout.period_days / 30 })
         : t('deviceFirst.periodDays', { count: checkout.period_days });
-  const rawEndDate = new Intl.DateTimeFormat(i18n?.resolvedLanguage, {
-    dateStyle: 'medium',
-  }).format(new Date(checkout.estimated_end_at));
-  const endDate = i18n?.resolvedLanguage?.startsWith('ru')
-    ? rawEndDate.replace(/\s*г\.$/u, '')
-    : rawEndDate;
+  const endDate = formatCheckoutEndDate(checkout.estimated_end_at, i18n?.resolvedLanguage);
+  const net = checkout.tariff_total_kopeks || checkout.quoted_price_kopeks;
+  const discount = personalDiscount(
+    net,
+    checkout.price_breakdown.promo_offer_discount_kopeks,
+    checkout.promo_offer,
+  );
+  const used =
+    checkout.settlement_mode === 'direct_purchase_v2'
+      ? checkout.wallet_applied_kopeks
+      : Math.min(net, Math.max(0, checkout.balance_kopeks ?? 0));
   return (
     <div className="space-y-3 rounded-2xl border border-dark-700 bg-dark-900/35 p-4">
       <div>
@@ -3046,10 +3113,7 @@ function Summary({
             <strong>{formatPrice(checkout.shortage_kopeks)}</strong>
           </div>
         )}
-      <div className="flex justify-between border-t border-dark-700 pt-3 text-dark-50">
-        <span>{t('deviceFirst.total')}</span>
-        <strong>{formatPrice(checkout.tariff_total_kopeks || checkout.quoted_price_kopeks)}</strong>
-      </div>
+      <Receipt net={net} discount={discount} used={used} />
     </div>
   );
 }
@@ -3071,6 +3135,7 @@ function StateMessage({ title, text }: { title: string; text: string }) {
  * exact base date an extension would prolong.
  */
 function SelectionSummary({
+  discount,
   periodDays,
   deviceLimit,
   priceKopeks,
@@ -3081,6 +3146,7 @@ function SelectionSummary({
   upgradeProrateKopeks = null,
   upgradeRemainingDays = null,
 }: {
+  discount: ReturnType<typeof personalDiscount>;
   periodDays: number;
   deviceLimit: number;
   priceKopeks: number | null;
@@ -3177,10 +3243,38 @@ function SelectionSummary({
           <strong>{formatPrice(priceKopeks - balanceKopeks)}</strong>
         </div>
       )}
-      <div className="flex justify-between border-t border-dark-700 pt-3 text-dark-50">
-        <span>{t('deviceFirst.total')}</span>
-        <strong>{priceKopeks !== null ? formatPrice(priceKopeks) : '—'}</strong>
-      </div>
+      <Receipt
+        net={priceKopeks}
+        discount={discount}
+        used={Math.min(priceKopeks ?? 0, Math.max(0, balanceKopeks ?? 0))}
+      />
     </div>
   );
+}
+
+interface ReceiptProps {
+  net: number | null;
+  discount: ReturnType<typeof personalDiscount>;
+  used: number;
+}
+function Receipt({ net, discount, used }: ReceiptProps) {
+  const { t } = useTranslation();
+  const rows: [string, number | null][] = [];
+  rows.push([t('balance.topUpOrder.price'), discount?.before ?? net]);
+  if (discount)
+    rows.push([
+      t('deviceFirst.discountRow', { percent: discount.percent ? ` ${discount.percent}%` : '' }),
+      -discount.amount,
+    ]);
+  if (used > 0) rows.push([t('balance.topUpOrder.fromBalance'), -used]);
+  rows.push([t('balance.topUpOrder.toPay'), net === null ? null : Math.max(0, net - used)]);
+  return rows.map(([label, value]) => (
+    <div
+      key={label}
+      className="flex justify-between text-sm text-dark-300 last:border-t last:border-dark-700 last:pt-3 last:text-dark-50"
+    >
+      <span>{label}</span>
+      <strong>{value === null ? '—' : formatCheckoutMoney(value)}</strong>
+    </div>
+  ));
 }

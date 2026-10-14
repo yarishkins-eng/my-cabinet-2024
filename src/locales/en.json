@@ -5832,7 +5832,7 @@
     "abandonConfirm": "Yes, cancel order",
     "abandonKeep": "Return to payment",
     "ready": "VPN is ready",
-    "readyRenewed": "Subscription extended until {{date}} (Moscow time)",
+    "readyRenewed": "Subscription extended until {{date}}",
     "readyText": "The term and device limit are updated.",
     "connectVpn": "Connect VPN",
     "home": "Go home",
@@ -5908,7 +5908,15 @@
     "payFullAmountNotice": "Pay the full amount — your {{balance}} will stay on the balance",
     "otherMethods": "Pay by another method",
     "payFullPrice": "Pay the full price",
-    "whatIsIncluded": "What the plan includes"
+    "whatIsIncluded": "What the plan includes",
+    "discountBanner": "🎁 {{percent}}% off is already in the prices · {{deadline}} · any term and device count",
+    "discountRow": "Discount{{percent}}",
+    "trialStartsAfterPayment": "Your subscription starts immediately after payment.",
+    "discountExpired": "Your discount expired while you were choosing. Check the updated prices and confirm payment again.",
+    "walletReceiptNotice": "The calculation below applies to paying from your balance or topping up. Direct payment charges the full subscription price.",
+    "discountDeadline": "until {{date}}",
+    "noDiscountDeadline": "no deadline specified",
+    "topUpSurplus": "Left on your balance"
   },
   "trialStart": {
     "loadErrorTitle": "Could not open the trial",

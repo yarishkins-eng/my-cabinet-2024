@@ -5122,7 +5122,7 @@
     "abandonConfirm": "بله، سفارش را لغو کن",
     "abandonKeep": "بازگشت به پرداخت",
     "ready": "VPN آماده است",
-    "readyRenewed": "اشتراک تا {{date}} تمدید شد (به وقت مسکو)",
+    "readyRenewed": "اشتراک تا {{date}} تمدید شد",
     "readyText": "مدت و تعداد دستگاه‌ها به‌روز شد.",
     "connectVpn": "اتصال به VPN",
     "home": "صفحه اصلی",
@@ -5202,6 +5202,14 @@
     "payFullAmountNotice": "پرداخت کل مبلغ — {{balance}} شما در موجودی باقی می‌ماند",
     "otherMethods": "پرداخت با روش دیگر",
     "payFullPrice": "پرداخت مبلغ کامل",
-    "whatIsIncluded": "آنچه در طرح گنجانده شده"
+    "whatIsIncluded": "آنچه در طرح گنجانده شده",
+    "discountBanner": "🎁 تخفیف {{percent}}% در قیمت‌ها اعمال شده · {{deadline}} · برای هر مدت و تعداد دستگاه",
+    "discountRow": "تخفیف{{percent}}",
+    "trialStartsAfterPayment": "اشتراک بلافاصله پس از پرداخت شروع می‌شود.",
+    "discountExpired": "هنگام انتخاب شما، تخفیف به پایان رسید. قیمت‌های جدید را بررسی و پرداخت را دوباره تأیید کنید.",
+    "walletReceiptNotice": "محاسبه زیر برای پرداخت از موجودی یا تکمیل کسری است. پرداخت مستقیم، کل قیمت اشتراک را دریافت می‌کند.",
+    "discountDeadline": "تا {{date}}",
+    "noDiscountDeadline": "زمان پایان مشخص نیست",
+    "topUpSurplus": "در موجودی باقی می‌ماند"
   }
 }
