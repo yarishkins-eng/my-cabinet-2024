@@ -4,7 +4,8 @@ import { useNavigate } from 'react-router';
 import { useMutation } from '@tanstack/react-query';
 
 import { balanceApi } from '../api/balance';
-import { useCurrency } from '../hooks/useCurrency';
+import { personalDiscount, formatCheckoutMoney } from '../utils/checkoutDiscount';
+import { formatMoscowDate } from '../utils/moscowDate';
 import { usePlatform } from '@/platform';
 import { Button } from '@/components/primitives/Button';
 import { CardIcon, ExclamationIcon, ExternalLinkIcon } from '@/components/icons';
@@ -62,7 +63,6 @@ export default function TopUpOrder({
 }: TopUpOrderProps) {
   const { t, i18n } = useTranslation();
   const navigate = useNavigate();
-  const { formatAmount, currencySymbol } = useCurrency();
   const { openLink, openTelegramLink } = usePlatform();
   const options = (method.options ?? []).filter((option) => !SLOW_OPTION_IDS.has(option.id));
   const startOption = options.some((option) => option.id === initialOptionId)
@@ -95,8 +95,7 @@ export default function TopUpOrder({
   // двойном монтировании и остаётся «в ожидании» после ответа — экран держал бы «Готовим счёт…» поверх счёта.
   const [busy, setBusy] = useState(false);
 
-  const money = (kopeks: number) =>
-    `${formatAmount(kopeks / 100).replace(/\.00$/, '')} ${currencySymbol}`;
+  const money = formatCheckoutMoney;
   const what = [tariffName, orderPeriodLabel(t, periodDays), orderDevicesLabel(t, devices)]
     .filter(Boolean)
     .join(' · ');
@@ -260,12 +259,18 @@ export default function TopUpOrder({
   const promise = !!answer?.payment_url && LIVE_INVOICE.has(status ?? '');
   const price = answer?.price_kopeks ?? null;
   const toPay = showsInvoice ? answer!.amount_kopeks : null;
-  const fromBalance = promise && price !== null && toPay !== null ? price - toPay : 0;
+  const fromBalance = promise && price !== null && toPay !== null ? Math.max(0, price - toPay) : 0;
+  const discount = personalDiscount(
+    price,
+    answer?.promo_offer_discount_kopeks,
+    answer?.promo_offer,
+  );
+  const surplus = promise && price !== null && toPay !== null ? Math.max(0, toPay - price) : 0;
   const showOptions =
     (options.length > 1 || (requireMethodChoice && options.length > 0)) &&
     (!answer || showsInvoice || status === 'invoice_not_created');
   const endDate = answer?.subscription_end_date
-    ? new Date(answer.subscription_end_date).toLocaleDateString(i18n.language || 'ru', {
+    ? formatMoscowDate(answer.subscription_end_date, i18n.language || 'ru', {
         day: 'numeric',
         month: 'long',
         year: 'numeric',
@@ -290,12 +295,28 @@ export default function TopUpOrder({
         <dl className="space-y-2 rounded-2xl border border-dark-700/50 bg-dark-800/70 p-4 text-sm">
           <div className="flex justify-between">
             <dt className="text-dark-400">{t('balance.topUpOrder.price')}</dt>
-            <dd className="text-dark-100">{money(price)}</dd>
+            <dd className="text-dark-100">{money(discount?.before ?? price)}</dd>
           </div>
+          {discount && (
+            <div className="flex justify-between">
+              <dt className="text-dark-400">
+                {t('deviceFirst.discountRow', {
+                  percent: discount.percent ? ` ${discount.percent}%` : '',
+                })}
+              </dt>
+              <dd className="text-dark-100">−{money(discount.amount)}</dd>
+            </div>
+          )}
           {fromBalance > 0 && (
             <div className="flex justify-between">
               <dt className="text-dark-400">{t('balance.topUpOrder.fromBalance')}</dt>
               <dd className="text-dark-100">−{money(fromBalance)}</dd>
+            </div>
+          )}
+          {surplus > 0 && (
+            <div className="flex justify-between">
+              <dt className="text-dark-400">{t('deviceFirst.topUpSurplus')}</dt>
+              <dd className="text-dark-100">+{money(surplus)}</dd>
             </div>
           )}
           <div className="flex justify-between border-t border-dark-700/50 pt-2 font-semibold">

@@ -1,4 +1,5 @@
 import apiClient from './client';
+import type { PersonalDiscount } from './promo';
 import {
   clearCreateIntentKeys,
   getOrCreateIntentKey,
@@ -60,7 +61,13 @@ export interface DeviceFirstOptions {
   device_options?: number[];
   period_options?: number[];
   default_period_days?: number;
-  current_subscription?: { id: number; device_limit: number; is_trial: boolean } | null;
+  current_subscription?: {
+    id: number;
+    device_limit: number;
+    is_trial: boolean;
+    tariff_id?: number;
+  } | null;
+  promo_offer?: PersonalDiscount | null;
   balance_kopeks?: number;
   price_matrix?: Array<{ period_days: number; prices: DeviceFirstPrice[] }>;
   /** ВК-16 (16а-1): доплата под заказ оформится сама — только тем, кому это включено. Нет поля — выключено. */
@@ -75,6 +82,7 @@ export interface DeviceFirstCheckout {
   period_days: number;
   selected_device_limit: number;
   price_breakdown: DeviceFirstPrice['breakdown'];
+  promo_offer?: PersonalDiscount | null;
   quoted_price_kopeks: number;
   max_price_kopeks: number;
   settlement_mode: 'legacy_deposit' | 'direct_purchase_v2';

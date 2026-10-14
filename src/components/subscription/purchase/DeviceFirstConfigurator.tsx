@@ -12,6 +12,9 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useSearchParams } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { balanceApi } from '@/api/balance';
+import { usePromoDiscount } from '@/hooks/usePromoDiscount';
+import { personalDiscount, formatCheckoutMoney } from '@/utils/checkoutDiscount';
+import { formatMoscowDate } from '@/utils/moscowDate';
 import {
   deviceFirstApi,
   type DeviceFirstCheckout,
@@ -115,6 +118,12 @@ export function DeviceFirstConfigurator({
   // payment button is pressed.
   const [confirmation, setConfirmation] = useState(false);
   const [repriced, setRepriced] = useState(false);
+  const [discountExpired, setDiscountExpired] = useState(false);
+  const [priceRefresh, setPriceRefresh] = useState<'loading' | 'error' | null>(null);
+  const [freshMatrix, setFreshMatrix] = useState<DeviceFirstOptions['price_matrix']>();
+  useEffect(() => {
+    setFreshMatrix(undefined);
+  }, [options.price_matrix]);
   const [actionError, setActionError] = useState<unknown>(null);
   const [confirmAbandon, setConfirmAbandon] = useState(false);
   // 🔴 Три состояния, а не два. Раньше отказ писал `false` в состояние, которое и так
@@ -413,12 +422,30 @@ export function DeviceFirstConfigurator({
 
   const priceFor = useCallback(
     (days: number, deviceLimit: number) =>
-      options.price_matrix
+      (freshMatrix ?? options.price_matrix)
         ?.find((row) => row.period_days === days)
         ?.prices.find((item) => item.device_limit === deviceLimit),
-    [options.price_matrix],
+    [freshMatrix, options.price_matrix],
   );
+  const originalPrice = (cell?: DeviceFirstPrice) =>
+    personalDiscount(cell?.price_kopeks, cell?.breakdown.promo_offer_discount_kopeks)?.before;
   const price = priceFor(period, devices);
+  const { activeDiscount } = usePromoDiscount();
+  const legacyOffer = activeDiscount?.is_active ? activeDiscount : null;
+  const localOffer = options.promo_offer === undefined ? legacyOffer : options.promo_offer;
+  const offer = checkout ? checkout.promo_offer : localOffer;
+  const deadline = formatMoscowDate(offer?.expires_at, i18n?.resolvedLanguage, {
+    dateStyle: 'short',
+    timeStyle: 'short',
+    hourCycle: 'h23',
+  });
+  const shownDiscount = personalDiscount(
+    checkout ? (checkout.tariff_total_kopeks ?? checkout.quoted_price_kopeks) : price?.price_kopeks,
+    checkout
+      ? checkout.price_breakdown?.promo_offer_discount_kopeks
+      : price?.breakdown.promo_offer_discount_kopeks,
+    offer,
+  );
 
   // A fused-born direct order interrupted between its pay-time birth and the
   // payment attempt resumes through the local confirmation, but wired to the
@@ -686,8 +713,6 @@ export function DeviceFirstConfigurator({
     heldChatMethod?.validated && methods.isSuccess && !methods.isFetching
       ? (methods.data?.methods.find((method) => method.key === heldChatMethod.key) ?? null)
       : null;
-  const heldChatMethodPending =
-    methods.isError || (heldChatMethod?.validated && !methods.isFetching) ? null : heldChatMethod;
   const chatChoiceHeld = !!heldChatMethod && !methods.isError;
   const autostartHeldForWallet = hasWallet && chatChoiceHeld;
   const checkoutTopUpOptionId = methods.data?.methods.find(
@@ -794,9 +819,29 @@ export function DeviceFirstConfigurator({
       setSearchParams(nextParams, { replace: true });
     }
   };
+  const refreshPrices = async () => {
+    setPriceRefresh('loading');
+    try {
+      await queryClient.cancelQueries({ queryKey: ['device-first-options'] });
+      const fresh = await deviceFirstApi.getOptions();
+      if (!Array.isArray(fresh.price_matrix)) throw new Error('Price matrix unavailable');
+      queryClient.setQueryData(['device-first-options'], fresh);
+      setFreshMatrix(fresh.price_matrix);
+      setPriceRefresh(null);
+    } catch {
+      setPriceRefresh('error');
+    }
+  };
   const handlePayError = async (error: unknown) => {
     const code = deviceFirstErrorCode(error);
     if (code === 'reprice_required') {
+      const detail = (error as { response?: { data?: { detail?: { reason?: string } } } })?.response
+        ?.data?.detail;
+      const offerExpired =
+        shownDiscount?.percent && offer?.expires_at && Date.parse(offer.expires_at) <= Date.now();
+      setDiscountExpired(
+        (detail?.reason ?? (offerExpired ? 'promo_offer_expired' : '')) === 'promo_offer_expired',
+      );
       // No new row and no invoice cancellation: re-read the server prices and
       // redraw the confirmation. The next click sends the NEW price under a
       // NEW idempotency key (the price is part of the pay intent). A resumed
@@ -806,7 +851,7 @@ export function DeviceFirstConfigurator({
       if (resumedConfirmation) {
         dropResumedRowToLocalConfirmation(resumedConfirmation);
       }
-      await queryClient.invalidateQueries({ queryKey: ['device-first-options'] });
+      await refreshPrices();
       return;
     }
     if (code === 'wallet_insufficient') {
@@ -924,6 +969,7 @@ export function DeviceFirstConfigurator({
     }: {
       fundingMode: 'wallet' | 'platega';
       selectedMethodKey?: string;
+      openBank?: boolean;
     }) =>
       deviceFirstApi.payDirect({
         period_days: confirmPeriodDays,
@@ -939,13 +985,11 @@ export function DeviceFirstConfigurator({
       setActionError(null);
       setRepriced(false);
     },
-    onSuccess: (result) => {
-      // 🔴 Пункт 4.11а: здесь СТОЯЛ автоматический уход к провайдеру. Он перепрыгивал наш
-      // же экран счёта — тот рождался и в ту же секунду умирал вместе с документом, а
-      // человек оказывался на странице Platega, откуда возврата нет. Уходим теперь только
-      // по явному нажатию на экране счёта.
+    onSuccess: (result, variables) => {
+      // Only an explicit method click opens the bank; native chat autostart stays separate.
       rememberInvoiceRedirect(result);
       acceptCheckout(result.checkout);
+      if (variables.openBank && result.redirect_url) openProviderLink(result.redirect_url);
     },
     onError: (error, variables) => {
       if (!askAboutPurchase(error, () => payMutation.mutate(variables))) void handlePayError(error);
@@ -1451,9 +1495,9 @@ export function DeviceFirstConfigurator({
   const paymentMethodAmountLabel = (key: string, amount: string) =>
     t('deviceFirst.paymentMethodAmount', { method: paymentMethodLabel(key), amount });
   const invoiceDeadline = checkout?.provider_invoice_expires_at
-    ? new Intl.DateTimeFormat(i18n?.resolvedLanguage, { timeStyle: 'short' }).format(
-        new Date(checkout.provider_invoice_expires_at),
-      )
+    ? formatMoscowDate(checkout.provider_invoice_expires_at, i18n?.resolvedLanguage, {
+        timeStyle: 'short',
+      })
     : null;
   // Мина F: заказ приходит уже закрытым. На этом экране обязано остаться предупреждение про
   // старую ссылку Platega (она ещё принимает деньги), а если по ней всё-таки заплатили —
@@ -1538,86 +1582,63 @@ export function DeviceFirstConfigurator({
     anyTopUpProviderAvailable &&
     ((confirmShortageKopeks > 0 && (hasWallet || paymentMethodsUnavailable)) ||
       actionErrorCode === 'wallet_insufficient');
-  // Где она стоит. ПЕРВОЙ — только там, где доплата действительно короче прямой оплаты.
-  // 🔴 Волна ревью: одного `hasWallet` мало. С копейками на балансе недостача округляется ДО
-  // ПОЛНОЙ ЦЕНЫ — и громкой становилась дорога, которая на четыре экрана длиннее соседней
-  // кнопки с тем же числом. Ровно то, за что ревью отклонило кандидата «А».
-  // ⚠️ ЧЕСТНО ПРО ГРАНИЦУ (уточнил прогон сценария): условие отсекает ровно случай «платить
-  // столько же, но дольше», и НЕ БОЛЬШЕ ТОГО. При рубле на балансе доплата 248 ₽ против цены
-  // 249 ₽ всё ещё пойдёт первой. Порог «доплата должна быть заметно меньше цены» потребовал бы
-  // выдуманного числа, а выдуманные пороги в этом проекте уже дорого стоили. Оставлено
-  // проверяемое сравнение; остаток записан в план.
-  const topUpActionGoesFirst =
-    hasWallet &&
-    !walletCoversTotal &&
-    confirmTotalKopeks !== null &&
-    topUpChargeKopeks > 0 &&
-    topUpChargeKopeks < confirmTotalKopeks;
-
-  // ВК-16 16в-3: решение 05.10.2026 ставит рабочую доплату первой, сохраняя выбранную карту.
-  // Решение РЕК-16.1 от 02.09.2026 ниже остаётся для пути без автоматического оформления.
-  // 🔴 РЕК-16.1, решение владельца 02.09.2026 после живого прохода, дословно: «правильно делать
-  // так как выбрал клиент, а не так — клиент выбрал, а мы ему другое подкидываем». Он нажал в
-  // чате «Банковская карта · 249 ₽», а экран встречал его залитой «Доплатить 199 ₽»: мы брали
-  // его прямой ответ на вопрос «чем платить» и переспрашивали заново, поставив своё первым.
-  // ⚠️ Разворачиваем ТОЛЬКО того, кто действительно принёс выбор. `methodKey` у всех остальных
-  // лежит умолчанием `'sbp'` и выбором НЕ ЯВЛЯЕТСЯ — сортируй по нему всегда, и человеку,
-  // который никого не выбирал, СБП молча встал бы первым как «его способ». Признак того, что
-  // выбор был, ровно один: удержанный автозапуск (`setMethodKey(method)` в той же ветке).
-  // ⛔ ТРИ забора, и каждый закрывает свой найденный волной вход:
-  //  · `!walletCoversTotal` — в той ветке блок способов не рисуется вовсе, и слот `afterChosen`
-  //    увёл бы кнопку доплаты в место, которого на экране нет. А попасть туда можно: при
-  //    `wallet_insufficient` доплата обязана появиться, и до правки её ловило нижнее место;
-  //  · `methods.isSuccess` — вход РЕАЛЬНЫЙ и доказан экспериментом. ⚠️ Здесь стояла моя
-  //    оговорка «забор структурный, состояние в тестах не воспроизводится» — скептик волны 2
-  //    её ОПРОВЕРГ дампом состояния запроса: после упавшего перезапроса `status: 'error'` при
-  //    живых `data`, экран красит ветку отказа, и кнопка доплаты в среднем слоте исчезает.
-  //    Пережила не мутация, а мой сторож: он проверял кнопку ДО перерисовки. Сторож починен;
-  //  · замороженный ключ вместо живого `methodKey` — см. комментарий у самого ref.
-  // Вместе они возвращают инвариант в исходную силу: место у кнопки доплаты РОВНО одно, и оно
-  // всегда отрисовывается. Раньше это держала взаимодополняющая пара `first`/`last`.
-  const chatChosenMethod =
-    chatChoiceHeld &&
-    !walletCoversTotal &&
-    // 🔴 Он же: человеку, которому банк отказал, альтернативы нужны СЕЙЧАС, а мы их спрятали
-    // под свёртку, да ещё и текст отказа печатается ниже неё. После любой неудачи раскладка
-    // возвращается к обычной — все способы на виду.
-    !actionErrorCode &&
-    (heldChatMethodAvailable ?? heldChatMethodPending);
-  const otherPaymentMethods =
-    chatChosenMethod && heldChatMethodAvailable
-      ? (methods.data?.methods ?? []).filter((item) => item.key !== chatChosenMethod.key)
-      : [];
-  // 🔴 Три места, где может стоять кнопка доплаты, и занято ровно ОДНО — инвариант «на экране
-  // всегда одна кнопка доплаты» пришёл из Б-2 и держится здесь же. Средний слот завёл РЕК-16:
-  // выбранный способ занимает первое место, доплата встаёт сразу под ним (а не в самый низ,
-  // где её на телефоне не видно) и тихой — потому что главное действие теперь не она.
-  const autoTopUpFirst =
-    !actionErrorCode &&
-    options.topup_intent_enabled === true &&
+  const primaryTopUp =
     showTopUpAction &&
-    topUpActionGoesFirst;
-  const topUpSlot: 'first' | 'afterChosen' | 'last' = autoTopUpFirst
-    ? 'first'
-    : chatChosenMethod
-      ? 'afterChosen'
-      : topUpActionGoesFirst
-        ? 'first'
-        : 'last';
+    !walletCoversTotal &&
+    (paymentMethodsUnavailable || (topUpAmountKnown && (confirmBalanceKopeks ?? 0) >= 100));
+  const confirmPayKopeks =
+    walletCoversTotal && !primaryTopUp
+      ? 0
+      : primaryTopUp
+        ? topUpAmountKnown
+          ? topUpChargeKopeks
+          : confirmTotalKopeks
+        : confirmTotalKopeks;
+  const confirmUsedKopeks =
+    confirmPayKopeks === null ? 0 : Math.max(0, (confirmTotalKopeks ?? 0) - confirmPayKopeks);
+  const confirmPeriodText =
+    confirmPeriodDays === 365
+      ? t('deviceFirst.periodYearExact')
+      : confirmPeriodDays % 30 === 0
+        ? t('deviceFirst.periodMonths', { count: confirmPeriodDays / 30 })
+        : t('deviceFirst.periodDays', { count: confirmPeriodDays });
+  const previousDevices =
+    resumedConfirmation?.current_device_limit ?? options.current_subscription?.device_limit;
+  const deviceTitle = `${previousDevices && previousDevices < confirmDeviceLimit && (resumedConfirmation ? resumedConfirmation.current_subscription_is_trial === false : options.current_subscription?.is_trial === false) ? `${previousDevices} → ` : ''}${t('deviceFirst.deviceCount', { count: confirmDeviceLimit })}`;
+  const confirmationHint =
+    primaryTopUp && (!options.topup_intent_enabled || !topUpAmountKnown || topUpChargeKopeks <= 0)
+      ? 'deviceFirst.topUpShortageHint'
+      : !checkout &&
+          options.current_subscription?.is_trial === true &&
+          options.current_subscription.tariff_id !== undefined &&
+          options.current_subscription.tariff_id !== options.tariff?.id
+        ? 'deviceFirst.trialStartsAfterPayment'
+        : 'deviceFirst.topUpAutoHint';
 
   // 🔴 РЕК-16.1. Кнопка способа оплаты рисуется в ДВУХ местах — выбранная стоит первой и
   // залитой, остальные лежат под свёрткой, — поэтому разметка вынесена сюда. Две копии одного
   // `<button>` разошлись бы на первой же правке: ровно так в этом проекте появлялись экраны,
   // где одна и та же кнопка ведёт себя по-разному в зависимости от того, где её нажали.
-  const renderPaymentMethodButton = (methodKeyToRender: string, accented: boolean) =>
+  const renderPaymentMethodButton = (
+    methodKeyToRender: string,
+    accented: boolean,
+    openBank = false,
+  ) =>
     confirmTotalKopeks === null ? null : (
       <button
         key={methodKeyToRender}
         type="button"
-        disabled={payMutation.isPending || (accented && !heldChatMethodAvailable)}
-        onClick={() =>
-          payMutation.mutate({ fundingMode: 'platega', selectedMethodKey: methodKeyToRender })
+        disabled={
+          payMutation.isPending ||
+          (chatChoiceHeld && heldChatMethod?.key === methodKeyToRender && !heldChatMethodAvailable)
         }
+        onClick={() => {
+          payMutation.mutate({
+            fundingMode: 'platega',
+            selectedMethodKey: methodKeyToRender,
+            openBank,
+          });
+        }}
         className={
           accented
             ? `w-full rounded-2xl bg-accent-500 px-5 py-3.5 font-semibold text-white disabled:opacity-50 ${choiceClass}`
@@ -1628,93 +1649,35 @@ export function DeviceFirstConfigurator({
       </button>
     );
 
-  // ⛔ Слова «и оформить» на этой кнопке НЕТ и быть не может: возврат приводит на подтверждение,
-  // где надо нажать ещё раз. У device-first нет корзины (`user_cart_service` не встречается в нём
-  // ни разу), поэтому доплата сама подписку не оформляет. Обещать оформление — врать.
-  const topUpAction = showTopUpAction ? (
-    <div className="space-y-1">
-      {/* 🔴 Волна ревью: ТЗ требовало кнопку «первой, АКЦЕНТНОЙ», а она была рамочной — то есть
-          в ветке частичного баланса на экране не оставалось ни одной залитой кнопки вовсе, хотя
-          у соседней ветки («хватает») главное действие залито. Человек, уже проходивший кассу,
-          ищет глазами заливку. Заливаем ровно там, где кнопка и есть главное действие; там, где
-          она запасной выход, она обязана остаться тихой — иначе перетянет внимание у способов
-          оплаты, которые короче. Отличие видно не только цветом: меняется вес фона. */}
-      <button
-        type="button"
-        onClick={() => navigate(checkoutTopUpHref)}
-        className={
-          topUpSlot === 'first'
-            ? `w-full rounded-2xl bg-accent-500 px-5 py-3.5 font-semibold text-white ${choiceClass}`
-            : `w-full rounded-xl border border-accent-400/50 px-4 py-3 text-sm font-semibold text-accent-200 ${choiceClass}`
-        }
-      >
-        {topUpAmountKnown && topUpChargeKopeks > 0
-          ? t(hasWallet ? 'deviceFirst.topUpShortage' : 'deviceFirst.topUpAmount', {
-              amount: formatPrice(topUpChargeKopeks),
-            })
-          : t('deviceFirst.needTopup')}
-      </button>
-      {/* 🔴 РЕК-8б. Связь ДЕНЕГ С ЦЕНОЙ на этом экране не была названа ни одной строкой: стояло
-          слово «Баланс» — из банковского приложения, а не «ваши деньги в этой покупке». Человек
-          должен был сам вспомнить, что у него есть N, и сам вычесть его из цены.
-          ⛔ Слово «подарок»/«бонус» здесь НЕ писать: на балансе может лежать сдача, возврат или
-          собственное пополнение, а происхождение денег этот экран не знает — фраза про подарок
-          была бы прямой ложью на денежном экране. Строка говорит про АРИФМЕТИКУ, и она правда
-          для всех.
-          ⛔ И только когда кнопка несёт РОВНО недостачу. Если провайдерский минимум её поднял,
-          на карточке уже стоит объяснение про остаток, и третье число превратило бы подсказку
-          в ребус. */}
-      {hasWallet &&
-        topUpAmountKnown &&
-        topUpChargeKopeks > 0 &&
-        topUpChargeKopeks === confirmShortageKopeks &&
-        confirmBalanceKopeks !== null &&
-        confirmTotalKopeks !== null && (
-          <p className="text-xs text-dark-400">
-            {t('deviceFirst.topUpBalanceApplied', {
-              balance: formatPrice(confirmBalanceKopeks),
-              total: formatPrice(confirmTotalKopeks),
-            })}
-          </p>
-        )}
-      {/* Подпись существует только там, где есть чем доплачивать и куда возвращаться.
-          🔴 Волна ревью Б-2 переписала её текст: прежний («Доплатим … и вернёмся сюда списать …»)
-          обещал автоматику, которой нет. Возврат делает человек, и после него он нажимает ещё
-          раз — у device-first нет корзины, доплата подписку не оформляет.
-          🔴 Этап В-1 переписал её ВТОРОЙ раз, и это единственная строка кассы, которую он
-          тронул. Редакция Б-2 звала нажать кнопку «Списать с баланса» — подписи с таким текстом
-          нет ни в одной из четырёх локалей. Новый текст не называет кнопок вовсе: обещает ровно
-          то, что этап исполняет, — выбор сохранится, останется оформить заказ.
-          🔴 Этап РЕК-3 сделал часть этого обоснования устаревшей, и она правится здесь, а не
-          остаётся врать: ~~«после В-1 человек вдобавок возвращается не „сюда“, а на экран
-          выбора»~~ — теперь он возвращается ИМЕННО сюда, на подтверждение, и обещание строки
-          («останется оформить заказ») исполняется буквально одним нажатием.
-          ⚠️ Верно это ровно для одной двери — возврата кнопкой платёжной системы. У двери из
-          чата бота метки заказа нет, и там выбор по-прежнему начинается заново (мина HU). */}
-      {hasWallet && topUpChargeKopeks > 0 && (
-        <p className="text-xs text-dark-400">
+  const topUpAction = primaryTopUp ? (
+    <button
+      type="button"
+      onClick={() => navigate(checkoutTopUpHref)}
+      className={`w-full rounded-2xl bg-accent-500 px-5 py-3.5 font-semibold text-white ${choiceClass}`}
+    >
+      {topUpAmountKnown && topUpChargeKopeks > 0
+        ? t('deviceFirst.payExternalAndOrder', { amount: formatPrice(topUpChargeKopeks) })
+        : t('deviceFirst.needTopup')}
+    </button>
+  ) : null;
+
+  if (repriced && priceRefresh) {
+    return (
+      <div role={priceRefresh === 'error' ? 'alert' : 'status'} className="space-y-3 p-4">
+        <p>{t(discountExpired ? 'deviceFirst.discountExpired' : 'deviceFirst.refreshTitle')}</p>
+        <p>
           {t(
-            options.topup_intent_enabled
-              ? 'deviceFirst.topUpAutoHint'
-              : 'deviceFirst.topUpShortageHint',
+            priceRefresh === 'error'
+              ? 'deviceFirst.pricesRefreshError'
+              : 'deviceFirst.pricesRefreshing',
           )}
         </p>
-      )}
-      {/* 🔴 Волна ревью: сводка печатает честную недостачу, а кнопка — сумму счёта, и это
-          РАЗНЫЕ числа, когда минимум провайдера больше недостачи. Два числа на одной карточке
-          без объяснения человек читает как ошибку. Ключ не сочинён — он уже есть в проекте и
-          говорит ровно про этот остаток на экране счёта. */}
-      {topUpAmountKnown &&
-        topUpChargeKopeks > confirmShortageKopeks &&
-        confirmShortageKopeks > 0 && (
-          <p className="text-xs text-dark-400">
-            {t('deviceFirst.topUpSurplusHint', {
-              amount: formatPrice(topUpChargeKopeks - confirmShortageKopeks),
-            })}
-          </p>
+        {priceRefresh === 'error' && (
+          <Button onClick={() => void refreshPrices()}>{t('deviceFirst.retry')}</Button>
         )}
-    </div>
-  ) : null;
+      </div>
+    );
+  }
 
   if (purchaseQuestion) {
     return (
@@ -1773,11 +1736,22 @@ export function DeviceFirstConfigurator({
           <h2
             className={
               isConfirmationStep
-                ? 'text-base font-semibold text-dark-50'
+                ? 'flex min-w-0 items-center gap-1 whitespace-nowrap text-sm font-semibold text-dark-50'
                 : 'text-xl font-bold text-dark-50'
             }
           >
-            {options.tariff.name}
+            <span
+              className={isConfirmationStep ? 'min-w-0 truncate' : undefined}
+              title={options.tariff.name}
+            >
+              {options.tariff.name}
+            </span>
+            {isConfirmationStep && (
+              <>
+                {' '}
+                · <span>{deviceTitle}</span> · <span>{confirmPeriodText}</span>
+              </>
+            )}
           </h2>
         ) : null}
         {isConfirmationStep ? null : options.tariff?.description ? (
@@ -1856,6 +1830,16 @@ export function DeviceFirstConfigurator({
       )}
       {!checkout && !legacyDraft && !confirmation && !initialCheckoutId && !landingPending && (
         <div className="space-y-6">
+          {shownDiscount?.percent &&
+            offer &&
+            (!offer.expires_at || Date.parse(offer.expires_at) > Date.now()) && (
+              <p className="rounded-xl border border-success-500/30 bg-success-500/10 p-3 text-sm text-dark-100">
+                {t('deviceFirst.discountBanner', {
+                  percent: shownDiscount.percent,
+                  deadline: deadline ? t('deviceFirst.discountDeadline', { date: deadline }) : '',
+                }).replace(' ·  · ', ' · ')}
+              </p>
+            )}
           <fieldset>
             <legend className="mb-3 text-sm font-medium text-dark-200">
               {t('deviceFirst.periodQuestion')}
@@ -1868,6 +1852,7 @@ export function DeviceFirstConfigurator({
               {options.period_options?.map((value) =>
                 (() => {
                   const optionPrice = priceFor(value, devices);
+                  const original = originalPrice(optionPrice);
                   const isSelected = period === value;
                   return (
                     <button
@@ -1899,6 +1884,11 @@ export function DeviceFirstConfigurator({
                           ? periodLabel(value)
                           : `${periodLabel(value)} · ${t('deviceFirst.unavailable')}`}
                       </span>
+                      {original !== undefined && optionPrice && (
+                        <span className="ml-2 text-xs">
+                          <s>{formatPrice(original)}</s> · {formatPrice(optionPrice.price_kopeks)}
+                        </span>
+                      )}
                       {isSelected && <span className="sr-only">{t('deviceFirst.selected')}</span>}
                     </button>
                   );
@@ -1918,6 +1908,7 @@ export function DeviceFirstConfigurator({
               {options.device_options?.map((value) =>
                 (() => {
                   const optionPrice = priceFor(period, value);
+                  const original = originalPrice(optionPrice);
                   const deviceMonthlyRate = optionPrice
                     ? pricePerDeviceMonth(
                         optionPrice.price_kopeks,
@@ -1956,6 +1947,11 @@ export function DeviceFirstConfigurator({
                         {t('deviceFirst.deviceCount', { count: value })}
                       </span>
                       <span className="mt-2 text-lg font-bold tabular-nums text-dark-100">
+                        {original !== undefined && (
+                          <s className="mr-2 text-xs font-normal text-dark-400">
+                            {formatPrice(original)}
+                          </s>
+                        )}
                         {optionPrice
                           ? formatPrice(optionPrice.price_kopeks)
                           : t('deviceFirst.unavailable')}
@@ -2025,7 +2021,7 @@ export function DeviceFirstConfigurator({
               {/* 🔴 РЕК-8а. Объяснение остановки. НЕ ошибка и не предупреждение: ничего не
                   сломалось, поэтому спокойный акцентный блок, а не жёлтый. Стоит первым — до
                   сводки, потому что отвечает на вопрос «почему я здесь, а не в банке». */}
-              {autostartHeldForWallet && (
+              {autostartHeldForWallet && walletCoversTotal && (
                 <div
                   role="status"
                   className="rounded-xl border border-accent-400/40 bg-accent-500/10 px-4 py-2.5"
@@ -2084,70 +2080,57 @@ export function DeviceFirstConfigurator({
                   className="space-y-1 rounded-xl border border-warning-500/40 bg-warning-500/10 p-4"
                 >
                   <p className="text-sm font-semibold text-dark-100">
-                    {t('deviceFirst.refreshTitle')}
-                  </p>
-                  <p className="text-sm text-dark-300">{t('deviceFirst.refreshText')}</p>
-                </div>
-              )}
-              <SelectionSummary
-                topUpJustPaidKopeks={topUpJustPaidKopeks}
-                periodDays={confirmPeriodDays}
-                deviceLimit={confirmDeviceLimit}
-                priceKopeks={confirmTotalKopeks}
-                // 🔴 Этап Б-2: обе строки — «Баланс» и «Не хватает» — гаснут ОДНИМ признаком,
-                // потому что рисуются одним условием `balanceKopeks !== null`. Развести их
-                // на два условия значит завести случай «не хватает без баланса».
-                balanceKopeks={hasWallet ? confirmBalanceKopeks : null}
-                currentDeviceLimit={
-                  resumedConfirmation
-                    ? resumedConfirmation.current_subscription_is_trial === false
-                      ? resumedConfirmation.current_device_limit
-                      : null
-                    : options.current_subscription && !options.current_subscription.is_trial
-                      ? options.current_subscription.device_limit
-                      : null
-                }
-                upgradeProrateKopeks={
-                  resumedConfirmation?.price_breakdown?.upgrade_prorate_kopeks ??
-                  price?.breakdown?.upgrade_prorate_kopeks ??
-                  null
-                }
-                upgradeRemainingDays={
-                  resumedConfirmation?.price_breakdown?.upgrade_remaining_days ??
-                  price?.breakdown?.upgrade_remaining_days ??
-                  null
-                }
-                formatPrice={formatPrice}
-              />
-              {/* 🔴 Этап Б-2. Одна строка на три развилки врала двум из трёх: у кого баланса
-                  нет — «проверьте итог» нечего проверять, кроме цены; у кого он всё покрывает —
-                  выбирать способ не из чего, кнопка одна.
-                  🔴 Волна ревью нашла ДВЕ ветки, где строка врала и после первой правки, и
-                  обе теперь молчат вместо обещания:
-                  · выбор непригоден (`selectionUnavailable`) — ниже стоит «Недоступно», и мой
-                    прежний комментарий был неверен: условие «Недоступно» ШИРЕ, чем
-                    `confirmTotalKopeks === null`, у возобновлённого заказа цена остаётся
-                    числом, а пары уже нет в матрице. Тогда экран обещал «проверьте итог перед
-                    списанием» над словом «Недоступно» и без единой кнопки;
-                  · способы оплаты не поднялись — обещать «выберите способ оплаты» над
-                    «Не удалось загрузить способы оплаты» значит спорить с самим собой.
-                  Молчание честнее: обе ветки ниже говорят про себя сами. */}
-              {!selectionUnavailable &&
-                !(paymentMethodsUnavailable && !walletCoversTotal) &&
-                (walletCoversTotal || !hasWallet) && (
-                  <p className="text-xs text-dark-400">
                     {t(
-                      walletCoversTotal
-                        ? 'deviceFirst.reviewBeforeCharge'
-                        : 'deviceFirst.chooseMethodNotice',
+                      discountExpired ? 'deviceFirst.discountExpired' : 'deviceFirst.refreshTitle',
                     )}
                   </p>
+                  <p className="text-sm text-dark-300">
+                    {discountExpired
+                      ? `${confirmPeriodText} · ${t('deviceFirst.deviceCount', { count: confirmDeviceLimit })} — ${confirmTotalKopeks === null ? '—' : formatPrice(confirmTotalKopeks)}`
+                      : t('deviceFirst.refreshText')}
+                  </p>
+                </div>
+              )}
+              <div className="space-y-2 py-3">
+                <Receipt
+                  net={confirmTotalKopeks}
+                  discount={shownDiscount}
+                  used={confirmUsedKopeks}
+                  compact
+                  toPay={confirmPayKopeks}
+                  fromWallet={walletCoversTotal && !primaryTopUp}
+                />
+                {(resumedConfirmation?.price_breakdown?.upgrade_prorate_kopeks ??
+                  price?.breakdown?.upgrade_prorate_kopeks ??
+                  0) > 0 && (
+                  <p className="text-xs text-dark-300">
+                    {t('deviceFirst.upgradeProrateNote', {
+                      amount: formatPrice(
+                        resumedConfirmation?.price_breakdown?.upgrade_prorate_kopeks ??
+                          price?.breakdown?.upgrade_prorate_kopeks ??
+                          0,
+                      ),
+                      days:
+                        resumedConfirmation?.price_breakdown?.upgrade_remaining_days ??
+                        price?.breakdown?.upgrade_remaining_days ??
+                        0,
+                    })}
+                  </p>
                 )}
+                {topUpJustPaidKopeks !== null &&
+                  (confirmBalanceKopeks ?? 0) >= topUpJustPaidKopeks && (
+                    <p role="status" className="text-xs text-dark-300">
+                      {t('deviceFirst.balanceIncludesTopUp', {
+                        amount: formatPrice(topUpJustPaidKopeks),
+                      })}
+                    </p>
+                  )}
+              </div>
               {selectionUnavailable ? (
                 <p role="status" className="text-sm text-warning-400">
                   {t('deviceFirst.unavailable')}
                 </p>
-              ) : (confirmBalanceKopeks ?? 0) >= confirmTotalKopeks ? (
+              ) : walletCoversTotal && !primaryTopUp ? (
                 <button
                   type="button"
                   disabled={payMutation.isPending}
@@ -2161,8 +2144,8 @@ export function DeviceFirstConfigurator({
                   {/* 🔴 Этап Б-2, ветка частичного баланса: доплата — ПЕРВОЕ и акцентное
                       действие, способы оплаты остаются настоящими кнопками под ней. Порядок
                       важен физически: на телефоне до нижних кнопок надо доскроллить. */}
-                  {topUpSlot === 'first' && topUpAction}
-                  {methods.isLoading && !chatChosenMethod ? (
+                  {topUpAction}
+                  {methods.isLoading && !primaryTopUp ? (
                     <p role="status" className="text-sm text-dark-400">
                       {t('deviceFirst.paymentMethodsLoading')}
                     </p>
@@ -2186,94 +2169,14 @@ export function DeviceFirstConfigurator({
                         {t('deviceFirst.contactSupport')}
                       </button>
                     </div>
-                  ) : chatChosenMethod || methods.data?.methods.length ? (
-                    <>
-                      {/* 🔴 Этап Б-2. «ИЛИ оплатите полной суммой» — это союз при двух вариантах.
-                      У человека с нулём на балансе второго варианта не существует: доплачивать
-                      нечего к нулю, и строка обещала выбор, которого нет. Показываем её только
-                      тому, у кого рядом действительно стоит кнопка доплаты. */}
-                      {/* 🔴 РЕК-16.1. «ИЛИ оплатите полной суммой» — союз, и он верен, пока
-                          полная оплата стоит ВТОРЫМ вариантом. У пришедшего из чата она стоит
-                          первой, и «или» начинало спорить с порядком кнопок. Оговорка про
-                          нетронутый баланс (мина DE) при этом обязана остаться в обоих
-                          случаях: без неё строка «Баланс» рядом с ценой читается как
-                          «зачтётся». Меняется союз, а не защита. */}
-                      {/* 🔴 РЕК-18.5. Здесь стояли ДВА абзаца подряд: оговорка про баланс и
-                          ожидание про следующий шаг. Слиты в один — 20 px. Каждая половина
-                          остаётся ОТДЕЛЬНЫМ узлом, чтобы сторожа находили их по ключу и чтобы
-                          проверка позиции («предупреждение выше кнопок») продолжала работать.
-                          Цвет `text-dark-300`, а не `-400`: запрет пришёл из светлой темы
-                          (3,31:1 на шампани при норме 4,5, РС-14д); в тёмной `-400` читаем,
-                          оставлено ради единообразия с остальными подстрочниками. */}
-                      <p className="text-xs text-dark-300">
-                        {hasWallet && (
-                          <span>
-                            {/* 🔴 Прогон сценария и линза денег независимо: главное следствие
-                              решения владельца в том, что человек может нажать залитую кнопку
-                              своего способа и переплатить на весь свой баланс, а строка про
-                              «не спишутся» была НЕЙТРАЛЬНОЙ — она сообщала факт и не называла
-                              цену. Называем цену числом. */}
-                            {chatChosenMethod
-                              ? t('deviceFirst.payFullAmountNotice', {
-                                  balance: formatPrice(confirmBalanceKopeks ?? 0),
-                                })
-                              : t('deviceFirst.paymentMethodsAvailable')}
-                          </span>
-                        )}
-                        {hasWallet ? ' · ' : ''}
-                        <span>{t('deviceFirst.twoStepPayHint')}</span>
-                      </p>
-                      {/* 🔴 Пункт 4.11а: здесь стояло предупреждение «страница оплаты откроется
-                          вместо кабинета» (мина W). Оно было правдой, пока тап по способу уводил
-                          к провайдеру. Теперь тап создаёт счёт и показывает НАШ экран счёта —
-                          старый текст стал бы ложью. Вместо него честное ожидание.
-                          ⛔ Этап Б-2: строку пробовали опустить ПОД кнопки (так её просило ТЗ) —
-                          и это откачено. Сторож «warns before leaving only on the screen that
-                          still leads to the provider» требует её ВЫШЕ кнопок по делу: на телефоне
-                          375×667 под ними она уходит за сгиб, а скринридер читает её уже ПОСЛЕ
-                          нажатия. Предупреждение после действия предупреждением не является. */}
-                      {autoTopUpFirst ? (
-                        <details className="rounded-xl border border-dark-700/60">
-                          <summary className="cursor-pointer px-4 py-3 text-sm font-semibold text-dark-200">
-                            {t('deviceFirst.payFullPrice')}
-                          </summary>
-                          <div className="grid gap-2 px-3 pb-3">
-                            {(methods.data?.methods ?? []).map((method) =>
-                              renderPaymentMethodButton(method.key, false),
-                            )}
-                          </div>
-                        </details>
-                      ) : chatChosenMethod ? (
-                        <div className="space-y-2">
-                          {renderPaymentMethodButton(chatChosenMethod.key, true)}
-                          {topUpSlot === 'afterChosen' && topUpAction}
-                          {/* 🔴 Остальные способы человек не выбирал — он их уже проходил в
-                              чате. Держим их в одном нажатии, но не заставляем перечитывать
-                              список заново. `<details>` вместо своего состояния намеренно:
-                              этот компонент между заказами не размонтируется, и своё
-                              состояние пришлось бы гасить в четырёх местах — ровно класс
-                              мины EW, на который этот файл уже наступал. */}
-                          {otherPaymentMethods.length > 0 && (
-                            <details className="rounded-xl border border-dark-700/60">
-                              <summary className="cursor-pointer px-4 py-3 text-sm font-semibold text-dark-200">
-                                {t('deviceFirst.otherMethods')}
-                              </summary>
-                              <div className="grid gap-2 px-3 pb-3">
-                                {otherPaymentMethods.map((method) =>
-                                  renderPaymentMethodButton(method.key, false),
-                                )}
-                              </div>
-                            </details>
-                          )}
-                        </div>
-                      ) : (
-                        <div className="grid gap-2">
-                          {(methods.data?.methods ?? []).map((method) =>
-                            renderPaymentMethodButton(method.key, false),
-                          )}
-                        </div>
+                  ) : primaryTopUp &&
+                    (methods.isLoading || !!methods.data?.methods.length) ? null : methods.data
+                      ?.methods.length ? (
+                    <div className="grid gap-2">
+                      {methods.data.methods.map((method) =>
+                        renderPaymentMethodButton(method.key, method.key === 'sbp', true),
                       )}
-                    </>
+                    </div>
                   ) : (
                     <div className="space-y-2">
                       <p role="status" className="text-sm text-warning-400">
@@ -2290,12 +2193,22 @@ export function DeviceFirstConfigurator({
                   )}
                 </>
               )}
-              {/* 🔴 Этап Б-2: здесь кнопка стоит ПОСЛЕДНЕЙ — там, где она не короткий путь, а
-                  запасной выход: способы оплаты не поднялись, либо баланс утёк между отрисовкой
-                  и тапом (`wallet_insufficient`, у такого человека денег на вид ХВАТАЕТ, и
-                  наверху его ветки стоит «Списать … и оформить»). Обе точки разведены одним
-                  признаком `topUpActionGoesFirst`, поэтому кнопка на экране всегда ровно одна. */}
-              {topUpSlot === 'last' && topUpAction}
+              {!selectionUnavailable &&
+                (walletCoversTotal ||
+                  primaryTopUp ||
+                  (!paymentMethodsUnavailable && !!methods.data?.methods.length)) && (
+                  <p className="text-xs text-dark-300">{t(confirmationHint)}</p>
+                )}
+              {primaryTopUp &&
+                topUpAmountKnown &&
+                topUpChargeKopeks > confirmShortageKopeks &&
+                confirmShortageKopeks > 0 && (
+                  <p className="text-xs text-dark-300">
+                    {t('deviceFirst.topUpSurplusHint', {
+                      amount: formatPrice(topUpChargeKopeks - confirmShortageKopeks),
+                    })}
+                  </p>
+                )}
               <button
                 type="button"
                 onClick={() => {
@@ -2332,26 +2245,22 @@ export function DeviceFirstConfigurator({
               >
                 {t('deviceFirst.changeOptions')}
               </button>
-              {/* 🔴 РЕК-18.4. Описание тарифа переехало сюда с самого верха экрана. Оно НЕ
-                  удалено: на шаге выбора оно по-прежнему стоит развёрнутым и продаёт. Здесь,
-                  на денежном шаге, оно уходит под свёртку — и обязательно НИЖЕ кнопок:
-                  замер показал, что раскрытая свёртка добавляет 112 px, и стой она выше,
-                  человек нажимал бы «посмотреть» и терял кнопку.
-                  ⛔ `<details>`, а не своё состояние: компонент между заказами не
-                  размонтируется, своё состояние пришлось бы гасить в трёх местах (мина EW). */}
-              {/* ⚠️ Оформление НАМЕРЕННО тише соседней свёртки «Оплатить другим способом»: та —
-                  денежный орган управления, эта — проза. Одинаковый вид делал бы их близнецами
-                  на одном экране. */}
-              {options.tariff?.description ? (
-                <details>
+              {primaryTopUp &&
+              !walletCoversTotal &&
+              !selectionUnavailable &&
+              methods.isSuccess &&
+              methods.data?.methods.length ? (
+                <details key={confirmTotalKopeks} open={!!errorMessage || undefined}>
                   <summary
-                    className={`cursor-pointer px-1 py-2 text-sm text-dark-300 ${choiceClass}`}
+                    className={`inline-flex min-h-11 cursor-pointer items-center py-2 text-xs text-dark-300 ${choiceClass}`}
                   >
-                    {t('deviceFirst.whatIsIncluded')}
+                    {t('deviceFirst.payFullPrice')}
                   </summary>
-                  <p className="whitespace-pre-line px-1 pb-2 text-sm text-dark-300">
-                    {options.tariff.description}
-                  </p>
+                  <div className="grid gap-2">
+                    {methods.data.methods.map((method) =>
+                      renderPaymentMethodButton(method.key, false),
+                    )}
+                  </div>
                 </details>
               ) : null}
             </>
@@ -2974,11 +2883,7 @@ function deviceFirstErrorMessage(
 }
 
 function formatCheckoutEndDate(value: string, language?: string): string {
-  const rawEndDate = new Intl.DateTimeFormat(language, {
-    dateStyle: 'medium',
-    timeZone: 'Europe/Moscow',
-  }).format(new Date(value));
-  return language?.startsWith('ru') ? rawEndDate.replace(/\s*г\.$/u, '') : rawEndDate;
+  return formatMoscowDate(value, language) ?? '—';
 }
 
 function Summary({
@@ -2995,12 +2900,17 @@ function Summary({
       : checkout.period_days % 30 === 0
         ? t('deviceFirst.periodMonths', { count: checkout.period_days / 30 })
         : t('deviceFirst.periodDays', { count: checkout.period_days });
-  const rawEndDate = new Intl.DateTimeFormat(i18n?.resolvedLanguage, {
-    dateStyle: 'medium',
-  }).format(new Date(checkout.estimated_end_at));
-  const endDate = i18n?.resolvedLanguage?.startsWith('ru')
-    ? rawEndDate.replace(/\s*г\.$/u, '')
-    : rawEndDate;
+  const endDate = formatCheckoutEndDate(checkout.estimated_end_at, i18n?.resolvedLanguage);
+  const net = checkout.tariff_total_kopeks || checkout.quoted_price_kopeks;
+  const discount = personalDiscount(
+    net,
+    checkout.price_breakdown?.promo_offer_discount_kopeks,
+    checkout.promo_offer,
+  );
+  const used =
+    checkout.settlement_mode === 'direct_purchase_v2'
+      ? checkout.wallet_applied_kopeks
+      : Math.min(net, Math.max(0, checkout.balance_kopeks ?? 0));
   return (
     <div className="space-y-3 rounded-2xl border border-dark-700 bg-dark-900/35 p-4">
       <div>
@@ -3018,8 +2928,8 @@ function Summary({
         {(checkout.price_breakdown?.upgrade_prorate_kopeks ?? 0) > 0 && (
           <div className="mt-0.5 text-end text-xs text-dark-300">
             {t('deviceFirst.upgradeProrateNote', {
-              amount: formatPrice(checkout.price_breakdown.upgrade_prorate_kopeks ?? 0),
-              days: checkout.price_breakdown.upgrade_remaining_days ?? 0,
+              amount: formatPrice(checkout.price_breakdown?.upgrade_prorate_kopeks ?? 0),
+              days: checkout.price_breakdown?.upgrade_remaining_days ?? 0,
             })}
           </div>
         )}
@@ -3032,24 +2942,13 @@ function Summary({
         <span>{t('deviceFirst.endsAt')}</span>
         <strong>{endDate}</strong>
       </div>
-      {checkout.balance_kopeks !== null && (
-        <div className="flex justify-between text-sm text-dark-300">
-          <span>{t('deviceFirst.balance')}</span>
-          <strong>{formatPrice(checkout.balance_kopeks)}</strong>
-        </div>
-      )}
-      {checkout.settlement_mode !== 'direct_purchase_v2' &&
-        checkout.shortage_kopeks !== null &&
-        checkout.shortage_kopeks > 0 && (
-          <div className="flex justify-between text-sm text-warning-300">
-            <span>{t('deviceFirst.shortage')}</span>
-            <strong>{formatPrice(checkout.shortage_kopeks)}</strong>
-          </div>
-        )}
-      <div className="flex justify-between border-t border-dark-700 pt-3 text-dark-50">
-        <span>{t('deviceFirst.total')}</span>
-        <strong>{formatPrice(checkout.tariff_total_kopeks || checkout.quoted_price_kopeks)}</strong>
-      </div>
+      <Receipt
+        net={net}
+        discount={discount}
+        used={used}
+        compact
+        fromWallet={net > 0 && used >= net}
+      />
     </div>
   );
 }
@@ -3064,123 +2963,48 @@ function StateMessage({ title, text }: { title: string; text: string }) {
   );
 }
 
-/**
- * The local confirmation summary. No durable checkout exists at this step, so
- * every figure comes from the server-owned purchase options rather than from
- * a quote row. The end date is deliberately absent: only the server knows the
- * exact base date an extension would prolong.
- */
-function SelectionSummary({
-  periodDays,
-  deviceLimit,
-  priceKopeks,
-  balanceKopeks,
-  currentDeviceLimit,
-  formatPrice,
-  topUpJustPaidKopeks = null,
-  upgradeProrateKopeks = null,
-  upgradeRemainingDays = null,
-}: {
-  periodDays: number;
-  deviceLimit: number;
-  priceKopeks: number | null;
-  balanceKopeks: number | null;
-  currentDeviceLimit: number | null;
-  formatPrice: (value: number) => string;
-  topUpJustPaidKopeks?: number | null;
-  upgradeProrateKopeks?: number | null;
-  upgradeRemainingDays?: number | null;
-}) {
+interface ReceiptProps {
+  net: number | null;
+  discount: ReturnType<typeof personalDiscount>;
+  used: number;
+  compact?: boolean;
+  toPay?: number | null;
+  fromWallet?: boolean;
+}
+function Receipt({ net, discount, used, compact, toPay, fromWallet }: ReceiptProps) {
   const { t } = useTranslation();
-  const periodText =
-    periodDays === 365
-      ? t('deviceFirst.periodYearExact')
-      : periodDays % 30 === 0
-        ? t('deviceFirst.periodMonths', { count: periodDays / 30 })
-        : t('deviceFirst.periodDays', { count: periodDays });
-  return (
-    <div className="space-y-1.5 border-y border-dark-700/60 py-3">
-      {/* 🔴 РЕК-18: две строки сведены в одну — 26 px. Оба факта сохранены дословно, включая
-          переход «было → станет» при продлении и точный срок: это единственное место на кассе,
-          где сказано, ЧТО покупается. Денежные строки ниже не трогаем. */}
-      {/* МД-1: строка «Устройства · срок» и подстрочник про доплату — ОДИН узел, как у баланса
-          ниже: `.space-y-1.5 > * ~ *` перебивает `mt-0.5` у соседа (замерено линзой: 6 px
-          вместо 2), внутри узла отступ настоящий. */}
-      <div>
-        <div className="flex justify-between text-sm text-dark-300">
-          {/* ⚠️ Подпись называет ОБЕ величины: после слияния строк одна «Устройства» описывала
-              только первую половину, а вторую оставляла без имени. */}
-          <span>
-            {t('deviceFirst.devices')}
-            {' · '}
-            {t('deviceFirst.period')}
-          </span>
-          {/* ⚠️ Обе величины — ОТДЕЛЬНЫЕ узлы, хотя стоят в одной строке. Три сторожа берут их
-              как улику «приземление несёт ЕГО выбор, а не умолчание» и ищут каждую по тексту;
-              склей их в один узел — и сторожа падают, а защита исчезает вместе с ними. */}
-          <strong>
-            <span>
-              {currentDeviceLimit !== null ? `${currentDeviceLimit} → ${deviceLimit}` : deviceLimit}
-            </span>
-            {' · '}
-            <span>{periodText}</span>
-          </strong>
-        </div>
-        {/* МД-1. За ЧТО 857 вместо 249: добавленные устройства включаются сразу и действуют на
-            остаток текущего срока, за него взята доплата (ДУ-2). Подстрочник по образцу
-            `balanceIncludesTopUp` — тот же класс, `text-end` ради RTL fa; не отдельный ряд
-            (РЕК-18 ужал сводку ради главной кнопки на 375×600). */}
-        {upgradeProrateKopeks !== null && upgradeProrateKopeks > 0 && (
-          <div className="mt-0.5 text-end text-xs text-dark-300">
-            {t('deviceFirst.upgradeProrateNote', {
-              amount: formatPrice(upgradeProrateKopeks),
-              days: upgradeRemainingDays ?? 0,
-            })}
-          </div>
-        )}
-      </div>
-      {balanceKopeks !== null && (
-        <div>
-          <div className="flex justify-between text-sm text-dark-300">
-            <span>{t('deviceFirst.balance')}</span>
-            <strong>{formatPrice(balanceKopeks)}</strong>
-          </div>
-          {/* 🔴 РЕК-14.2. Человек, вернувшийся из банка, задаёт себе один вопрос — «мои деньги
-              дошли?». Отвечает подстрочник ПОД балансом.
-              ⛔ Ни знака «плюс», ни отдельной строки сводки: доплата УЖЕ внутри этого баланса,
-              и «+199» рядом с «249» человек читает как слагаемое — «значит останется сдача».
-              ⛔ Слов «подарок»/«бонус» тут быть не может: происхождения денег экран не знает.
-              🔴 ВЛОЖЕН В ОДИН УЗЕЛ С БАЛАНСОМ, А НЕ ПРИЖАТ `-mt-2`. Первая редакция так и
-              делала — и отступ был МЁРТВЫМ: у `.space-y-1.5 > * ~ * (до РЕК-18 было `space-y-3`)` специфичность выше, чем у
-              `.-mt-2`, замерено линзой в браузере на собранном Tailwind. Строка вставала
-              четвёртой строкой сводки и стоила 28 px вместо 8, а на телефоне 375×600 дожимала
-              главную кнопку до нуля видимых пикселей над нижней панелью.
-              ⚠️ `text-end`, а не `text-right`: в персидском разметка RTL, и физическое
-              выравнивание ставило подстрочник под ПОДПИСЬ, а не под число.
-              `text-dark-300`, а не `-400`: запрет пришёл из светлой темы (3,2:1 при 12 px,
-              РС-14д); в тёмной `-400` читаем, оставлено ради единообразия.
-              ⚠️ Честно про `role="status"`: живой регион, появляющийся ВМЕСТЕ со своим текстом,
-              большинство скринридеров не объявляет. Оставлен как единственная дешёвая попытка,
-              но доступность приземления им НЕ закрыта — это отдельный пункт плана. */}
-          {topUpJustPaidKopeks !== null && balanceKopeks >= topUpJustPaidKopeks && (
-            <div role="status" className="mt-0.5 text-end text-xs text-dark-300">
-              {t('deviceFirst.balanceIncludesTopUp', {
-                amount: formatPrice(topUpJustPaidKopeks),
-              })}
-            </div>
-          )}
-        </div>
-      )}
-      {balanceKopeks !== null && priceKopeks !== null && balanceKopeks < priceKopeks && (
-        <div className="flex justify-between text-sm text-warning-300">
-          <span>{t('deviceFirst.shortage')}</span>
-          <strong>{formatPrice(priceKopeks - balanceKopeks)}</strong>
-        </div>
-      )}
-      <div className="flex justify-between border-t border-dark-700 pt-3 text-dark-50">
-        <span>{t('deviceFirst.total')}</span>
-        <strong>{priceKopeks !== null ? formatPrice(priceKopeks) : '—'}</strong>
-      </div>
+  const rows: [string, number | null][] = [];
+  if (!compact || discount || (used > 0 && !fromWallet) || (toPay ?? 0) > (net ?? Infinity))
+    rows.push([t('balance.topUpOrder.price'), discount?.before ?? net]);
+  if (discount)
+    rows.push([
+      t('deviceFirst.discountRow', { percent: discount.percent ? ` ${discount.percent}%` : '' }),
+      -discount.amount,
+    ]);
+  if (used > 0 && !fromWallet)
+    rows.push([
+      t(compact ? 'balance.topUpOrder.fromBalanceShort' : 'balance.topUpOrder.fromBalance'),
+      -used,
+    ]);
+  if (compact && toPay !== null && toPay !== undefined && net !== null && toPay > net)
+    rows.push([t('balance.topUpOrder.overPriceCredit'), toPay - net]);
+  rows.push([
+    t(fromWallet ? 'balance.topUpOrder.walletCharge' : 'balance.topUpOrder.toPay'),
+    fromWallet
+      ? net
+      : toPay === undefined
+        ? net === null
+          ? null
+          : Math.max(0, net - used)
+        : toPay,
+  ]);
+  return rows.map(([label, value]) => (
+    <div
+      key={label}
+      className={`flex justify-between text-sm text-dark-300 last:border-t last:border-dark-700 last:pt-3 last:text-dark-50 ${compact ? 'last:text-xl last:font-semibold' : ''}`}
+    >
+      <span>{label}</span>
+      <strong>{value === null ? '—' : formatCheckoutMoney(value)}</strong>
     </div>
-  );
+  ));
 }

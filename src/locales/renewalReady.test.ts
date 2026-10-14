@@ -3,6 +3,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import i18next from 'i18next';
 import { describe, expect, it } from 'vitest';
+import { formatMoscowDate } from '@/utils/moscowDate';
 
 const directory = path.dirname(fileURLToPath(import.meta.url));
 const locales: Record<string, { deviceFirst: Record<string, string> }> = Object.fromEntries(
@@ -26,12 +27,14 @@ describe('VK-5 renewal readiness translations', () => {
       resources: { [language]: { translation: locale } },
       interpolation: { escapeValue: false },
     });
-    const rendered = translator.t('deviceFirst.readyRenewed', { date: '30.08.2026' });
-    expect(rendered).toContain('30.08.2026');
+    const date = formatMoscowDate('2026-08-29T22:30:00Z', language);
+    expect(date).not.toBeNull();
+    const rendered = translator.t('deviceFirst.readyRenewed', { date });
+    expect(rendered).toContain(date);
     expect(rendered).not.toContain('{{');
-    if (language === 'ru') expect(rendered).toBe('Подписка продлена до 30.08.2026 (МСК)');
-    if (language === 'en')
-      expect(rendered).toBe('Subscription extended until 30.08.2026 (Moscow time)');
+    expect(rendered.match(/\((?:МСК|MSK)\)/g)).toHaveLength(1);
+    if (language === 'ru') expect(rendered).toBe('Подписка продлена до 30 авг. 2026 (МСК)');
+    if (language === 'en') expect(rendered).toBe('Subscription extended until 30.08.2026 (MSK)');
   });
 
   it.each([

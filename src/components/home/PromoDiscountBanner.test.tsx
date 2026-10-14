@@ -103,7 +103,11 @@ describe('баннер скидки на Главной', () => {
 
     expect(await screen.findByText(`promo.offers.discountPercent|${PERCENT}`)).toBeTruthy();
     // Срок обязан быть НАЗВАН: без него у крючка нет срочности, ради которой он придуман.
-    expect(screen.getByText(/promo\.offers\.expires\|03\.09 \d{2}:05/)).toBeTruthy();
+    expect(
+      screen.getByText(
+        'promo.offers.activateDiscountHint · promo.offers.expires|03.09.2026, 17:05 (МСК)',
+      ),
+    ).toBeTruthy();
     expect(screen.getByRole('button', { name: 'promo.offers.activate' })).toBeTruthy();
   });
 

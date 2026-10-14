@@ -21,6 +21,8 @@ export interface ActiveDiscount {
   is_active: boolean;
 }
 
+export type PersonalDiscount = Omit<ActiveDiscount, 'is_active'>;
+
 export interface PromoGroupDiscounts {
   group_name: string | null;
   server_discount_percent: number;

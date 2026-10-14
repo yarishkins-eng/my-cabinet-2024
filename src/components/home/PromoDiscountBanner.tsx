@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { CheckIcon, GiftIcon } from '@/components/icons';
 import { promoApi, type PromoOffer } from '../../api/promo';
 import { usePromoDiscount } from '../../hooks/usePromoDiscount';
+import { formatMoscowDate } from '../../utils/moscowDate';
 
 // ──────────────────────────────────────────────────────────────────
 // PromoDiscountBanner
@@ -23,12 +24,13 @@ import { usePromoDiscount } from '../../hooks/usePromoDiscount';
 
 // Срок печатаем абсолютным, как это делает бот в сообщении «Скидка действует до 30.08.2026 17:13».
 // Относительный отсчёт потребовал бы таймера и перерисовки — цена выше пользы.
-function formatDeadline(iso: string | null): string | null {
+function formatDeadline(iso: string | null, language?: string): string | null {
   if (!iso) return null;
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return null;
-  const pad = (n: number) => String(n).padStart(2, '0');
-  return `${pad(d.getDate())}.${pad(d.getMonth() + 1)} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  return formatMoscowDate(iso, language, {
+    dateStyle: 'short',
+    timeStyle: 'short',
+    hourCycle: 'h23',
+  });
 }
 
 function isClaimableDiscount(offer: PromoOffer): boolean {
@@ -48,7 +50,7 @@ function isClaimableDiscount(offer: PromoOffer): boolean {
 }
 
 export default function PromoDiscountBanner() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const queryClient = useQueryClient();
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
@@ -130,7 +132,7 @@ export default function PromoDiscountBanner() {
   // Ровно та потеря, которую этот этап закрывает, — просто пришедшая через время.
   // Воспроизведено скептиком волны 2 отдельным тестом, не выведено рассуждением.
   if (offer && !hasActive) {
-    const deadline = formatDeadline(offer.expires_at);
+    const deadline = formatDeadline(offer.expires_at, i18n?.resolvedLanguage ?? i18n?.language);
     return (
       <div className="rounded-2xl border border-accent-400/25 bg-accent-500/10 p-3.5">
         <div className="flex gap-3">
@@ -173,7 +175,10 @@ export default function PromoDiscountBanner() {
 
   if (!hasActive) return null;
 
-  const activeDeadline = formatDeadline(activeDiscount?.expires_at ?? null);
+  const activeDeadline = formatDeadline(
+    activeDiscount?.expires_at ?? null,
+    i18n?.resolvedLanguage ?? i18n?.language,
+  );
   return (
     <div className="rounded-2xl border border-success-500/30 bg-success-500/10 p-3.5">
       <div className="flex gap-3">

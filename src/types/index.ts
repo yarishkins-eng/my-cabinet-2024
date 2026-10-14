@@ -1,3 +1,4 @@
+import type { PersonalDiscount } from '../api/promo';
 // User types
 export interface User {
   id: number;
@@ -711,6 +712,8 @@ export interface TopUpIntentRequest {
 
 /** Ответ `POST /cabinet/balance/topup`. Договор — докстринг `TopUpResponse` бота (16а-1, 3а). */
 export interface TopUpResponse {
+  promo_offer?: PersonalDiscount | null;
+  promo_offer_discount_kopeks?: number;
   payment_id?: string | null;
   payment_url?: string | null;
   invoice_url?: string;

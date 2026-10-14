@@ -113,6 +113,7 @@ describe('МД-1: локальное подтверждение после «Д�
     expect(
       (await screen.findAllByText('deviceFirst.upgradeProrateNote:608 ₽:365')).length,
     ).toBeGreaterThanOrEqual(1);
-    expect(screen.getByText('2 → 3')).toBeTruthy();
+    // Owner 14.10: confirmation names both the paid subscription and its increased device count.
+    expect(screen.getByRole('heading', { name: /2 → deviceFirst\.deviceCount:3/ })).toBeTruthy();
   });
 });

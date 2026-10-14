@@ -5111,7 +5111,7 @@
     "abandonConfirm": "是，取消订单",
     "abandonKeep": "返回付款",
     "ready": "VPN 已就绪",
-    "readyRenewed": "订阅已续订至 {{date}}（莫斯科时间）",
+    "readyRenewed": "订阅已续订至 {{date}}",
     "readyText": "时长和设备数量已更新。",
     "connectVpn": "连接 VPN",
     "home": "返回首页",
@@ -5191,6 +5191,14 @@
     "payFullAmountNotice": "支付全款——您的 {{balance}} 将留在余额中",
     "otherMethods": "用其他方式支付",
     "payFullPrice": "支付全额",
-    "whatIsIncluded": "套餐包含什么"
+    "whatIsIncluded": "套餐包含什么",
+    "discountBanner": "🎁 {{percent}}% 折扣已计入价格 · {{deadline}} · 适用于任意期限和设备数量",
+    "discountRow": "折扣{{percent}}",
+    "trialStartsAfterPayment": "付款后订阅立即开始。",
+    "discountExpired": "您选择时折扣已到期。请查看更新后的价格并再次确认付款。",
+    "walletReceiptNotice": "以下计算适用于余额付款或补足差额。直接付款将收取完整订阅价格。",
+    "discountDeadline": "截至 {{date}}",
+    "noDiscountDeadline": "未注明截止时间",
+    "topUpSurplus": "留在余额中"
   }
 }
