@@ -119,11 +119,11 @@ export function DeviceFirstConfigurator({
   const [confirmation, setConfirmation] = useState(false);
   const [repriced, setRepriced] = useState(false);
   const [discountExpired, setDiscountExpired] = useState(false);
-  const [choosingMethod, setChoosingMethod] = useState(false);
-  const methodChoiceRef = useRef<HTMLDivElement>(null);
+  const [priceRefresh, setPriceRefresh] = useState<'loading' | 'error' | null>(null);
+  const [freshMatrix, setFreshMatrix] = useState<DeviceFirstOptions['price_matrix']>();
   useEffect(() => {
-    if (choosingMethod) methodChoiceRef.current?.querySelector('button')?.focus();
-  }, [choosingMethod]);
+    setFreshMatrix(undefined);
+  }, [options.price_matrix]);
   const [actionError, setActionError] = useState<unknown>(null);
   const [confirmAbandon, setConfirmAbandon] = useState(false);
   // 🔴 Три состояния, а не два. Раньше отказ писал `false` в состояние, которое и так
@@ -422,10 +422,10 @@ export function DeviceFirstConfigurator({
 
   const priceFor = useCallback(
     (days: number, deviceLimit: number) =>
-      options.price_matrix
+      (freshMatrix ?? options.price_matrix)
         ?.find((row) => row.period_days === days)
         ?.prices.find((item) => item.device_limit === deviceLimit),
-    [options.price_matrix],
+    [freshMatrix, options.price_matrix],
   );
   const originalPrice = (cell?: DeviceFirstPrice) =>
     personalDiscount(cell?.price_kopeks, cell?.breakdown.promo_offer_discount_kopeks)?.before;
@@ -457,9 +457,6 @@ export function DeviceFirstConfigurator({
   // а его описание уезжает ПОД кнопки. На экране выбора и то и другое остаётся как было —
   // там описание продаёт и месту не мешает. Разводим по шагу, а не прячем везде.
   const isConfirmationStep = Boolean((confirmation || resumedConfirmation) && !legacyDraft);
-  useEffect(() => {
-    if (!isConfirmationStep) setChoosingMethod(false);
-  }, [isConfirmationStep]);
   // 🔴 РЕК-18, попутная починка из волны. Переход к подтверждению подменяет ветку ВНУТРИ той
   // же секции, и прокрутка не сбрасывается ничем: человек жмёт «Перейти к оформлению» внизу
   // длинного списка сроков и остаётся на той же координате — то есть на новом экране сразу
@@ -716,8 +713,6 @@ export function DeviceFirstConfigurator({
     heldChatMethod?.validated && methods.isSuccess && !methods.isFetching
       ? (methods.data?.methods.find((method) => method.key === heldChatMethod.key) ?? null)
       : null;
-  const heldChatMethodPending =
-    methods.isError || (heldChatMethod?.validated && !methods.isFetching) ? null : heldChatMethod;
   const chatChoiceHeld = !!heldChatMethod && !methods.isError;
   const autostartHeldForWallet = hasWallet && chatChoiceHeld;
   const checkoutTopUpOptionId = methods.data?.methods.find(
@@ -824,6 +819,19 @@ export function DeviceFirstConfigurator({
       setSearchParams(nextParams, { replace: true });
     }
   };
+  const refreshPrices = async () => {
+    setPriceRefresh('loading');
+    try {
+      await queryClient.cancelQueries({ queryKey: ['device-first-options'] });
+      const fresh = await deviceFirstApi.getOptions();
+      if (!Array.isArray(fresh.price_matrix)) throw new Error('Price matrix unavailable');
+      queryClient.setQueryData(['device-first-options'], fresh);
+      setFreshMatrix(fresh.price_matrix);
+      setPriceRefresh(null);
+    } catch {
+      setPriceRefresh('error');
+    }
+  };
   const handlePayError = async (error: unknown) => {
     const code = deviceFirstErrorCode(error);
     if (code === 'reprice_required') {
@@ -843,7 +851,7 @@ export function DeviceFirstConfigurator({
       if (resumedConfirmation) {
         dropResumedRowToLocalConfirmation(resumedConfirmation);
       }
-      await queryClient.invalidateQueries({ queryKey: ['device-first-options'] });
+      await refreshPrices();
       return;
     }
     if (code === 'wallet_insufficient') {
@@ -961,6 +969,7 @@ export function DeviceFirstConfigurator({
     }: {
       fundingMode: 'wallet' | 'platega';
       selectedMethodKey?: string;
+      openBank?: boolean;
     }) =>
       deviceFirstApi.payDirect({
         period_days: confirmPeriodDays,
@@ -976,13 +985,11 @@ export function DeviceFirstConfigurator({
       setActionError(null);
       setRepriced(false);
     },
-    onSuccess: (result) => {
-      // 🔴 Пункт 4.11а: здесь СТОЯЛ автоматический уход к провайдеру. Он перепрыгивал наш
-      // же экран счёта — тот рождался и в ту же секунду умирал вместе с документом, а
-      // человек оказывался на странице Platega, откуда возврата нет. Уходим теперь только
-      // по явному нажатию на экране счёта.
+    onSuccess: (result, variables) => {
+      // Only an explicit method click opens the bank; native chat autostart stays separate.
       rememberInvoiceRedirect(result);
       acceptCheckout(result.checkout);
+      if (variables.openBank && result.redirect_url) openProviderLink(result.redirect_url);
     },
     onError: (error, variables) => {
       if (!askAboutPurchase(error, () => payMutation.mutate(variables))) void handlePayError(error);
@@ -1575,27 +1582,17 @@ export function DeviceFirstConfigurator({
     anyTopUpProviderAvailable &&
     ((confirmShortageKopeks > 0 && (hasWallet || paymentMethodsUnavailable)) ||
       actionErrorCode === 'wallet_insufficient');
-  const chatChosenMethod =
-    chatChoiceHeld &&
-    !walletCoversTotal &&
-    // 🔴 Он же: человеку, которому банк отказал, альтернативы нужны СЕЙЧАС, а мы их спрятали
-    // под свёртку, да ещё и текст отказа печатается ниже неё. После любой неудачи раскладка
-    // возвращается к обычной — все способы на виду.
-    !actionErrorCode &&
-    (heldChatMethodAvailable ?? heldChatMethodPending);
   const primaryTopUp =
-    showTopUpAction && (!walletCoversTotal || actionErrorCode === 'wallet_insufficient');
-  const primaryMethod =
-    chatChosenMethod ||
-    methods.data?.methods.find((item) => item.key === methodKey) ||
-    methods.data?.methods[0];
+    showTopUpAction &&
+    !walletCoversTotal &&
+    (paymentMethodsUnavailable || (topUpAmountKnown && (confirmBalanceKopeks ?? 0) >= 100));
   const confirmPayKopeks =
     walletCoversTotal && !primaryTopUp
       ? 0
       : primaryTopUp
         ? topUpAmountKnown
           ? topUpChargeKopeks
-          : null
+          : confirmTotalKopeks
         : confirmTotalKopeks;
   const confirmUsedKopeks =
     confirmPayKopeks === null ? 0 : Math.max(0, (confirmTotalKopeks ?? 0) - confirmPayKopeks);
@@ -1605,6 +1602,9 @@ export function DeviceFirstConfigurator({
       : confirmPeriodDays % 30 === 0
         ? t('deviceFirst.periodMonths', { count: confirmPeriodDays / 30 })
         : t('deviceFirst.periodDays', { count: confirmPeriodDays });
+  const previousDevices =
+    resumedConfirmation?.current_device_limit ?? options.current_subscription?.device_limit;
+  const deviceTitle = `${previousDevices && previousDevices < confirmDeviceLimit && (resumedConfirmation ? resumedConfirmation.current_subscription_is_trial === false : options.current_subscription?.is_trial === false) ? `${previousDevices} → ` : ''}${t('deviceFirst.deviceCount', { count: confirmDeviceLimit })}`;
   const confirmationHint =
     primaryTopUp && (!options.topup_intent_enabled || !topUpAmountKnown || topUpChargeKopeks <= 0)
       ? 'deviceFirst.topUpShortageHint'
@@ -1622,7 +1622,7 @@ export function DeviceFirstConfigurator({
   const renderPaymentMethodButton = (
     methodKeyToRender: string,
     accented: boolean,
-    primary = false,
+    openBank = false,
   ) =>
     confirmTotalKopeks === null ? null : (
       <button
@@ -1633,15 +1633,11 @@ export function DeviceFirstConfigurator({
           (chatChoiceHeld && heldChatMethod?.key === methodKeyToRender && !heldChatMethodAvailable)
         }
         onClick={() => {
-          if (
-            primary &&
-            (!heldChatMethodAvailable || actionErrorCode) &&
-            (methods.data?.methods.length ?? 0) > 1
-          ) {
-            setChoosingMethod(true);
-            return;
-          }
-          payMutation.mutate({ fundingMode: 'platega', selectedMethodKey: methodKeyToRender });
+          payMutation.mutate({
+            fundingMode: 'platega',
+            selectedMethodKey: methodKeyToRender,
+            openBank,
+          });
         }}
         className={
           accented
@@ -1649,9 +1645,7 @@ export function DeviceFirstConfigurator({
             : `min-h-12 rounded-xl border border-dark-700 px-4 py-3 text-left text-sm font-semibold text-dark-100 transition hover:border-accent-400 hover:bg-accent-500/10 disabled:opacity-50 ${choiceClass}`
         }
       >
-        {primary
-          ? t('deviceFirst.payExternalAndOrder', { amount: formatPrice(confirmTotalKopeks) })
-          : paymentMethodAmountLabel(methodKeyToRender, formatPrice(confirmTotalKopeks))}
+        {paymentMethodAmountLabel(methodKeyToRender, formatPrice(confirmTotalKopeks))}
       </button>
     );
 
@@ -1666,6 +1660,24 @@ export function DeviceFirstConfigurator({
         : t('deviceFirst.needTopup')}
     </button>
   ) : null;
+
+  if (repriced && priceRefresh) {
+    return (
+      <div role={priceRefresh === 'error' ? 'alert' : 'status'} className="space-y-3 p-4">
+        <p>{t(discountExpired ? 'deviceFirst.discountExpired' : 'deviceFirst.refreshTitle')}</p>
+        <p>
+          {t(
+            priceRefresh === 'error'
+              ? 'deviceFirst.pricesRefreshError'
+              : 'deviceFirst.pricesRefreshing',
+          )}
+        </p>
+        {priceRefresh === 'error' && (
+          <Button onClick={() => void refreshPrices()}>{t('deviceFirst.retry')}</Button>
+        )}
+      </div>
+    );
+  }
 
   if (purchaseQuestion) {
     return (
@@ -1737,8 +1749,7 @@ export function DeviceFirstConfigurator({
             {isConfirmationStep && (
               <>
                 {' '}
-                · <span>{t('deviceFirst.deviceCount', { count: confirmDeviceLimit })}</span> ·{' '}
-                <span>{confirmPeriodText}</span>
+                · <span>{deviceTitle}</span> · <span>{confirmPeriodText}</span>
               </>
             )}
           </h2>
@@ -2010,7 +2021,7 @@ export function DeviceFirstConfigurator({
               {/* 🔴 РЕК-8а. Объяснение остановки. НЕ ошибка и не предупреждение: ничего не
                   сломалось, поэтому спокойный акцентный блок, а не жёлтый. Стоит первым — до
                   сводки, потому что отвечает на вопрос «почему я здесь, а не в банке». */}
-              {autostartHeldForWallet && (
+              {autostartHeldForWallet && walletCoversTotal && (
                 <div
                   role="status"
                   className="rounded-xl border border-accent-400/40 bg-accent-500/10 px-4 py-2.5"
@@ -2134,7 +2145,7 @@ export function DeviceFirstConfigurator({
                       действие, способы оплаты остаются настоящими кнопками под ней. Порядок
                       важен физически: на телефоне до нижних кнопок надо доскроллить. */}
                   {topUpAction}
-                  {methods.isLoading && !chatChosenMethod && !primaryTopUp ? (
+                  {methods.isLoading && !primaryTopUp ? (
                     <p role="status" className="text-sm text-dark-400">
                       {t('deviceFirst.paymentMethodsLoading')}
                     </p>
@@ -2159,20 +2170,13 @@ export function DeviceFirstConfigurator({
                       </button>
                     </div>
                   ) : primaryTopUp &&
-                    (methods.isLoading || !!methods.data?.methods.length) ? null : choosingMethod &&
-                    !!methods.data?.methods.length ? (
-                    <div
-                      ref={methodChoiceRef}
-                      role="group"
-                      aria-label={t('deviceFirst.paymentMethodQuestion')}
-                      className="grid gap-2"
-                    >
-                      {methods.data?.methods.map((method) =>
-                        renderPaymentMethodButton(method.key, false),
+                    (methods.isLoading || !!methods.data?.methods.length) ? null : methods.data
+                      ?.methods.length ? (
+                    <div className="grid gap-2">
+                      {methods.data.methods.map((method) =>
+                        renderPaymentMethodButton(method.key, method.key === 'sbp', true),
                       )}
                     </div>
-                  ) : primaryMethod ? (
-                    renderPaymentMethodButton(primaryMethod.key, true, true)
                   ) : (
                     <div className="space-y-2">
                       <p role="status" className="text-sm text-warning-400">
@@ -2192,7 +2196,7 @@ export function DeviceFirstConfigurator({
               {!selectionUnavailable &&
                 (walletCoversTotal ||
                   primaryTopUp ||
-                  (!paymentMethodsUnavailable && primaryMethod)) && (
+                  (!paymentMethodsUnavailable && !!methods.data?.methods.length)) && (
                   <p className="text-xs text-dark-300">{t(confirmationHint)}</p>
                 )}
               {primaryTopUp &&
@@ -2241,7 +2245,8 @@ export function DeviceFirstConfigurator({
               >
                 {t('deviceFirst.changeOptions')}
               </button>
-              {hasWallet &&
+              {primaryTopUp &&
+              !walletCoversTotal &&
               !selectionUnavailable &&
               methods.isSuccess &&
               methods.data?.methods.length ? (
@@ -2937,21 +2942,13 @@ function Summary({
         <span>{t('deviceFirst.endsAt')}</span>
         <strong>{endDate}</strong>
       </div>
-      {checkout.balance_kopeks !== null && (
-        <div className="flex justify-between text-sm text-dark-300">
-          <span>{t('deviceFirst.balance')}</span>
-          <strong>{formatPrice(checkout.balance_kopeks)}</strong>
-        </div>
-      )}
-      {checkout.settlement_mode !== 'direct_purchase_v2' &&
-        checkout.shortage_kopeks !== null &&
-        checkout.shortage_kopeks > 0 && (
-          <div className="flex justify-between text-sm text-warning-300">
-            <span>{t('deviceFirst.shortage')}</span>
-            <strong>{formatPrice(checkout.shortage_kopeks)}</strong>
-          </div>
-        )}
-      <Receipt net={net} discount={discount} used={used} />
+      <Receipt
+        net={net}
+        discount={discount}
+        used={used}
+        compact
+        fromWallet={net > 0 && used >= net}
+      />
     </div>
   );
 }
@@ -2977,7 +2974,7 @@ interface ReceiptProps {
 function Receipt({ net, discount, used, compact, toPay, fromWallet }: ReceiptProps) {
   const { t } = useTranslation();
   const rows: [string, number | null][] = [];
-  if (!compact || discount || used > 0 || (toPay ?? 0) > (net ?? Infinity))
+  if (!compact || discount || (used > 0 && !fromWallet) || (toPay ?? 0) > (net ?? Infinity))
     rows.push([t('balance.topUpOrder.price'), discount?.before ?? net]);
   if (discount)
     rows.push([

@@ -14,6 +14,7 @@ import {
 
 vi.mock('@/api/deviceFirst', () => ({
   deviceFirstApi: {
+    getOptions: vi.fn(),
     create: vi.fn(),
     clearCreateIntents: vi.fn(),
     get: vi.fn(),
@@ -38,6 +39,9 @@ vi.mock('@/api/deviceFirst', () => ({
 // разницей, а автосоздание счёта выключено. Тест, которому нужен минимум, подменяет ответ сам.
 const { getBalancePaymentMethods } = vi.hoisted(() => ({
   getBalancePaymentMethods: vi.fn(),
+}));
+vi.mock('@/api/promo', () => ({
+  promoApi: { getActiveDiscount: vi.fn().mockResolvedValue(null) },
 }));
 vi.mock('@/api/balance', () => ({
   balanceApi: { getPaymentMethods: getBalancePaymentMethods },
@@ -258,8 +262,8 @@ function renderConfigurator(
   };
 }
 
-// Owner UX: full-price payment is under the balance disclosure. With no balance,
-// one Pay opens the real method picker (or submits immediately for a single method).
+// A partial wallet keeps its optional full-price disclosure. Without useful
+// wallet credit, method buttons are present immediately and a peek never pays.
 function openFullPrice() {
   const summary = screen.queryByText('deviceFirst.payFullPrice', { selector: 'summary' });
   const disclosure = summary?.closest('details');
@@ -268,24 +272,27 @@ function openFullPrice() {
 }
 
 async function peekDirectButton(amount = '450 ₽', index = 0, method?: string) {
-  await waitFor(() => {
-    expect(
-      screen.queryByText('deviceFirst.payFullPrice', { selector: 'summary' }) ||
-        screen.queryByRole('button', { name: `deviceFirst.payExternalAndOrder:${amount}` }),
-    ).toBeTruthy();
-  });
+  await waitFor(
+    () => {
+      expect(
+        screen.queryByText('deviceFirst.payFullPrice', { selector: 'summary' }) ||
+          screen.queryAllByRole('button', {
+            name: new RegExp(`^deviceFirst\\.paymentMethodAmount:${amount}:`),
+          }).length,
+      ).toBeTruthy();
+    },
+    { timeout: 4000 },
+  );
   const disclosure = openFullPrice();
-  if (disclosure) {
-    const buttons = await within(disclosure).findAllByRole('button', {
-      name: new RegExp(
-        `^deviceFirst\\.paymentMethodAmount:${amount}:` +
-          (typeof method !== 'undefined' ? `deviceFirst\\.${method}$` : ''),
-      ),
-    });
-    expect(buttons[index]).toBeTruthy();
-    return buttons[index];
-  }
-  return screen.getByRole('button', { name: `deviceFirst.payExternalAndOrder:${amount}` });
+  const scope = disclosure ? within(disclosure) : screen;
+  const buttons = await scope.findAllByRole('button', {
+    name: new RegExp(
+      `^deviceFirst\\.paymentMethodAmount:${amount}:` +
+        (typeof method !== 'undefined' ? `deviceFirst\\.${method}$` : ''),
+    ),
+  });
+  expect(buttons[index]).toBeTruthy();
+  return buttons[index];
 }
 
 function directMethodButtons(amount = '450 ₽', method?: string) {
@@ -299,40 +306,12 @@ function directMethodButtons(amount = '450 ₽', method?: string) {
 }
 
 async function openDirectMethods(amount = '450 ₽', method?: string) {
-  const button = await peekDirectButton(amount);
-  if (!button.closest('details')) {
-    // A peek must never submit a one-method request. Callers of this helper
-    // explicitly supplied multiple methods, so Pay only opens the local picker.
-    expect(deviceFirstApi.payDirect).not.toHaveBeenCalled();
-    fireEvent.click(button);
-    expect(deviceFirstApi.payDirect).not.toHaveBeenCalled();
-  }
-  return screen.getAllByRole('button', {
-    name: new RegExp(
-      `^deviceFirst\\.paymentMethodAmount:${amount}:` +
-        (typeof method !== 'undefined' ? `deviceFirst\\.${method}$` : ''),
-    ),
-  });
+  await peekDirectButton(amount);
+  return directMethodButtons(amount, method);
 }
 
 async function clickDirect(amount = '450 ₽', index = 0, method?: string) {
-  const disclosure = screen.queryByText('deviceFirst.payFullPrice', { selector: 'summary' });
-  if (disclosure) {
-    fireEvent.click(await peekDirectButton(amount, index, method));
-    return;
-  }
   fireEvent.click(await peekDirectButton(amount, index, method));
-  const picker = screen.queryByRole('group', { name: 'deviceFirst.paymentMethodQuestion' });
-  if (picker) {
-    const buttons = within(picker).getAllByRole('button', {
-      name: new RegExp(
-        `^deviceFirst\\.paymentMethodAmount:${amount}:` +
-          (typeof method !== 'undefined' ? `deviceFirst\\.${method}$` : ''),
-      ),
-    });
-    expect(buttons[index]).toBeTruthy();
-    fireEvent.click(buttons[index]);
-  }
 }
 
 function receiptValue(key: string) {
@@ -679,6 +658,8 @@ describe('DeviceFirstConfigurator interaction safety', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    sessionStorage.clear();
+    vi.mocked(deviceFirstApi.getOptions).mockResolvedValue(options);
     vi.mocked(deviceFirstApi.get).mockResolvedValue(checkout('awaiting_payment'));
     vi.mocked(deviceFirstApi.paymentMethods).mockResolvedValue({
       methods: [{ key: 'sbp', provider_code: 2 }],
@@ -2657,7 +2638,7 @@ describe('DeviceFirstConfigurator interaction safety', () => {
     expect(deviceFirstApi.payDirect).toHaveBeenLastCalledWith(plategaPayPayload);
   });
 
-  it('keeps the person on the confirmation with a top-up path when the wallet is short', async () => {
+  it('keeps the person on the confirmation with a wallet retry when the wallet is reported short', async () => {
     vi.mocked(deviceFirstApi.payDirect).mockRejectedValue({
       response: { status: 422, data: { detail: { code: 'wallet_insufficient' } } },
     });
@@ -2667,10 +2648,12 @@ describe('DeviceFirstConfigurator interaction safety', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'deviceFirst.payAndOrder:450 ₽' }));
 
     expect(await screen.findByText('deviceFirst.errorWalletInsufficient')).toBeTruthy();
-    // No row was created: the person stays on the confirmation and gets an
-    // explicit top-up path instead of a generic failure.
-    expect(screen.getByRole('button', { name: 'deviceFirst.needTopup' })).toBeTruthy();
-    expect(screen.queryByRole('button', { name: 'deviceFirst.payAndOrder:450 ₽' })).toBeNull();
+    // The known balance covers the price: keep the deliberate wallet retry
+    // rather than inventing a top-up for zero rubles.
+    expect(screen.getByRole('button', { name: 'deviceFirst.payAndOrder:450 ₽' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'deviceFirst.needTopup' })).toBeNull();
+    expect(screen.queryByText('balance.topUpOrder.toPay')).toBeNull();
+    expect(receiptValue('balance.topUpOrder.walletCharge')).toBe('450 ₽');
     expect(deviceFirstApi.payDirect).toHaveBeenCalledExactlyOnceWith({
       ...plategaPayPayload,
       funding_mode: 'wallet',
@@ -2900,10 +2883,9 @@ describe('DeviceFirstConfigurator interaction safety', () => {
       await screen.findByRole('button', { name: 'deviceFirst.payExternalAndOrder:350 ₽' }),
     ).toBeTruthy();
     expect(await peekDirectButton('450 ₽')).toBeTruthy();
-    // 🔴 И экран ОБЪЯСНЯЕТ, почему человек здесь, а не в банке. Три соседние ветки
-    // «не стрелять» ставят сообщение; молчаливой осталась бы только эта, и человек
-    // прочитал бы остановку как поломку.
-    expect(await screen.findByText('deviceFirst.autostartHeldTitle')).toBeTruthy();
+    // Owner removed the old full-payment-or-remainder paragraph.
+    expect(screen.queryByText('deviceFirst.autostartHeldTitle')).toBeNull();
+    expect(receiptValue('balance.topUpOrder.toPay')).toBe('350 ₽');
   });
 
   // 🔴 Верхняя граница. Самый дорогой вход: человек доплатил, вернулся в чат, а там висит
@@ -2999,7 +2981,11 @@ describe('DeviceFirstConfigurator interaction safety', () => {
       initialPath: '/subscription/purchase?period=30&devices=2&method=sbp&autostart=1',
     });
 
-    expect(await screen.findByText('deviceFirst.autostartHeldTitle')).toBeTruthy();
+    await waitFor(() =>
+      expect(screen.getByTestId('location').textContent).toBe('/subscription/purchase'),
+    );
+    expect(receiptValue('balance.topUpOrder.toPay')).toBe('350 ₽');
+    expect(deviceFirstApi.nativeLaunchDirect).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByRole('button', { name: 'deviceFirst.changeOptions' }));
     // Человек САМ открыл подтверждение — на этом проходе никто ничего не удерживал.
@@ -3132,9 +3118,9 @@ describe('DeviceFirstConfigurator interaction safety', () => {
         seed: (client) =>
           client.setQueryData(['device-first-payment-methods'], methodList, { updatedAt: 1 }),
       });
-      const chosen = await peekDirectButton('450 ₽', balanceKopeks ? 1 : 0);
+      const chosen = await peekDirectButton('450 ₽', 0, 'cards');
       const topUp = screen.queryByRole('button', { name: 'deviceFirst.needTopup' });
-      expect(topUp === null).toBe(balanceKopeks === 0);
+      expect(topUp).toBeNull();
       if (topUp)
         expect(
           topUp.compareDocumentPosition(chosen) & Node.DOCUMENT_POSITION_FOLLOWING,
@@ -3146,7 +3132,7 @@ describe('DeviceFirstConfigurator interaction safety', () => {
         expect(
           topUp.compareDocumentPosition(chosen) & Node.DOCUMENT_POSITION_FOLLOWING,
         ).toBeTruthy();
-      expect(screen.queryAllByText('deviceFirst.needTopup')).toHaveLength(balanceKopeks ? 2 : 0);
+      expect(screen.queryAllByText('deviceFirst.needTopup')).toHaveLength(0);
       void queryClient.refetchQueries({ queryKey: ['device-first-payment-methods'] });
       await waitFor(() => expect((chosen as HTMLButtonElement).disabled).toBe(true));
       fireEvent.click(chosen);
@@ -3179,6 +3165,7 @@ describe('DeviceFirstConfigurator interaction safety', () => {
       ],
     });
 
+    getBalancePaymentMethods.mockResolvedValue(topUpMethodsResponse);
     renderConfigurator({
       options: { ...options, balance_kopeks: 10000 },
       initialPath: '/subscription/purchase?period=30&devices=2&method=cards_ru&autostart=1',
@@ -3255,7 +3242,7 @@ describe('DeviceFirstConfigurator interaction safety', () => {
 
     expect(
       await screen.findByRole('button', {
-        name: /deviceFirst\.(payExternalAndOrder|needTopup)/,
+        name: 'deviceFirst.payAndOrder:450 ₽',
       }),
     ).toBeTruthy();
   });
@@ -3316,13 +3303,15 @@ describe('DeviceFirstConfigurator interaction safety', () => {
     });
 
     // Улика, что экран поднялся именно в удержанном состоянии, а не остался на выборе.
-    expect(await screen.findByText('deviceFirst.autostartHeldTitle')).toBeTruthy();
+    await waitFor(() =>
+      expect(screen.getByTestId('location').textContent).toBe('/subscription/purchase'),
+    );
     const methods = await openDirectMethods('450 ₽');
     const topUp = screen.getByRole('button', { name: 'deviceFirst.payExternalAndOrder:500 ₽' });
     expect(
       topUp.compareDocumentPosition(methods[0]) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
-    expect(screen.getByText('deviceFirst.autostartHeldTitle')).toBeTruthy();
+    expect(screen.queryByText('deviceFirst.autostartHeldTitle')).toBeNull();
     expect(methods.every((button) => !!button.closest('details'))).toBe(true);
     expect(deviceFirstApi.payDirect).not.toHaveBeenCalled();
   });
@@ -3427,45 +3416,30 @@ describe('DeviceFirstConfigurator interaction safety', () => {
   // ошибки, а ошибки на этом экране не бывает: оплату с баланса при нехватке не
   // предлагают, значит `wallet_insufficient` взяться неоткуда. Кнопку видел кто угодно,
   // кроме того, кому она нужна. Проверяем ровно этот случай: денег НЕ хватает, ошибки НЕТ.
-  it('РЕК-12: keeps an unknown top-up amount neutral after the limits request fails', async () => {
+  it('shows the full direct price when top-up limits are pending or failed', async () => {
     let rejectLimits!: (error: Error) => void;
     getBalancePaymentMethods.mockReturnValue(
       new Promise((_resolve, reject) => (rejectLimits = reject)),
     );
-    // 100 ₽ на балансе против 450 ₽ цены — тот самый массовый случай: рекламный бонус,
-    // которого не хватает на месяц.
     const { queryClient } = renderConfigurator({
       options: { ...options, balance_kopeks: 10000 },
       seed: (client) => client.setQueryData(['payment-methods'], staleTopUp, { updatedAt: 1 }),
     });
-
     fireEvent.click(screen.getByRole('button', { name: 'deviceFirst.review' }));
-
-    // Ошибки нет — значит кнопка пришла не из блока отказа.
-    expect(screen.queryByRole('alert')).toBeNull();
-    // 🔴 Этап Б-2: у человека со СВОИМИ деньгами это доплата, а не пополнение. Слова
-    // «и оформить» на кнопке нет и быть не может — возврат приводит на подтверждение,
-    // где надо нажать ещё раз.
-    const topUp = await screen.findByRole('button', { name: 'deviceFirst.needTopup' });
+    const direct = await peekDirectButton('450 ₽');
+    expect(receiptValue('balance.topUpOrder.toPay')).toBe('450 ₽');
+    expect(screen.queryByRole('button', { name: 'deviceFirst.needTopup' })).toBeNull();
+    expect(screen.getByText('deviceFirst.topUpAutoHint')).toBeTruthy();
     rejectLimits(new Error('limits unavailable'));
     await waitFor(() =>
       expect(queryClient.getQueryState(['payment-methods'])?.status).toBe('error'),
     );
-    expect(screen.getByRole('button', { name: 'deviceFirst.needTopup' })).toBe(topUp);
-
-    fireEvent.click(topUp);
-
-    // Суммы и адреса возврата в проверке ЗАШИТЫ ЛИТЕРАЛАМИ: сторож, который считает
-    // недостачу тем же выражением, что и код, доказывает только сам себя.
-    const target = screen.getByTestId('location').textContent ?? '';
-    // 🔴 Этап Б-2: сразу экран суммы нужного провайдера, а не выбор провайдера с одной карточкой.
-    expect(target.startsWith('/balance/top-up/platega?')).toBe(true);
-    const query = new URLSearchParams(target.slice(target.indexOf('?') + 1));
-    expect(query.get('amount')).toBeNull();
-    // Возврат несёт метку кассы и ВЫБОР человека — без них он вернётся на пустой экран.
-    expect(query.get('returnTo')).toBe('/subscription/purchase?from=checkout&period=30&devices=2');
-    expect(query.get('auto')).toBeNull();
-    expect(query.get('option')).toBeNull();
+    expect(screen.getByText('deviceFirst.topUpAutoHint')).toBeTruthy();
+    expect(receiptValue('balance.topUpOrder.toPay')).toBe('450 ₽');
+    fireEvent.click(direct);
+    await waitFor(() =>
+      expect(deviceFirstApi.payDirect).toHaveBeenCalledExactlyOnceWith(plategaPayPayload),
+    );
   });
 
   // 🔴 Сторож на ЧЕСТНУЮ СУММУ. Число на кнопке обязано совпадать с числом в адресе, иначе
@@ -3727,19 +3701,18 @@ describe('DeviceFirstConfigurator interaction safety', () => {
   // 🔴 С копейками на балансе доплата округляется до ПОЛНОЙ цены — то есть человек заплатит
   // столько же, но пройдёт на три экрана больше. Делать такую дорогу громкой — ровно то, за
   // что ревью отклонило кандидата «А».
-  it('keeps only one Pay with the same charge and preserves optional direct payment', async () => {
+  it('keeps direct payment primary when a sub-ruble wallet cannot lower the bank amount', async () => {
     renderConfigurator({ options: { ...options, balance_kopeks: 50 } });
-
     fireEvent.click(screen.getByRole('button', { name: 'deviceFirst.review' }));
-
     const full = await peekDirectButton('450 ₽');
-    const topUp = screen.getByRole('button', { name: 'deviceFirst.payExternalAndOrder:450 ₽' });
-    // Прямая оплата идёт ПЕРВОЙ, доплата ушла вниз и осталась тихой.
-    expect(topUp.compareDocumentPosition(full) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(topUp.className).toContain('bg-accent-500');
-    expect(screen.getByText('deviceFirst.payFullPrice').closest('details')).toBeTruthy();
+    expect(full.classList.contains('bg-accent-500')).toBe(true);
+    expect(
+      screen.queryByRole('button', { name: 'deviceFirst.payExternalAndOrder:450 ₽' }),
+    ).toBeNull();
+    expect(screen.queryByText('deviceFirst.payFullPrice')).toBeNull();
     expect(receiptValue('balance.topUpOrder.toPay')).toBe('450 ₽');
-    expect(screen.getByText('deviceFirst.topUpSurplusHint:0,50 ₽')).toBeTruthy();
+    expect(screen.queryByText('balance.topUpOrder.fromBalanceShort')).toBeNull();
+    expect(screen.queryByText('deviceFirst.topUpSurplusHint:0,50 ₽')).toBeNull();
   });
 
   // 🔴 Сводка печатает честную недостачу, кнопка — сумму счёта. Когда минимум провайдера
