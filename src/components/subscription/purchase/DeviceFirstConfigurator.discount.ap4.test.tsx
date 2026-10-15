@@ -198,6 +198,8 @@ function strikes(container: HTMLElement) {
 }
 beforeEach(async () => {
   vi.resetAllMocks();
+  vi.useFakeTimers({ toFake: ['Date'] });
+  vi.setSystemTime(new Date('2026-10-14T12:00:00Z'));
   sessionStorage.clear();
   await language.changeLanguage('ru');
   vi.mocked(deviceFirstApi.getOptions).mockResolvedValue(options());
@@ -219,6 +221,7 @@ beforeEach(async () => {
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
+  vi.useRealTimers();
 });
 
 describe('AP-4 real local checkout discount selection', () => {
