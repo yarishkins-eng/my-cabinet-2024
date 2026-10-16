@@ -756,7 +756,7 @@ describe('АП-4 PR-2а P3-9: постоянные assertions для семи п
     expect((toggle as HTMLButtonElement).disabled).toBe(true);
     fireEvent.click(toggle);
     invokeRegisteredClick(toggle);
-    expect(screen.queryByRole('region', { name: 'Проверьте перед включением' })).toBeNull();
+    expect(screen.queryByRole('region', { name: /Включить скидку \d+%\?/ })).toBeNull();
     expect(confirm).toHaveBeenCalledTimes(1);
     expect(patch).not.toHaveBeenCalled();
     await act(async () => pending.resolve(false));
@@ -773,7 +773,7 @@ describe('АП-4 PR-2а P3-9: постоянные assertions для семи п
     expect((toggle as HTMLButtonElement).disabled).toBe(true);
     fireEvent.click(toggle);
     invokeRegisteredClick(toggle);
-    expect(screen.queryByRole('region', { name: 'Проверьте перед включением' })).toBeNull();
+    expect(screen.queryByRole('region', { name: /Включить скидку \d+%\?/ })).toBeNull();
     expect(confirm).not.toHaveBeenCalled();
     expect(patch.mock.calls).toEqual([[ID, { carrier: 48 }]]);
     await act(async () => pending.resolve(card({ params: { ...card().params, carrier: 48 } })));
