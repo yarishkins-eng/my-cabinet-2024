@@ -137,7 +137,15 @@ async function show(overrides: Record<string, unknown> = {}, language = 'ru') {
   await screen.findByRole('heading', { name: server.title });
   if (server.params && Object.keys(server.params).length)
     await waitFor(() =>
-      expect(screen.getByText(i18n.t('admin.autoMessages.detail.when'))).toBeTruthy(),
+      expect(
+        screen.getByText(
+          i18n.t(
+            server.id === ID
+              ? 'admin.autoMessages.discount.settingsTitle'
+              : 'admin.autoMessages.detail.when',
+          ),
+        ),
+      ).toBeTruthy(),
     );
   return { ...rendered, i18n, client };
 }
@@ -220,7 +228,9 @@ describe('АП-4 PR-2а: маркетолог видит решение до в�
       expect(patch).not.toHaveBeenCalled();
       expect(confirm).not.toHaveBeenCalled();
       expect(i18n.exists('admin.autoMessages.discount.checkTitle')).toBe(true);
-      expect(screen.getByText(i18n.t('admin.autoMessages.discount.checkTitle'))).toBeTruthy();
+      expect(
+        screen.getByText(i18n.t('admin.autoMessages.discount.checkTitle', { percent: 15 })),
+      ).toBeTruthy();
       expect(normalizedText()).toContain(carrierLabels[1]);
       expect(normalizedText()).toContain(audienceLabels[0]);
       expect(normalizedText()).toMatch(/173[,.]45/);
@@ -232,7 +242,9 @@ describe('АП-4 PR-2а: маркетолог видит решение до в�
   it('отмена проверки не меняет сервер и закрывает проверку', async () => {
     const { i18n } = await show();
     fireEvent.click(screen.getByRole('switch'));
-    expect(screen.getByText(i18n.t('admin.autoMessages.discount.checkTitle'))).toBeTruthy();
+    expect(
+      screen.getByText(i18n.t('admin.autoMessages.discount.checkTitle', { percent: 15 })),
+    ).toBeTruthy();
     fireEvent.click(
       screen.getByRole('button', {
         name: i18n.t('admin.autoMessages.discount.cancel'),
@@ -240,7 +252,9 @@ describe('АП-4 PR-2а: маркетолог видит решение до в�
       }),
     );
     expect(patch).not.toHaveBeenCalled();
-    expect(screen.queryByText(i18n.t('admin.autoMessages.discount.checkTitle'))).toBeNull();
+    expect(
+      screen.queryByText(i18n.t('admin.autoMessages.discount.checkTitle', { percent: 15 })),
+    ).toBeNull();
   });
 
   it('черновик нельзя включить; после сохранения проверка показывает новую серверную настройку', async () => {
@@ -260,8 +274,11 @@ describe('АП-4 PR-2а: маркетолог видит решение до в�
         .carrier,
     ).toBe(48);
     fireEvent.click(screen.getByRole('switch'));
-    const check = screen.getByText(i18n.t('admin.autoMessages.discount.checkTitle')).parentElement;
-    expect(check?.textContent).toContain(carrierLabels[0]);
+    const check = screen.getByText(
+      i18n.t('admin.autoMessages.discount.checkTitle', { percent: 15 }),
+    ).parentElement;
+    expect(check?.textContent).not.toContain(carrierLabels[0]);
+    expect(check?.textContent).toMatch(/173[,.]45/);
     expect(patch.mock.calls).toHaveLength(1);
   });
 
@@ -433,13 +450,14 @@ describe('АП-4 PR-2а: маркетолог видит решение до в�
         percent: 15,
         enabled: true,
         legacy_enabled: true,
+        rollout_note: 'Пока только тестовым аккаунтам',
       },
     });
     expect(screen.getByText(i18n.t('admin.autoMessages.discount.bothEnabled'))).toBeTruthy();
-    expect(screen.getByText(i18n.t('admin.autoMessages.discount.replacesLegacy'))).toBeTruthy();
+    expect(screen.queryByText(i18n.t('admin.autoMessages.discount.replacesLegacy'))).toBeNull();
     expect(
       screen
-        .getByRole('link', { name: i18n.t('admin.autoMessages.discount.configure') })
+        .getByRole('link', { name: i18n.t('admin.autoMessages.discount.configureNew') })
         .getAttribute('href'),
     ).toContain(ID);
   });

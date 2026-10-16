@@ -46,6 +46,7 @@ const context = {
   percent: 15,
   enabled: true,
   legacy_enabled: false,
+  rollout_note: 'Пока только тестовым аккаунтам',
 };
 const prices = {
   '15': [{ period_days: 30, price_kopeks: 17345 }],
@@ -163,7 +164,13 @@ async function show(
   );
   await screen.findByRole('heading', { name: first.title });
   if (first.params && Object.keys(first.params).length)
-    await screen.findByText(i18n.t('admin.autoMessages.detail.when'));
+    await screen.findByText(
+      i18n.t(
+        first.id === ID
+          ? 'admin.autoMessages.discount.settingsTitle'
+          : 'admin.autoMessages.detail.when',
+      ),
+    );
   return {
     ...rendered,
     i18n,
@@ -193,7 +200,7 @@ function enableButton(language = 'ru') {
 }
 function review(language = 'ru') {
   return screen.getByRole('region', {
-    name: language === 'ru' ? 'Проверьте перед включением' : 'Check before enabling',
+    name: language === 'ru' ? /^Включить скидку \d+%\?$/ : /^Enable a \d+% discount\?$/,
   });
 }
 function normalize(node: HTMLElement) {
@@ -414,48 +421,37 @@ describe('АП-4 PR-2а поправки: карточки изолирован�
 
 describe('АП-4 PR-2а поправки: содержание и доступный отказ рядом с сохранением', () => {
   it.each(['ru', 'en'])(
-    'P3-1: проверка содержит подписанные варианты и единицы всех чисел (%s)',
+    'Решение16.10: окно содержит сохранённый процент, аудиторию и цену без четырёхполевого повтора (%s)',
     async (language) => {
-      await show(
-        {
-          params: { ...card().params, trigger_days: 3 },
-          limits: { ...card().limits, trigger_days: [1, 30] },
-        },
-        language,
-      );
+      const { i18n } = await show({}, language);
       fireEvent.click(screen.getByRole('switch'));
-      const text = normalize(review(language));
-      expect(text).toContain(`${language === 'ru' ? 'Размер скидки' : 'Discount size'}: 15 %`);
-      expect(text).toContain(carrierLabels[1]);
-      expect(text).toContain(audienceLabels[0]);
-      const hoursUnit = language === 'ru' ? 'ч' : 'h';
-      const daysUnit = language === 'ru' ? 'дн' : 'd';
-      expect(text).toContain(
-        `${language === 'ru' ? 'Сколько действует' : 'How long it lasts'}: 24 ${hoursUnit}`,
+      const panel = review(language);
+      expect(
+        within(panel).getByText(i18n.t('admin.autoMessages.discount.checkTitle', { percent: 15 })),
+      ).toBeTruthy();
+      expect(normalize(panel)).toContain(i18n.t('admin.autoMessages.discount.vpnAudience'));
+      expect(normalize(panel)).toContain(
+        i18n.t('admin.autoMessages.discount.testAudienceScope').trim(),
       );
-      expect(text).toContain(
-        `${language === 'ru' ? 'Запас после конца пробного' : 'Extra hours after the trial ends'}: 12 ${hoursUnit}`,
-      );
-      expect(text).toContain(
-        `${language === 'ru' ? 'Через сколько дней' : 'After how many days'}: 3 ${daysUnit}`,
-      );
-      expect(text).not.toContain(`${language === 'ru' ? 'Кому' : 'Who receives it'}: 1`);
+      expect(normalize(panel)).toMatch(/173[,.]45/);
+      expect(normalize(panel)).not.toContain(carrierLabels[1]);
+      expect(normalize(panel)).not.toContain(audienceLabels[0]);
+      expect(normalize(panel)).not.toContain('12 ч');
       expect(patch).not.toHaveBeenCalled();
     },
   );
 
   it.each(['ru', 'en'])(
-    'P3-1: без подписей carrier/audience имеют понятный fallback, а не числовые коды (%s)',
+    'Решение16.10: старыйAPI без фразы тестового этапа работает без неё (%s)',
     async (language) => {
-      await show({ choices: undefined }, language);
+      const { i18n } = await show({ discount_context: undefined, choices: undefined }, language);
       fireEvent.click(screen.getByRole('switch'));
-      const text = normalize(review(language));
-      const fallback = language === 'ru' ? 'Нет подписи варианта' : 'Option label unavailable';
-      expect(text).toContain(
-        `${language === 'ru' ? 'В каком письме' : 'Which message'}: ${fallback}`,
+      const panel = review(language);
+      expect(normalize(panel)).toContain(i18n.t('admin.autoMessages.discount.vpnAudience'));
+      expect(normalize(panel)).not.toContain(
+        i18n.t('admin.autoMessages.discount.testAudienceScope').trim(),
       );
-      expect(text).toContain(`${language === 'ru' ? 'Кому' : 'Who receives it'}: ${fallback}`);
-      expect(text).not.toContain(`${language === 'ru' ? 'Кому' : 'Who receives it'}: 1`);
+      expect(normalize(panel)).not.toContain('Кому: 1');
     },
   );
 
@@ -511,7 +507,7 @@ describe('АП-4 PR-2а поправки: содержание и доступн
       fireEvent.click(action(language));
       const alert = screen.getByRole('alert');
       expect(alert.textContent).toBe(i18n.t('admin.autoMessages.discount.missingPrices'));
-      const settings = screen.getByText(i18n.t('admin.autoMessages.detail.when'))
+      const settings = screen.getByText(i18n.t('admin.autoMessages.discount.settingsTitle'))
         .parentElement as HTMLElement;
       expect(settings.contains(alert)).toBe(true);
       expect(settings.contains(action(language))).toBe(true);
@@ -536,7 +532,7 @@ describe('АП-4 PR-2а поправки: содержание и доступн
     fireEvent.click(action());
     const alert = await screen.findByRole('alert');
     expect(alert.textContent).toBe('Параметры не приняты сервером.');
-    const settings = screen.getByText(i18n.t('admin.autoMessages.detail.when'))
+    const settings = screen.getByText(i18n.t('admin.autoMessages.discount.settingsTitle'))
       .parentElement as HTMLElement;
     expect(settings.contains(alert)).toBe(true);
     expect(patch).toHaveBeenCalledWith(ID, { carrier: 48 });
@@ -561,7 +557,7 @@ describe('АП-4 PR-2а поправки: содержание и доступн
   );
 
   it.each(['trial-2d', 'trial-1d', 'trial-2h', 'trial-discount', ID])(
-    'P3-6: bothEnabled доступно для договорной карточки %s',
+    'Решение16.10: одна строка обеих скидок только на старой карточке (%s)',
     async (id) => {
       const { i18n } = await show({
         id,
@@ -569,7 +565,9 @@ describe('АП-4 PR-2а поправки: содержание и доступн
         params: null,
         discount_context: { ...context, legacy_enabled: true },
       });
-      expect(screen.getByText(i18n.t('admin.autoMessages.discount.bothEnabled'))).toBeTruthy();
+      const warning = screen.queryByText(i18n.t('admin.autoMessages.discount.bothEnabled'));
+      if (id === 'trial-discount') expect(warning).toBeTruthy();
+      else expect(warning).toBeNull();
     },
   );
   it.each(['low-balance', 'wave2', 'paid-3d'])(
@@ -820,7 +818,7 @@ describe('АП-4 PR-2а P3-9: постоянные assertions для семи п
     expect((enableButton() as HTMLButtonElement).disabled).toBe(false);
     fireEvent.click(screen.getByRole('button', { name: carrierLabels[0] }));
     expect(review()).toBeTruthy();
-    expect(normalize(review())).toContain(carrierLabels[1]);
+    expect(normalize(review())).toContain('Включить скидку 15%?');
     expect((enableButton() as HTMLButtonElement).disabled).toBe(true);
     fireEvent.click(enableButton());
     invokeRegisteredClick(enableButton());
@@ -876,6 +874,70 @@ describe('АП-4 PR-2а P3-9: постоянные assertions для семи п
     expect((enableButton() as HTMLButtonElement).disabled).toBe(true);
     fireEvent.click(enableButton());
     expect(confirm).not.toHaveBeenCalled();
+    expect(patch).not.toHaveBeenCalled();
+  });
+});
+
+describe('АП4.PR4: согласованные состояния и короткие окна', () => {
+  it.each(['ru', 'en'])(
+    'OFF без повторной причины, ON с фразой только из контекста (%s)',
+    async (language) => {
+      const { i18n } = await show({}, language);
+      expect(screen.getByText(i18n.t('admin.autoMessages.discount.switchOff'))).toBeTruthy();
+      expect(screen.queryByText('Выключено здесь')).toBeNull();
+      expect(screen.queryByText(i18n.t('admin.autoMessages.discount.standsNote'))).toBeNull();
+      expect(screen.getByText(i18n.t('admin.autoMessages.discount.audienceHint'))).toBeTruthy();
+      expect(
+        screen.getByText(i18n.t('admin.autoMessages.discount.postTrialHoursHint')),
+      ).toBeTruthy();
+    },
+  );
+
+  it.each([undefined, null, 'Пока только тестовым аккаунтам'])(
+    'ON и условная фраза этапа (%s)',
+    async (note) => {
+      const { i18n } = await show({
+        enabled: true,
+        state: 'live',
+        discount_context: { ...context, rollout_note: note },
+      });
+      expect(screen.getByText(i18n.t('admin.autoMessages.discount.switchOn'))).toBeTruthy();
+      expect(Boolean(screen.queryByText(i18n.t('admin.autoMessages.discount.standsNote')))).toBe(
+        Boolean(note),
+      );
+      expect(screen.queryByText(i18n.t('admin.autoMessages.detail.switchOn'))).toBeNull();
+    },
+  );
+
+  it.each([undefined, null])(
+    'Обе скидки после тестового этапа не дают прежний совет (%s)',
+    async (note) => {
+      const { i18n } = await show({
+        id: 'trial-discount',
+        discount_context: { ...context, legacy_enabled: true, rollout_note: note },
+      });
+      expect(screen.queryByText(i18n.t('admin.autoMessages.discount.bothEnabled'))).toBeNull();
+    },
+  );
+
+  it('выключение носителя содержит его настоящее название, одной фразой', async () => {
+    const title = 'Пробный закончится завтра';
+    const { i18n } = await show(
+      card({
+        id: 'trial-1d',
+        title,
+        params: null,
+        enabled: true,
+        state: 'live',
+        discount_context: context,
+      }),
+    );
+    confirm.mockResolvedValue(false);
+    fireEvent.click(screen.getByRole('switch'));
+    await waitFor(() => expect(confirm).toHaveBeenCalled());
+    expect(confirm.mock.calls[0][0]).toBe(
+      i18n.t('admin.autoMessages.discount.carrierOff', { title }),
+    );
     expect(patch).not.toHaveBeenCalled();
   });
 });

@@ -90,10 +90,12 @@ describe('АП-4 PR-2а: own discount OFF is distinct from carrier OFF', () => {
       const question = confirm.mock.calls[0][0];
       expect(i18n.exists('admin.autoMessages.discount.discountOff')).toBe(true);
       expect(question).toBe(i18n.t('admin.autoMessages.discount.discountOff'));
-      expect(question).toMatch(
-        language === 'ru' ? /письмо.*без скидки/i : /message.*without.*discount/i,
+      // Owner-approved PR4 copy: issued discounts keep their original expiry.
+      expect(question).toBe(
+        language === 'ru'
+          ? 'Выключить скидку? Выданные доработают до своего срока.'
+          : 'Turn off the discount? Discounts already issued will last until they expire.',
       );
-      expect(question).toMatch(language === 'ru' ? /выданн/i : /already issued/i);
       expect(question.length).toBeLessThanOrEqual(240);
       expect(patch).not.toHaveBeenCalled();
       expect((screen.getByRole('switch') as HTMLButtonElement).getAttribute('aria-checked')).toBe(

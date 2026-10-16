@@ -43,6 +43,7 @@ export interface AutoMessageItem {
     percent: number;
     enabled: boolean;
     legacy_enabled: boolean;
+    rollout_note?: string | null;
   };
   discount_prices?: Record<string, Array<{ period_days: number; price_kopeks: number }>>;
   /** null — отправки этого сообщения нигде не отмечаются; экран рисует прочерк, а не ноль. */

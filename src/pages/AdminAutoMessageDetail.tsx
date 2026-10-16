@@ -436,7 +436,7 @@ function AdminAutoMessageDetailCard() {
       const linkedQuestion = discountCard
         ? dt('discountOff')
         : carriesDiscount
-          ? dt('carrierOff')
+          ? dt('carrierOff', { title: data.title })
           : question;
       const asked =
         linkedQuestion.length > 240 ? `${linkedQuestion.slice(0, 239)}…` : linkedQuestion;
@@ -481,22 +481,24 @@ function AdminAutoMessageDetailCard() {
                 список на той же записи честно писал «не отправляется», и два экрана
                 одного раздела говорили противоположное. */}
             <div className="text-sm font-semibold text-dark-100">
-              {quiet
-                ? t('admin.autoMessages.detail.notSending')
-                : manageable
-                  ? data.enabled
-                    ? t('admin.autoMessages.detail.switchOn')
-                    : t('admin.autoMessages.detail.switchOff')
-                  : t('admin.autoMessages.locked.hint')}
+              {discountCard
+                ? dt(data.enabled ? 'switchOn' : 'switchOff')
+                : quiet
+                  ? t('admin.autoMessages.detail.notSending')
+                  : manageable
+                    ? data.enabled
+                      ? t('admin.autoMessages.detail.switchOn')
+                      : t('admin.autoMessages.detail.switchOff')
+                    : t('admin.autoMessages.locked.hint')}
             </div>
-            {quiet && data.quiet_reason && (
+            {quiet && data.quiet_reason && (!discountCard || data.enabled) && (
               <div className="mt-0.5 text-xs text-dark-400">{data.quiet_reason}</div>
             )}
             {/* Показываем положение своего тумблера ТОЛЬКО когда молчание вызвано не им.
                 Иначе рядом вставали «Сейчас не отправляется» и «Сообщение включено» —
                 то же противоречие, что и раньше, просто переехавшее на строку ниже.
                 А когда выключил он сам, третья строка об этом же — лишнее повторение. */}
-            {quiet && manageable && data.enabled && (
+            {quiet && manageable && data.enabled && !discountCard && (
               <div className="mt-0.5 text-xs text-dark-500">
                 {t('admin.autoMessages.detail.ownSwitchOn')}
               </div>
@@ -506,48 +508,54 @@ function AdminAutoMessageDetailCard() {
                 {t('admin.autoMessages.locked.hint')}
               </div>
             )}
-            {!quiet && data.note && <div className="mt-0.5 text-xs text-dark-400">{data.note}</div>}
+            {discountCard && data.enabled && context?.rollout_note && (
+              <div className="mt-0.5 text-xs text-dark-400">{dt('standsNote')}</div>
+            )}
+            {!discountCard && !quiet && data.note && (
+              <div className="mt-0.5 text-xs text-dark-400">{data.note}</div>
+            )}
           </div>
         </div>
 
         {discountCard && !data.enabled && changedFields.length > 0 && (
           <p className="mt-3 text-xs text-warning-300">{dt('saveFirst')}</p>
         )}
-        {context?.enabled === true && (carriesDiscount || data.id === 'trial-discount') && (
-          <p className="mt-3 text-sm text-dark-200">
-            {dt(carriesDiscount ? 'attachment' : 'replacesLegacy', { percent: context.percent })}{' '}
-            <Link
-              className="inline-flex min-h-[44px] items-center text-accent-300 underline"
-              to="/admin/auto-messages/trial-ending-discount"
+        {context?.enabled === true &&
+          (carriesDiscount ||
+            (data.id === 'trial-discount' && context.legacy_enabled && context.rollout_note)) && (
+            <p
+              role={carriesDiscount ? undefined : 'status'}
+              className={`mt-3 text-sm ${carriesDiscount ? 'text-dark-200' : 'text-warning-300'}`}
             >
-              {dt('configure')}
-            </Link>
-          </p>
-        )}
-        {context?.enabled === true && context.legacy_enabled === true && (
-          <p role="status" className="mt-3 text-sm text-warning-300">
-            {dt('bothEnabled')}
-          </p>
-        )}
+              {dt(carriesDiscount ? 'attachment' : 'bothEnabled', { percent: context.percent })}
+              {carriesDiscount && context.rollout_note
+                ? ` · ${dt('standsNote').toLocaleLowerCase()}.`
+                : ''}{' '}
+              <Link
+                className="inline-flex min-h-[44px] items-center text-accent-300 underline"
+                to="/admin/auto-messages/trial-ending-discount"
+              >
+                {dt(carriesDiscount ? 'configure' : 'configureNew')}
+              </Link>
+            </p>
+          )}
         {discountCard && enableReview && !data.enabled && (
           <div
             role="region"
-            aria-label={dt('checkTitle')}
+            aria-label={dt('checkTitle', { percent: serverParams?.discount_percent ?? 0 })}
             className="mt-3 space-y-3 rounded-lg border border-warning-500/40 bg-warning-500/10 p-3"
           >
-            <p className="font-semibold">{dt('checkTitle')}</p>
+            <p className="font-semibold">
+              {dt('checkTitle', { percent: serverParams?.discount_percent ?? 0 })}
+            </p>
             <p className="text-sm text-dark-200">
               {priceExample(serverParams?.discount_percent ?? 0)
-                ? dt('checkHint', { price: priceExample(serverParams?.discount_percent ?? 0) })
+                ? dt('checkHint', {
+                    audience: dt(serverParams?.audience === 1 ? 'vpnAudience' : 'allAudience'),
+                    scope: context?.rollout_note ? dt('testAudienceScope') : '',
+                    price: priceExample(serverParams?.discount_percent ?? 0),
+                  })
                 : dt('missingPrices')}
-            </p>
-            <p className="text-sm">
-              {fields
-                .map(
-                  (field) =>
-                    `${t(FIELD_LABELS[field])}: ${fieldText(field, serverParams?.[field])}`,
-                )
-                .join(' · ')}
             </p>
             <div className="flex flex-wrap gap-2">
               <Button
@@ -876,7 +884,7 @@ function AdminAutoMessageDetailCard() {
           {draft && fields.length > 0 && (
             <div className="rounded-xl border border-dark-700 bg-dark-800 p-4">
               <div className="mb-3 text-[11px] uppercase tracking-wider text-dark-500">
-                {t('admin.autoMessages.detail.when')}
+                {discountCard ? dt('settingsTitle') : t('admin.autoMessages.detail.when')}
               </div>
               {fields.map((field) => {
                 const [min, serverMax] = (data.limits?.[field] ?? FALLBACK_RANGE[field]) as [
@@ -894,9 +902,11 @@ function AdminAutoMessageDetailCard() {
                   >
                     <div className="text-sm text-dark-100">{t(FIELD_LABELS[field])}</div>
                     <div className="mb-2 text-xs text-dark-500">
-                      {discountCard && field === 'discount_percent'
-                        ? dt('percentHint')
-                        : t(FIELD_HINTS[field] ?? '')}
+                      {discountCard && field === 'audience'
+                        ? dt('audienceHint')
+                        : discountCard && field === 'discount_percent'
+                          ? dt('percentHint')
+                          : t(FIELD_HINTS[field] ?? '')}
                     </div>
                     {(field === 'carrier' || field === 'audience') && !labelled ? (
                       <p className="text-xs text-warning-300">{dt('missingLabel')}</p>

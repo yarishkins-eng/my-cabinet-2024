@@ -88,11 +88,6 @@ function MessageRow({ item, onOpen }: { item: AutoMessageItem; onOpen: () => voi
               })}
             </div>
           )}
-        {item.id === 'trial-discount' && item.discount_context?.enabled === true && (
-          <div className="mt-0.5 text-xs text-dark-300">
-            {t('admin.autoMessages.discount.replacesLegacy')}
-          </div>
-        )}
         {counts && <div className="mt-0.5 text-xs text-dark-500">{counts}</div>}
         <div className="mt-1.5 flex flex-wrap gap-1.5">
           {tone === 'off' && (
