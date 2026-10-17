@@ -47,7 +47,7 @@ export function useConnectionProgress(flow?: ConnectionFlow) {
         if (!live || result.panel_ok === false) return;
         const baseline = current.current.baseline;
         const snapshot = { hwids: result.devices.map((d) => d.hwid), total: result.total };
-        if (!baseline) update({ baseline: snapshot });
+        if (!baseline || !current.current.importing) update({ baseline: snapshot });
         else if (
           current.current.importing &&
           (result.total > baseline.total ||
@@ -65,6 +65,7 @@ export function useConnectionProgress(flow?: ConnectionFlow) {
       if (document.visibilityState !== 'visible') return;
       if (current.current.store) update({ installed: true, store: false });
       if (current.current.importing) timers = [0, 5000, 15000].map((ms) => setTimeout(read, ms));
+      else void read();
     };
     void read();
     if (current.current.importing) returned();

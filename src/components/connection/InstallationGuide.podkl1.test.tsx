@@ -210,6 +210,51 @@ describe('approved mobile flow', () => {
       expect(screen.getByText('INCY получил настройки')).toBeTruthy();
     },
   );
+  it('refreshes a saved baseline before import and freezes it once import starts', async () => {
+    devices.mockResolvedValue(snapshot(['old']));
+    const first = mount();
+    await act(async () => {});
+    first.unmount();
+    devices.mockResolvedValue(snapshot(['old', 'elsewhere']));
+    mount();
+    await act(async () => {});
+    fireEvent.click(screen.getByRole('button', { name: 'Добавить в INCY' }));
+    vi.useFakeTimers();
+    goHidden();
+    goVisible();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(screen.queryByText('INCY получил настройки')).toBeNull();
+    devices.mockResolvedValue(snapshot(['old', 'elsewhere', 'imported']));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5000);
+    });
+    expect(screen.getByText('INCY получил настройки')).toBeTruthy();
+  });
+  it('refreshes idle devices on return before Add without declaring success', async () => {
+    devices.mockResolvedValue(snapshot(['old']));
+    mount();
+    await act(async () => {});
+    devices.mockResolvedValue(snapshot(['old', 'elsewhere']));
+    goHidden();
+    goVisible();
+    await act(async () => {});
+    expect(screen.queryByText('INCY получил настройки')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Добавить в INCY' }));
+    vi.useFakeTimers();
+    goHidden();
+    goVisible();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(screen.queryByText('INCY получил настройки')).toBeNull();
+    devices.mockResolvedValue(snapshot(['old', 'elsewhere', 'imported']));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5000);
+    });
+    expect(screen.getByText('INCY получил настройки')).toBeTruthy();
+  });
   it('does not invent success after network failure and cancels reads while hidden/unmounted', async () => {
     const first = mount();
     await act(async () => {});
