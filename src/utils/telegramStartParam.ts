@@ -46,6 +46,7 @@ const DEVICE_TOPUP_START_PARAM_RE =
  */
 export function resolveStartParamPath(raw: string | null | undefined): string | null {
   if (!raw) return null;
+  if (/^conn-[A-Za-z0-9_-]{1,64}$/.test(raw)) return '/connection';
 
   const topUp = TOP_UP_START_PARAM_RE.exec(raw);
   if (topUp) {

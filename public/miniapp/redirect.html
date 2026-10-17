@@ -22,7 +22,8 @@
         }
         .container {
             text-align: center;
-            padding: 2rem;
+            padding: 1.5rem;
+            width: 375px;
         }
         .spinner {
             width: 48px;
@@ -59,12 +60,16 @@
             display: inline-block;
             margin-top: 1rem;
             padding: 0.75rem 1.5rem;
-            background: #fff;
-            color: #1a1a2e;
+            background: #5488f7;
+            color: #fff;
+            width: 100%;
+            min-height: 48px;
             text-decoration: none;
             border-radius: 8px;
             font-weight: 500;
         }
+        [hidden] { display: none !important; }
+        .secondary { background: transparent; border: 1px solid #5488f7; }
     </style>
 </head>
 <body>
@@ -72,9 +77,10 @@
         <div class="spinner"></div>
         <h1 id="title">Opening app...</h1>
         <p id="subtitle">Please wait</p>
-        <div class="error" id="errorBlock">
-            <p id="errorText">If the app didn't open, click the button below:</p>
+        <div class="error show" id="errorBlock">
+            <p id="errorText" hidden></p>
             <a class="btn" id="manualBtn" href="#">Open App</a>
+            <a class="btn secondary" id="telegramBtn" hidden>Back to Telegram</a>
         </div>
     </div>
 
@@ -82,21 +88,26 @@
         (function() {
             const params = new URLSearchParams(window.location.search);
             const url = params.get('url');
-            const lang = params.get('lang') || 'en';
+            const lang = (params.get('lang') || 'en').split('-')[0];
+            document.documentElement.lang = lang === 'ru' ? 'ru' : 'en';
+            const app = /^happ:\/\//i.test(url || '') ? 'Happ' : /^incy:\/\//i.test(url || '') ? 'INCY' : (lang === 'ru' ? 'приложение' : 'the app');
+            const iosHapp = app === 'Happ' && /iphone|ipad|ipod/i.test(navigator.userAgent);
 
             const texts = {
                 en: {
-                    title: 'Opening app...',
-                    subtitle: 'Please wait',
-                    error: "If the app didn't open, click the button below:",
-                    btn: 'Open App',
+                    title: `Opening ${app}…`,
+                    subtitle: 'If your phone asks, tap "Open".',
+                    error: iosHapp ? 'Happ not installed yet? Go back to Telegram and choose INCY.' : `${app} not installed yet? Go back to Telegram and tap "Install".`,
+                    btn: `Open ${app}`,
+                    failed: 'Didn’t open?', done: 'Done. Go back to Telegram.', back: 'Back to Telegram',
                     noUrl: 'No URL provided'
                 },
                 ru: {
-                    title: 'Открываем приложение...',
-                    subtitle: 'Пожалуйста, подождите',
-                    error: 'Если приложение не открылось, нажмите кнопку:',
-                    btn: 'Открыть приложение',
+                    title: `Открываем ${app}…`,
+                    subtitle: 'Если телефон спросит, нажмите «Открыть».',
+                    error: iosHapp ? 'Happ ещё не установлен? Вернитесь в Telegram и выберите INCY.' : `${app} ещё не установлен? Вернитесь в Telegram и нажмите «Установить».`,
+                    btn: `Открыть ${app}`,
+                    failed: 'Не открылось?', done: 'Готово. Вернитесь в Telegram.', back: 'Вернуться в Telegram',
                     noUrl: 'URL не указан'
                 }
             };
@@ -106,6 +117,12 @@
             document.getElementById('title').textContent = t.title;
             document.getElementById('subtitle').textContent = t.subtitle;
             document.getElementById('errorText').textContent = t.error;
+            const telegramBtn = document.getElementById('telegramBtn');
+            telegramBtn.textContent = t.back;
+            const bot = params.get('bot') || '';
+            if (/^[A-Za-z0-9_]{4,64}$/.test(bot)) {
+                telegramBtn.href = `https://t.me/${bot}?startapp=conn-${crypto.randomUUID()}`;
+            }
             document.getElementById('manualBtn').textContent = t.btn;
 
             // SECURITY: this page navigates to a user-supplied `url`. Only open
@@ -126,20 +143,37 @@
                 document.getElementById('title').textContent = t.noUrl;
                 document.getElementById('subtitle').textContent = '';
                 document.querySelector('.spinner').style.display = 'none';
+                document.getElementById('manualBtn').hidden = true;
                 return;
             }
 
             const manualBtn = document.getElementById('manualBtn');
             manualBtn.href = url;
 
-            // Try to open the URL scheme directly
-            // This page is opened in external browser, so custom schemes work
+            let departed = false;
+            let armedUntil = Date.now() + 3000;
+            manualBtn.addEventListener('click', () => { armedUntil = Date.now() + 3000; });
+            document.addEventListener('visibilitychange', () => {
+                if (document.hidden && Date.now() <= armedUntil) departed = true;
+                if (!document.hidden && departed) {
+                    document.getElementById('title').textContent = t.done;
+                    document.getElementById('subtitle').textContent = '';
+                    document.querySelector('.spinner').hidden = true;
+                    document.getElementById('errorText').hidden = true;
+                    manualBtn.hidden = true;
+                    telegramBtn.classList.remove('secondary');
+                    telegramBtn.hidden = !telegramBtn.hasAttribute('href');
+                }
+            });
+            setTimeout(() => {
+                if (departed) return;
+                document.getElementById('title').textContent = t.failed;
+                document.getElementById('subtitle').textContent = '';
+                document.querySelector('.spinner').hidden = true;
+                document.getElementById('errorText').hidden = false;
+                telegramBtn.hidden = !telegramBtn.hasAttribute('href');
+            }, 3000);
             window.location.href = url;
-
-            // Show manual button after a delay in case redirect didn't work
-            setTimeout(function() {
-                document.getElementById('errorBlock').classList.add('show');
-            }, 2000);
         })();
     </script>
 </body>

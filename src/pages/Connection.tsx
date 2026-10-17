@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { useQuery } from '@tanstack/react-query';
 import { openLink as sdkOpenLink } from '@telegram-apps/sdk-react';
 import { subscriptionApi } from '../api/subscription';
+import { brandingApi } from '../api/branding';
 import { useTelegramSDK } from '../hooks/useTelegramSDK';
 import { useHaptic } from '@/platform';
 import { SettingsIcon } from '@/components/icons';
@@ -26,6 +27,10 @@ export default function Connection() {
 
   const hapticRef = useRef(hapticImpact);
   hapticRef.current = hapticImpact;
+  const { data: widget } = useQuery({
+    queryKey: ['telegram-widget-config'],
+    queryFn: brandingApi.getTelegramWidgetConfig,
+  });
 
   const {
     data: appConfig,
@@ -188,7 +193,7 @@ export default function Connection() {
       const isHttpUrl = /^https?:\/\//i.test(resolved);
       const finalUrlForTelegram = isHttpUrl
         ? resolved
-        : `${window.location.origin}/miniapp/redirect.html?url=${encodeURIComponent(resolved)}&lang=${i18n.language || 'en'}`;
+        : `${window.location.origin}/miniapp/redirect.html?${new URLSearchParams({ url: resolved, lang: i18n.language || 'en', bot: widget?.bot_username || '' })}`;
 
       if (isTelegramWebApp) {
         try {
@@ -202,7 +207,14 @@ export default function Connection() {
       // In regular browsers open deeplink directly (without intermediate redirect page).
       window.location.href = resolved;
     },
-    [isTelegramWebApp, i18n.language, resolveUrl, connectionLink?.connect_mode, qrConnectionUrl],
+    [
+      isTelegramWebApp,
+      i18n.language,
+      resolveUrl,
+      connectionLink?.connect_mode,
+      qrConnectionUrl,
+      widget?.bot_username,
+    ],
   );
 
   // Check if any platform has configured apps
@@ -285,6 +297,8 @@ export default function Connection() {
 
   return (
     <InstallationGuide
+      subscriptionId={subId ?? subscriptionResponse?.subscription?.id}
+      progressScope={`${user?.id ?? ''}:${subId ?? subscriptionResponse?.subscription?.id ?? 'current'}:${resetFence.epoch ?? ''}`}
       appConfig={guideAppConfig}
       onOpenDeepLink={openDeepLink}
       isTelegramWebApp={isTelegramWebApp}
