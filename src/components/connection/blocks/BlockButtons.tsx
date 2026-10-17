@@ -133,7 +133,7 @@ export function BlockButtons({
               onClick={() => handleCopy(url)}
               className={`flex items-center gap-2 ${
                 copied
-                  ? 'rounded-xl border border-success-500 bg-success-500/10 px-4 py-2 text-sm font-medium text-success-400'
+                  ? `rounded-xl border border-success-500 bg-success-500/10 px-4 py-2 text-sm font-medium text-success-400 ${step ? 'min-h-11 w-full justify-center' : ''}`
                   : smallClass
               }`}
             >

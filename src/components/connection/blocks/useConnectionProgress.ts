@@ -41,13 +41,17 @@ export function useConnectionProgress(flow?: ConnectionFlow) {
     if (!flow) return;
     let live = true;
     let timers: ReturnType<typeof setTimeout>[] = [];
+    let reading = false;
     const read = async () => {
+      if (reading) return;
+      reading = true;
+      const importing = current.current.importing;
       try {
         const result = await subscriptionApi.getDevices(flow.subscriptionId);
         if (!live || result.panel_ok === false) return;
         const baseline = current.current.baseline;
         const snapshot = { hwids: result.devices.map((d) => d.hwid), total: result.total };
-        if (!baseline || !current.current.importing) update({ baseline: snapshot });
+        if (!baseline || !importing) update({ baseline: snapshot });
         else if (
           current.current.importing &&
           (result.total > baseline.total ||
@@ -57,6 +61,8 @@ export function useConnectionProgress(flow?: ConnectionFlow) {
         }
       } catch {
         /* A failed panel read cannot prove that settings were received. */
+      } finally {
+        reading = false;
       }
     };
     const returned = () => {

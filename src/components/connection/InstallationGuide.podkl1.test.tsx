@@ -232,6 +232,44 @@ describe('approved mobile flow', () => {
     });
     expect(screen.getByText('INCY получил настройки')).toBeTruthy();
   });
+  it('never treats an idle response arriving after Add as import proof', async () => {
+    devices.mockResolvedValue(snapshot(['old']));
+    const first = mount();
+    await act(async () => {});
+    first.unmount();
+    let resolveIdle!: (result: ReturnType<typeof snapshot>) => void;
+    devices.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveIdle = resolve;
+        }),
+    );
+    mount();
+    await act(async () => {});
+    fireEvent.click(screen.getByRole('button', { name: 'Добавить в INCY' }));
+    devices.mockClear();
+    devices.mockResolvedValue(snapshot(['old', 'elsewhere']));
+    vi.useFakeTimers();
+    goHidden();
+    goVisible();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(devices).not.toHaveBeenCalled();
+    await act(async () => {
+      resolveIdle(snapshot(['old', 'elsewhere']));
+    });
+    expect(screen.queryByText('INCY получил настройки')).toBeNull();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5000);
+    });
+    expect(screen.queryByText('INCY получил настройки')).toBeNull();
+    devices.mockResolvedValue(snapshot(['old', 'elsewhere', 'imported']));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10000);
+    });
+    expect(screen.getByText('INCY получил настройки')).toBeTruthy();
+  });
   it('refreshes idle devices on return before Add without declaring success', async () => {
     devices.mockResolvedValue(snapshot(['old']));
     mount();
