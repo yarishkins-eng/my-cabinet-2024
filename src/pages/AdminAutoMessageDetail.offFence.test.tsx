@@ -171,7 +171,7 @@ describe('АП-4 PR-2а: OFF consent does not survive navigation', () => {
     const accept = pending();
     fireEvent.click(screen.getByRole('switch'));
     await waitFor(() => expect(confirm).toHaveBeenCalledTimes(1));
-    expect(confirm.mock.calls[0][0]).toMatch(/Письмо будет уходить без скидки/);
+    expect(confirm.mock.calls[0][0]).toBe('Выключить скидку? Выданные доработают до своего срока.');
     unmount();
     await act(async () => accept());
     expect(patch).not.toHaveBeenCalled();
@@ -213,7 +213,7 @@ describe('АП-4 PR-2а: OFF consent does not survive navigation', () => {
     const accept = pending();
     fireEvent.click(screen.getByRole('switch'));
     await waitFor(() => expect(confirm).toHaveBeenCalledTimes(1));
-    expect(confirm.mock.calls[0][0]).toMatch(/не получит это письмо и скидку/);
+    expect(confirm.mock.calls[0][0]).toBe('Выключить «Carrier letter»? Скидка в нём тоже не уйдёт.');
     get.mockImplementation(async (id: string) =>
       id === 'trial-1d'
         ? card({ id: 'trial-1d', title: 'Carrier letter', enabled: true })

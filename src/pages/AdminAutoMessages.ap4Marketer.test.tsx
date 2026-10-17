@@ -124,7 +124,7 @@ describe('АП-4 PR-2а: список не путает скидку и пись
       // Actual legacy ID: bot-code/app/cabinet/routes/admin_auto_messages.py:339.
       const { i18n } = await show([item('trial-discount', 'Старое предложение')], language);
       expect(i18n.exists('admin.autoMessages.discount.replacesLegacy')).toBe(true);
-      expect(screen.getByText(i18n.t('admin.autoMessages.discount.replacesLegacy'))).toBeTruthy();
+      expect(screen.queryByText(i18n.t('admin.autoMessages.discount.replacesLegacy'))).toBeNull();
       fireEvent.click(screen.getByRole('button', { name: /Старое предложение/ }));
       await screen.findByText('Opened trial-discount');
       expect(patch).not.toHaveBeenCalled();
