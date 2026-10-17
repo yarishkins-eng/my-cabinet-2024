@@ -247,6 +247,12 @@ describe('approved mobile flow', () => {
     expect(screen.getByRole('button', { name: 'Добавить в Happ' }).className).toContain(
       'btn-primary',
     );
+    copy.mockRejectedValue(new Error('clipboard denied after app switch'));
+    fireEvent.click(screen.getByRole('button', { name: 'Скопировать мою ссылку для подключения' }));
+    await act(async () => {});
+    expect(screen.getByRole('alert').textContent).toBe(
+      'Не скопировалось. Нажмите «Добавить в Happ».',
+    );
     fireEvent.click(screen.getByRole('button', { name: 'Нет Happ? Выбрать INCY' }));
     expect(screen.getByRole('link', { name: 'Установить из App Store' })).toBeTruthy();
   });
