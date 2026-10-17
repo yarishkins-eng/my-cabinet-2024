@@ -79,10 +79,12 @@ export function BlockButtons({
   const mainClass = step
     ? `${step.primary ? 'btn-primary' : baseClass} min-h-11 w-full justify-center`
     : baseClass;
-  const smallClass = step ? 'min-h-11 w-full text-left text-xs text-accent-400' : baseClass;
+  const smallClass = step
+    ? 'min-h-11 w-full justify-center text-center text-xs text-accent-400'
+    : baseClass;
 
   return (
-    <div className="mt-3 flex flex-wrap gap-2">
+    <div className={step ? 'mt-2 flex flex-wrap gap-0.5' : 'mt-3 flex flex-wrap gap-2'}>
       {buttons.map((btn, idx) => {
         const btnText = getLocalizedText(btn.text);
         const btnSvg = getSvgHtml(btn.svgIconKey);

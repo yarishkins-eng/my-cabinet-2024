@@ -370,11 +370,13 @@ export default function InstallationGuide({
                 onClick={() => selectApp(app, currentPlatformKey)}
                 className={`relative flex min-w-[calc(50%-0.25rem)] items-center gap-2 overflow-hidden rounded-xl px-4 py-2 text-sm font-medium transition-all active:scale-[0.97] ${
                   isSelected
-                    ? 'bg-accent-500/15 text-accent-400 ring-1 ring-accent-500/40'
+                    ? `bg-accent-500/15 text-accent-400 ring-1 ${['ios', 'android'].includes(currentPlatformKey) ? 'ring-accent-400' : 'ring-accent-500/40'}`
                     : 'border border-dark-700/50 bg-dark-800/80 text-dark-200 hover:border-dark-600/50 hover:bg-dark-700/80'
                 }`}
               >
-                {app.featured && <span className="h-2 w-2 shrink-0 rounded-full bg-warning-400" />}
+                {app.featured && !['ios', 'android'].includes(currentPlatformKey) && (
+                  <span className="h-2 w-2 shrink-0 rounded-full bg-warning-400" />
+                )}
                 <span className="relative z-10 flex min-w-0 flex-col text-left">
                   <span className="truncate leading-tight">{app.name}</span>
                   {badge && (

@@ -91,14 +91,15 @@ export function StepsBlock({
                     index === 0 &&
                     (connectionFlow.platform === 'ios' && connectionFlow.app === 'Happ' ? (
                       <button
-                        className="min-h-11 text-left text-xs text-accent-400"
+                        className="inline-flex min-h-11 w-full items-center justify-center gap-2 text-center text-xs text-accent-400"
                         onClick={connectionFlow.selectIncy}
                       >
+                        <span aria-hidden="true">⇄</span>
                         {t('subscription.connection.chooseIncy')}
                       </button>
                     ) : (
                       <button
-                        className="min-h-11 text-left text-xs text-accent-400"
+                        className="inline-flex min-h-11 w-full items-center justify-center gap-2 text-center text-xs text-accent-400"
                         onClick={flow.skip}
                       >
                         {t('subscription.connection.alreadyInstalled', { app: connectionFlow.app })}
@@ -112,6 +113,7 @@ export function StepsBlock({
                   role="status"
                   className="mt-2 rounded-xl border border-success-500/30 bg-success-500/10 p-3 text-sm text-success-400"
                 >
+                  <CheckIcon className="mr-2 inline h-4 w-4" />
                   {t('subscription.connection.receivedSettings', { app: connectionFlow.app })}
                 </p>
               )}
