@@ -11,6 +11,7 @@ function load({
   bot = 'teplo_VPN_bot',
   lang = 'ru',
   ua = 'iPhone',
+  cryptoApi = { randomUUID: () => crypto.randomUUID() } as unknown,
 } = {}) {
   const doc = document.implementation.createHTMLDocument();
   doc.documentElement.innerHTML = html.replace(/<script>[\s\S]*?<\/script>/, '');
@@ -23,7 +24,7 @@ function load({
     doc,
     { userAgent: ua },
     URLSearchParams,
-    { randomUUID: () => crypto.randomUUID() },
+    cryptoApi,
   );
   return {
     doc,
@@ -60,6 +61,32 @@ describe('real redirect HTML', () => {
     const marker = new URL(page.back.href).searchParams.get('startapp');
     expect(resolveStartParamPath(marker)).toBe('/connection');
   });
+  it.each(['incy', 'happ'])(
+    'opens %s without randomUUID, even with no working crypto API',
+    (app) => {
+      const fill = vi.fn((bytes: Uint8Array) => bytes.fill(7));
+      for (const cryptoApi of [
+        { getRandomValues: fill },
+        {},
+        null,
+        {
+          randomUUID: () => {
+            throw new Error('unsupported');
+          },
+        },
+      ]) {
+        const url = `${app}://import/legacy`;
+        const page = load({ url, cryptoApi });
+        expect(page.location.href).toBe(url);
+        expect(page.manual.getAttribute('href')).toBe(url);
+        expect(page.manual.textContent).toBe(`Открыть ${app === 'incy' ? 'INCY' : 'Happ'}`);
+        const token = new URL(page.back.href).searchParams.get('startapp');
+        expect(resolveStartParamPath(token)).toBe('/connection');
+        expect(token).toMatch(/^conn-[A-Za-z0-9_-]{1,64}$/);
+      }
+      expect(fill).toHaveBeenCalledOnce();
+    },
+  );
   it('shows the exact Happ iPhone fallback and a different Android fallback', () => {
     let page = load({ url: 'happ://crypt5/payload' });
     vi.advanceTimersByTime(3000);
