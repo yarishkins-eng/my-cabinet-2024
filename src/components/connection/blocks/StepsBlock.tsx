@@ -1,4 +1,7 @@
 import type { BlockRendererProps } from './types';
+import { useTranslation } from 'react-i18next';
+import { CheckIcon } from '@/components/icons';
+import { useConnectionProgress } from './useConnectionProgress';
 
 /**
  * Numbered installation flow: every step is shown at once as a vertical 1·2·3
@@ -12,7 +15,10 @@ export function StepsBlock({
   isMobile,
   getLocalizedText,
   renderBlockButtons,
+  connectionFlow,
 }: BlockRendererProps) {
+  const { t } = useTranslation();
+  const flow = useConnectionProgress(connectionFlow);
   const visibleBlocks = blocks.filter(
     (b) =>
       getLocalizedText(b.title) ||
@@ -29,29 +35,86 @@ export function StepsBlock({
     <div className="space-y-0">
       {visibleBlocks.map((block, index) => {
         const isLast = index === visibleBlocks.length - 1;
+        const completed =
+          !!connectionFlow &&
+          index < flow.active &&
+          !(
+            index === 0 &&
+            connectionFlow.platform === 'ios' &&
+            connectionFlow.app === 'Happ' &&
+            !flow.received
+          );
+        const collapsed = completed && flow.expanded !== index;
 
         return (
           <div key={index} className="flex gap-3 sm:gap-4">
             {/* Left column: number bullet + line segment */}
             <div className="flex flex-col items-center">
               <div
-                className={`flex shrink-0 items-center justify-center rounded-full bg-accent-500 font-semibold text-white ${
+                className={`flex shrink-0 items-center justify-center rounded-full font-semibold text-white ${completed ? 'bg-success-600' : 'bg-accent-500'} ${connectionFlow && index === flow.active ? 'ring-4 ring-accent-500/30' : ''} ${
                   isMobile ? 'text-base' : 'text-lg'
                 }`}
                 style={{ width: size, height: size }}
               >
-                {index + 1}
+                {completed ? <CheckIcon className="h-5 w-5" /> : index + 1}
               </div>
               {!isLast && <div className="w-0.5 flex-1 bg-dark-700" />}
             </div>
             {/* Right column: content */}
             <div className={`min-w-0 flex-1 ${isLast ? '' : 'pb-6'}`}>
-              <h3 className="font-semibold text-dark-100">{getLocalizedText(block.title)}</h3>
-              <p className="mt-1 whitespace-pre-line text-sm leading-relaxed text-dark-400">
-                {getLocalizedText(block.description)}
-              </p>
-              {renderBlockButtons(block.buttons, 'light')}
-              {block.customNode}
+              <h3 className="font-semibold text-dark-100">
+                {completed ? (
+                  <button
+                    aria-expanded={!collapsed}
+                    onClick={() => flow.setExpanded(collapsed ? index : null)}
+                    className="min-h-11 text-left text-dark-400"
+                  >
+                    {getLocalizedText(block.title)}
+                  </button>
+                ) : (
+                  getLocalizedText(block.title)
+                )}
+              </h3>
+              {!collapsed && (
+                <>
+                  <p className="mt-1 whitespace-pre-line text-sm leading-relaxed text-dark-400">
+                    {getLocalizedText(block.description)}
+                  </p>
+                  {renderBlockButtons(
+                    block.buttons,
+                    'light',
+                    connectionFlow
+                      ? { primary: index === flow.active, action: flow.action }
+                      : undefined,
+                  )}
+                  {connectionFlow &&
+                    index === 0 &&
+                    (connectionFlow.platform === 'ios' && connectionFlow.app === 'Happ' ? (
+                      <button
+                        className="min-h-11 text-left text-xs text-accent-400"
+                        onClick={connectionFlow.selectIncy}
+                      >
+                        {t('subscription.connection.chooseIncy')}
+                      </button>
+                    ) : (
+                      <button
+                        className="min-h-11 text-left text-xs text-accent-400"
+                        onClick={flow.skip}
+                      >
+                        {t('subscription.connection.alreadyInstalled', { app: connectionFlow.app })}
+                      </button>
+                    ))}
+                  {block.customNode}
+                </>
+              )}
+              {connectionFlow && index === 1 && flow.received && (
+                <p
+                  role="status"
+                  className="mt-2 rounded-xl border border-success-500/30 bg-success-500/10 p-3 text-sm text-success-400"
+                >
+                  {t('subscription.connection.receivedSettings', { app: connectionFlow.app })}
+                </p>
+              )}
             </div>
           </div>
         );

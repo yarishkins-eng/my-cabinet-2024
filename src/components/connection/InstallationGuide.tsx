@@ -50,6 +50,8 @@ function isHappApp(app: RemnawaveAppClient | null): boolean {
 }
 
 interface Props {
+  progressScope?: string;
+  subscriptionId?: number;
   appConfig: AppConfig;
   onOpenDeepLink: (url: string) => void;
   isTelegramWebApp: boolean;
@@ -63,6 +65,8 @@ export default function InstallationGuide({
   isTelegramWebApp,
   onGoBack,
   onOpenQR,
+  progressScope = '',
+  subscriptionId,
 }: Props) {
   const { t, i18n } = useTranslation();
 
@@ -71,6 +75,23 @@ export default function InstallationGuide({
 
   const [activePlatformKey, setActivePlatformKey] = useState<string | null>(null);
   const [selectedApp, setSelectedApp] = useState<RemnawaveAppClient | null>(null);
+  const preferredApp = (platform: string) => {
+    if (!['ios', 'android'].includes(platform)) return null;
+    try {
+      return localStorage.getItem(`connection-app:${platform}`);
+    } catch {
+      return null;
+    }
+  };
+  const selectApp = (app: RemnawaveAppClient, platform: string) => {
+    setSelectedApp(app);
+    if (!['ios', 'android'].includes(platform)) return;
+    try {
+      localStorage.setItem(`connection-app:${platform}`, app.name);
+    } catch {
+      /* Optional memory. */
+    }
+  };
 
   const getLocalizedText = useCallback(
     (text: LocalizedText | undefined): string => {
@@ -121,7 +142,10 @@ export default function InstallationGuide({
     const platform = availablePlatforms[0];
     const data = appConfig.platforms[platform] as RemnawavePlatformData | undefined;
     if (!data?.apps?.length) return;
-    const app = data.apps.find((a) => a.featured) || data.apps[0];
+    const app =
+      data.apps.find((a) => a.name === preferredApp(platform)) ||
+      data.apps.find((a) => a.featured) ||
+      data.apps[0];
     if (app) {
       setSelectedApp(app);
       setActivePlatformKey(platform);
@@ -129,8 +153,14 @@ export default function InstallationGuide({
   }, [appConfig.platforms, availablePlatforms, selectedApp]);
 
   const renderBlockButtons = useCallback(
-    (buttons: RemnawaveButtonClient[] | undefined, variant: 'light' | 'subtle') => (
+    (
+      buttons: RemnawaveButtonClient[] | undefined,
+      variant: 'light' | 'subtle',
+      step?: { primary: boolean; action: (type: string) => void },
+    ) => (
       <BlockButtons
+        step={step}
+        appName={selectedApp?.name}
         buttons={buttons}
         variant={variant}
         subscriptionUrl={appConfig.subscriptionUrl}
@@ -148,6 +178,7 @@ export default function InstallationGuide({
       appConfig.hideLink,
       appConfig.test_link_strict,
       selectedApp?.deepLink,
+      selectedApp?.name,
       getLocalizedText,
       getBaseTranslation,
       getSvgHtml,
@@ -167,6 +198,10 @@ export default function InstallationGuide({
     ? (appConfig.platforms[currentPlatformKey] as RemnawavePlatformData | undefined)
     : undefined;
   const currentPlatformApps = currentPlatformData?.apps || [];
+  const mobileFlow =
+    ['ios', 'android'].includes(currentPlatformKey) &&
+    selectedApp &&
+    ['INCY', 'Happ'].includes(selectedApp.name);
 
   // Platform display name
   const getPlatformDisplayName = useCallback(
@@ -265,7 +300,7 @@ export default function InstallationGuide({
         )}
         {availablePlatforms.length > 1 && (
           <div className="relative flex items-center">
-            {currentPlatformSvg && (
+            {currentPlatformSvg && !mobileFlow && (
               <div
                 className="pointer-events-none absolute left-3 z-10 h-5 w-5 text-dark-400 [&>svg]:h-full [&>svg]:w-full"
                 dangerouslySetInnerHTML={{ __html: currentPlatformSvg }}
@@ -281,13 +316,19 @@ export default function InstallationGuide({
                   // Keep the user's current app (by name) if it also exists on the
                   // new platform; only fall back to featured/first otherwise.
                   const app =
-                    data.apps.find((a) => a.name === selectedApp?.name) ||
+                    data.apps.find(
+                      (a) =>
+                        a.name ===
+                        (['ios', 'android'].includes(newPlatform)
+                          ? preferredApp(newPlatform)
+                          : selectedApp?.name),
+                    ) ||
                     data.apps.find((a) => a.featured) ||
                     data.apps[0];
-                  if (app) setSelectedApp(app);
+                  if (app) selectApp(app, newPlatform);
                 }
               }}
-              className={`appearance-none rounded-xl border border-dark-700 bg-dark-800 py-2 pr-8 text-sm font-medium text-dark-200 outline-none transition-colors hover:border-dark-600 ${currentPlatformSvg ? 'pl-10' : 'pl-4'}`}
+              className={`appearance-none rounded-xl border border-dark-700 bg-dark-800 py-2 pr-8 text-sm font-medium text-dark-200 outline-none transition-colors hover:border-dark-600 ${mobileFlow ? 'max-w-[90px] pl-3' : currentPlatformSvg ? 'pl-10' : 'pl-4'}`}
             >
               {availablePlatforms.map((p) => (
                 <option key={p} value={p}>
@@ -311,13 +352,22 @@ export default function InstallationGuide({
             const appName = app.name.toLowerCase();
             const appBadgeKey = appName.includes('incy')
               ? 'subscription.connection.appBadgeIncy'
-              : appName.includes('happ')
+              : appName.includes('happ') && currentPlatformKey === 'ios'
                 ? 'subscription.connection.appBadgeHapp'
                 : null;
+            const badge = ['ios', 'android'].includes(currentPlatformKey)
+              ? appName === 'incy'
+                ? 'subscription.connection.recommended'
+                : appName === 'happ' && currentPlatformKey === 'ios'
+                  ? 'subscription.connection.happInstalled'
+                  : null
+              : appName.includes('happ')
+                ? 'subscription.connection.appBadgeHapp'
+                : appBadgeKey;
             return (
               <button
                 key={app.name + idx}
-                onClick={() => setSelectedApp(app)}
+                onClick={() => selectApp(app, currentPlatformKey)}
                 className={`relative flex min-w-[calc(50%-0.25rem)] items-center gap-2 overflow-hidden rounded-xl px-4 py-2 text-sm font-medium transition-all active:scale-[0.97] ${
                   isSelected
                     ? 'bg-accent-500/15 text-accent-400 ring-1 ring-accent-500/40'
@@ -327,10 +377,8 @@ export default function InstallationGuide({
                 {app.featured && <span className="h-2 w-2 shrink-0 rounded-full bg-warning-400" />}
                 <span className="relative z-10 flex min-w-0 flex-col text-left">
                   <span className="truncate leading-tight">{app.name}</span>
-                  {appBadgeKey && (
-                    <span className="truncate text-xs font-normal text-dark-400">
-                      {t(appBadgeKey)}
-                    </span>
+                  {badge && (
+                    <span className="truncate text-xs font-normal text-dark-400">{t(badge)}</span>
                   )}
                 </span>
                 {appIconSvg && (
@@ -373,6 +421,21 @@ export default function InstallationGuide({
           adapts to that style instead of breaking it. */}
       {selectedApp && (
         <Renderer
+          key={`${progressScope}:${currentPlatformKey}:${selectedApp.name}`}
+          connectionFlow={
+            mobileFlow
+              ? {
+                  platform: currentPlatformKey,
+                  app: selectedApp.name,
+                  scope: progressScope,
+                  subscriptionId,
+                  selectIncy: () => {
+                    const app = currentPlatformApps.find((a) => a.name === 'INCY');
+                    if (app) selectApp(app, currentPlatformKey);
+                  },
+                }
+              : undefined
+          }
           blocks={renderBlocks}
           isMobile={isMobile}
           getLocalizedText={getLocalizedText}

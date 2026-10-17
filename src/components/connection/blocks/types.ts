@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 import type { RemnawaveBlockClient, RemnawaveButtonClient, LocalizedText } from '@/types';
+import type { ConnectionFlow } from './useConnectionProgress';
 
 /**
  * A block to render. Beyond the panel's data (title/description/buttons), it may
@@ -10,6 +11,7 @@ import type { RemnawaveBlockClient, RemnawaveButtonClient, LocalizedText } from 
 export type RenderBlock = RemnawaveBlockClient & { customNode?: ReactNode };
 
 export interface BlockRendererProps {
+  connectionFlow?: ConnectionFlow;
   blocks: RenderBlock[];
   isMobile: boolean;
   getLocalizedText: (text: LocalizedText | undefined) => string;
@@ -17,5 +19,6 @@ export interface BlockRendererProps {
   renderBlockButtons: (
     buttons: RemnawaveButtonClient[] | undefined,
     variant: 'light' | 'subtle',
+    step?: { primary: boolean; action: (type: string) => void },
   ) => React.ReactNode;
 }

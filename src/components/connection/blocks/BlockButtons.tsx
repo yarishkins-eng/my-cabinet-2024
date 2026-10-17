@@ -1,15 +1,16 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { CheckIcon, CopyIcon } from '@/components/icons';
 import type { RemnawaveButtonClient, LocalizedText } from '@/types';
 import { copyToClipboard } from '@/utils/clipboard';
 import { blockButtonClass } from './buttonStyles';
+import { resolveTemplate } from '@/utils/templateEngine';
 
 // eslint-disable-next-line no-script-url
 const dangerousSchemes = ['javascript:', 'data:', 'vbscript:', 'file:'];
 const bearerTemplate = /\{\{(?:SUBSCRIPTION_LINK|HAPP_CRYPT[34]_LINK)\}\}/;
 
-function isValidDeepLink(url: string | undefined): boolean {
+function isValidDeepLink(url: string | null | undefined): boolean {
   if (!url) return false;
   const lowerUrl = url.toLowerCase().trim();
   if (dangerousSchemes.some((s) => lowerUrl.startsWith(s))) return false;
@@ -24,6 +25,8 @@ function isValidExternalUrl(url: string | undefined): boolean {
 }
 
 interface BlockButtonsProps {
+  step?: { primary: boolean; action: (type: string) => void };
+  appName?: string;
   buttons: RemnawaveButtonClient[] | undefined;
   variant: 'light' | 'subtle';
   subscriptionUrl: string | null;
@@ -48,19 +51,35 @@ export function BlockButtons({
   getBaseTranslation,
   getSvgHtml,
   onOpenDeepLink,
+  step,
+  appName,
 }: BlockButtonsProps) {
   const { t } = useTranslation();
   const [copied, setCopied] = useState(false);
+  const [copyError, setCopyError] = useState(false);
+  const copyTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  useEffect(() => () => clearTimeout(copyTimer.current), []);
 
   const handleCopy = useCallback(async (url: string) => {
-    await copyToClipboard(url);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    setCopyError(false);
+    setCopied(false);
+    clearTimeout(copyTimer.current);
+    try {
+      await copyToClipboard(url);
+      setCopied(true);
+      copyTimer.current = setTimeout(() => setCopied(false), 2000);
+    } catch {
+      setCopyError(true);
+    }
   }, []);
 
   if (!buttons || buttons.length === 0) return null;
 
   const baseClass = blockButtonClass(variant);
+  const mainClass = step
+    ? `${step.primary ? 'btn-primary' : baseClass} min-h-11 w-full justify-center`
+    : baseClass;
+  const smallClass = step ? 'min-h-11 w-full text-left text-xs text-accent-400' : baseClass;
 
   return (
     <div className="mt-3 flex flex-wrap gap-2">
@@ -81,12 +100,20 @@ export function BlockButtons({
           const url = strictLink
             ? deepLink || strictTemplate || subscriptionUrl
             : btn.resolvedUrl || btn.url || btn.link || deepLink || subscriptionUrl;
-          if (!url || !isValidDeepLink(url)) return null;
+          const resolved =
+            url && subscriptionUrl && bearerTemplate.test(url)
+              ? resolveTemplate(url, { subscriptionUrl })
+              : url;
+          if (!url || !isValidDeepLink(resolved) || (resolved && /\{\{/.test(resolved)))
+            return null;
           return (
             <button
               key={idx}
-              onClick={() => onOpenDeepLink(url)}
-              className={`flex items-center gap-2 ${baseClass}`}
+              onClick={() => {
+                step?.action('subscriptionLink');
+                onOpenDeepLink(url);
+              }}
+              className={`flex items-center gap-2 ${mainClass}`}
             >
               {btnIcon}
               {btnText || getBaseTranslation('openApp', 'subscription.connection.openLink')}
@@ -96,7 +123,7 @@ export function BlockButtons({
 
         if (btn.type === 'copyButton') {
           if (hideLink) return null;
-          const url = strictLink ? subscriptionUrl : btn.resolvedUrl || subscriptionUrl;
+          const url = strictLink || step ? subscriptionUrl : btn.resolvedUrl || subscriptionUrl;
           if (!url) return null;
           return (
             <button
@@ -105,13 +132,19 @@ export function BlockButtons({
               className={`flex items-center gap-2 ${
                 copied
                   ? 'rounded-xl border border-success-500 bg-success-500/10 px-4 py-2 text-sm font-medium text-success-400'
-                  : baseClass
+                  : smallClass
               }`}
             >
               {copied ? <CheckIcon /> : btnIcon || <CopyIcon />}
               {copied
-                ? t('subscription.connection.copied')
-                : btnText || getBaseTranslation('copyLink', 'subscription.connection.copyLink')}
+                ? t(
+                    step
+                      ? 'subscription.connection.settingsCopied'
+                      : 'subscription.connection.copied',
+                  )
+                : step
+                  ? t('subscription.connection.copyConnectionLink')
+                  : btnText || getBaseTranslation('copyLink', 'subscription.connection.copyLink')}
             </button>
           );
         }
@@ -125,13 +158,19 @@ export function BlockButtons({
             href={href}
             target="_blank"
             rel="noopener noreferrer"
-            className={`inline-flex items-center gap-2 ${baseClass}`}
+            onClick={() => step?.action('external')}
+            className={`inline-flex items-center gap-2 ${idx === 0 && !(appName === 'Happ' && href.includes('apple.com')) ? mainClass : smallClass}`}
           >
             {btnIcon}
             {btnText}
           </a>
         );
       })}
+      {copyError && (
+        <p role="alert" className="text-sm text-error-400">
+          {t('subscription.connection.copyFailed', { app: appName || '' })}
+        </p>
+      )}
     </div>
   );
 }
