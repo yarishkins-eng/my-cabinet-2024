@@ -51,6 +51,8 @@
                 },
                 {
                   "type": "copyButton",
+                  "link": "{{SUBSCRIPTION_LINK}}",
+                  "svgIconKey": "Copy",
                   "text": {
                     "ru": "Скопировать мою ссылку для подключения",
                     "en": "Copy my connection link"
@@ -92,6 +94,7 @@
                 {
                   "type": "external",
                   "link": "https://apps.apple.com/app/id6504287215",
+                  "svgIconKey": "ExternalLink",
                   "text": {
                     "ru": "Есть зарубежный Apple ID? Скачать Happ",
                     "en": "Have a foreign Apple ID? Download Happ"
@@ -122,6 +125,8 @@
                 },
                 {
                   "type": "copyButton",
+                  "link": "{{SUBSCRIPTION_LINK}}",
+                  "svgIconKey": "Copy",
                   "text": {
                     "ru": "Скопировать мою ссылку для подключения",
                     "en": "Copy my connection link"
@@ -369,6 +374,8 @@
                 },
                 {
                   "type": "copyButton",
+                  "link": "{{SUBSCRIPTION_LINK}}",
+                  "svgIconKey": "Copy",
                   "text": {
                     "ru": "Скопировать мою ссылку для подключения",
                     "en": "Copy my connection link"
@@ -450,6 +457,8 @@
                 },
                 {
                   "type": "copyButton",
+                  "link": "{{SUBSCRIPTION_LINK}}",
+                  "svgIconKey": "Copy",
                   "text": {
                     "ru": "Скопировать мою ссылку для подключения",
                     "en": "Copy my connection link"
@@ -1074,5 +1083,8 @@
     "title": "☀️ Teplo VPN",
     "logoUrl": "https://docs.rw/img/logo.svg",
     "supportUrl": "https://t.me/teplo_vpnhelp"
+  },
+  "svgLibrary": {
+    "Copy": "<svg stroke=\"currentColor\" fill=\"currentColor\" stroke-width=\"0\" viewBox=\"0 0 256 256\" height=\"1em\" width=\"1em\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M216,32H88a8,8,0,0,0-8,8V80H40a8,8,0,0,0-8,8V216a8,8,0,0,0,8,8H168a8,8,0,0,0,8-8V176h40a8,8,0,0,0,8-8V40A8,8,0,0,0,216,32ZM160,208H48V96H160Zm48-48H176V88a8,8,0,0,0-8-8H96V48H208Z\"></path></svg>"
   }
 }
