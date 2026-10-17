@@ -328,7 +328,7 @@ export default function InstallationGuide({
                   if (app) selectApp(app, newPlatform);
                 }
               }}
-              className={`appearance-none rounded-xl border border-dark-700 bg-dark-800 py-2 pr-8 text-sm font-medium text-dark-200 outline-none transition-colors hover:border-dark-600 ${mobileFlow ? 'max-w-[90px] pl-3' : currentPlatformSvg ? 'pl-10' : 'pl-4'}`}
+              className={`appearance-none rounded-xl border border-dark-700 bg-dark-800 py-2 text-sm font-medium text-dark-200 outline-none transition-colors hover:border-dark-600 ${mobileFlow ? 'max-w-[96px] pl-3 pr-7' : currentPlatformSvg ? 'pl-10 pr-8' : 'pl-4 pr-8'}`}
             >
               {availablePlatforms.map((p) => (
                 <option key={p} value={p}>

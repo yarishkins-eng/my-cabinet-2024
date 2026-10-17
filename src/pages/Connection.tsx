@@ -27,7 +27,7 @@ export default function Connection() {
 
   const hapticRef = useRef(hapticImpact);
   hapticRef.current = hapticImpact;
-  const { data: widget } = useQuery({
+  const { data: widget, isLoading: isWidgetLoading } = useQuery({
     queryKey: ['telegram-widget-config'],
     queryFn: brandingApi.getTelegramWidgetConfig,
   });
@@ -226,7 +226,10 @@ export default function Connection() {
   }, [appConfig?.platforms]);
 
   if (
-    (isLoading || strictConnectionPending || isConnectionLinkLoading) &&
+    (isLoading ||
+      strictConnectionPending ||
+      isConnectionLinkLoading ||
+      (isTelegramWebApp && isWidgetLoading)) &&
     !error &&
     !isSubscriptionError
   ) {

@@ -48,9 +48,11 @@ describe('real redirect HTML', () => {
     expect(page.title()).toBe(`Открываем ${app}…`);
     expect(page.manual.hidden).toBe(false);
     expect(page.manual.textContent).toBe(`Открыть ${app}`);
+    expect(page.back.hidden).toBe(true);
     expect(page.location.href).toBe(`${app.toLowerCase()}://import/example`);
     vi.advanceTimersByTime(2999);
     expect(page.title()).toBe(`Открываем ${app}…`);
+    expect(page.back.hidden).toBe(true);
     vi.advanceTimersByTime(1);
     expect(page.title()).toBe('Не открылось?');
     expect(page.doc.getElementById('errorText')!.hidden).toBe(false);

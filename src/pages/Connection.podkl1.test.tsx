@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router';
@@ -68,7 +68,13 @@ describe('connection page wiring with the real query client', () => {
         connect_mode: 'miniapp_custom',
         test_reset_at: null,
       });
-      mocks.branding.mockResolvedValue({ bot_username: 'teplo_VPN_bot' });
+      let resolveBranding!: (value: { bot_username: string }) => void;
+      mocks.branding.mockImplementation(
+        () =>
+          new Promise((resolve) => {
+            resolveBranding = resolve;
+          }),
+      );
       const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
       render(
         <QueryClientProvider client={client}>
@@ -77,6 +83,9 @@ describe('connection page wiring with the real query client', () => {
           </MemoryRouter>
         </QueryClientProvider>,
       );
+      await waitFor(() => expect(client.getQueryData(['subscription', selected])).toBeTruthy());
+      expect(screen.queryByRole('button', { name: 'Import' })).toBeNull();
+      await act(async () => resolveBranding({ bot_username: 'teplo_VPN_bot' }));
       await waitFor(() =>
         expect(screen.getByText(`17:${selected ?? 44}:|${selected ?? 44}`)).toBeTruthy(),
       );

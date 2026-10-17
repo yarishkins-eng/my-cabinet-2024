@@ -189,6 +189,7 @@ describe('approved mobile flow', () => {
   it.each(['new hwid', 'total growth'])(
     'accepts %s only on a healthy panel response',
     async (reason) => {
+      devices.mockResolvedValue(reason === 'new hwid' ? snapshot(['old']) : snapshot());
       mount();
       await act(async () => {});
       fireEvent.click(await screen.findByRole('button', { name: 'Добавить в INCY' }));
