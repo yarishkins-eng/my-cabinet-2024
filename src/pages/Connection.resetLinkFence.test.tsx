@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 const queryResults = vi.hoisted(() => new Map<string, Record<string, unknown>>());
 
 vi.mock('@tanstack/react-query', () => ({
-  useQuery: ({ queryKey }: { queryKey: unknown[] }) => queryResults.get(String(queryKey[0])),
+  useQuery: ({ queryKey }: { queryKey: unknown[] }) => queryResults.get(String(queryKey[0])) ?? {},
 }));
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key, i18n: { language: 'en' } }),

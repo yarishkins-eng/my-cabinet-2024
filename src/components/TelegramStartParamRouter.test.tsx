@@ -47,6 +47,35 @@ function renderRouter() {
   );
 }
 
+describe('connection return markers', () => {
+  afterEach(() => {
+    cleanup();
+    sessionStorage.clear();
+    retrieveLaunchParams.mockReset();
+  });
+  it('lands on connection, ignores a replay and accepts a fresh return marker', async () => {
+    retrieveLaunchParams.mockReturnValue({ tgWebAppStartParam: 'conn-first-123' });
+    let view = renderRouter();
+    await settle();
+    expect(screen.getByTestId('location').textContent).toBe('/connection');
+    view.unmount();
+    view = renderRouter();
+    await settle();
+    expect(screen.getByTestId('location').textContent).toBe('/');
+    view.unmount();
+    retrieveLaunchParams.mockReturnValue({ tgWebAppStartParam: 'conn-next-456' });
+    renderRouter();
+    await settle();
+    expect(screen.getByTestId('location').textContent).toBe('/connection');
+  });
+  it.each(['conn-', 'conn-x/y', 'conn-<script>', 'conn-' + 'a'.repeat(65)])(
+    'rejects malformed marker %s',
+    (raw) => {
+      expect(resolveStartParamPath(raw)).toBeNull();
+    },
+  );
+});
+
 /** Довести приложение до состояния, когда эффектам уже нечего ждать. */
 async function settle() {
   for (let tick = 0; tick < 3; tick += 1) {
