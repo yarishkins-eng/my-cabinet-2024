@@ -269,6 +269,7 @@ export const subscriptionApi = {
       platform: string;
       device_model: string;
       created_at: string | null;
+      app?: string | null;
       local_name?: string | null;
     }>;
     total: number;

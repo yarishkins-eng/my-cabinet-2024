@@ -9,6 +9,7 @@ import proposed from './fixtures/panel-podkl1.json';
 import ru from '@/locales/ru.json';
 import en from '@/locales/en.json';
 import type { AppConfig } from '@/types';
+import { resolveStartParamPath } from '@/utils/telegramStartParam';
 
 const { devices, copy } = vi.hoisted(() => ({ devices: vi.fn(), copy: vi.fn() }));
 vi.mock('@/api/subscription', () => ({ subscriptionApi: { getDevices: devices } }));
@@ -16,8 +17,14 @@ vi.mock('@/utils/clipboard', () => ({ copyToClipboard: copy }));
 const fresh = 'https://example.invalid/sub/fresh';
 const stale = 'happ://crypt5/retired';
 const opened = vi.fn();
-const snapshot = (hwids: string[] = [], panel_ok = true, total = hwids.length) => ({
-  devices: hwids.map((hwid) => ({ hwid, created_at: '2099-01-01' })),
+const snapshot = (hwids: string[] = [], panel_ok = true, total = hwids.length, metadata = {}) => ({
+  devices: hwids.map((hwid) => ({
+    hwid,
+    platform: undefined,
+    app: undefined,
+    created_at: '2099-01-01',
+    ...metadata,
+  })),
   total,
   panel_ok,
 });
@@ -113,6 +120,22 @@ describe('real panel config, eight combinations', () => {
 });
 
 describe('approved mobile flow', () => {
+  it('confirms the owner same-phone import after conn return remount using real saved progress', async () => {
+    const metadata = { platform: 'iOS', app: 'INCY', created_at: '2001-01-01T00:00:00Z' };
+    devices.mockResolvedValue(snapshot(['owner-phone'], true, 1, metadata));
+    const first = mount();
+    await act(async () => {});
+    fireEvent.click(await screen.findByRole('button', { name: 'Добавить в INCY' }));
+    first.unmount();
+    expect(resolveStartParamPath('conn-owner-return')).toBe('/connection');
+    devices.mockResolvedValue(
+      snapshot(['owner-phone'], true, 1, { ...metadata, created_at: '2001-01-01T00:00:02Z' }),
+    );
+    mount();
+    expect(await screen.findByText('INCY получил настройки')).toBeTruthy();
+    expect(screen.getByText('Включите VPN')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Добавить в INCY' })).toBeNull();
+  });
   it('keeps Install primary after an unsuccessful direct import without a store visit', async () => {
     mount();
     fireEvent.click(await screen.findByRole('button', { name: 'Добавить в INCY' }));
@@ -155,7 +178,7 @@ describe('approved mobile flow', () => {
       'btn-primary',
     );
   });
-  it('reads devices at 0,5,15 seconds after return, scoped to subscription; ignores changed timestamps', async () => {
+  it('reads devices at 0,5,15 seconds after return, scoped to subscription; ignores unchanged timestamps', async () => {
     devices.mockResolvedValue(snapshot(['old']));
     mount();
     await waitFor(() => expect(devices).toHaveBeenCalledWith(321));
