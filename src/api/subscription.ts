@@ -263,6 +263,7 @@ export const subscriptionApi = {
 
   getDevices: async (
     subscriptionId?: number,
+    traffic?: boolean,
   ): Promise<{
     devices: Array<{
       hwid: string;
@@ -280,10 +281,11 @@ export const subscriptionApi = {
      * Различать: исключение панели → false; «нет remnawave_uuid» (не провижен) → true.
      */
     panel_ok?: boolean;
+    vpn_working?: boolean | null;
   }> => {
     const response = await apiClient.get(
       '/cabinet/subscription/devices',
-      withSubId(subscriptionId),
+      withSubId(subscriptionId, traffic ? { traffic: 1 } : undefined),
     );
     return response.data;
   },

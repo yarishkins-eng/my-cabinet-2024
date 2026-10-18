@@ -21,6 +21,7 @@ interface Progress {
   importingAt?: number;
   tapSnapshot?: Device[];
   received?: boolean;
+  working?: boolean;
   baseline?: { hwids: string[]; total: number };
 }
 
@@ -59,15 +60,23 @@ export function useConnectionProgress(flow?: ConnectionFlow) {
     let timers: ReturnType<typeof setTimeout>[] = [];
     let reading = false;
     const read = async () => {
+      const traffic = current.current.received && !current.current.working;
       if (reading) return;
       reading = true;
       const importing = waiting();
       const startedAttempt = attempt.current;
       try {
-        const result = await subscriptionApi.getDevices(flow.subscriptionId);
+        const result = await (traffic
+          ? subscriptionApi.getDevices(flow.subscriptionId, true)
+          : subscriptionApi.getDevices(flow.subscriptionId));
         if (!live) return;
         const active = waiting();
         if (result.panel_ok === false) return;
+        if (current.current.received && result.vpn_working === true && result.total === 1) {
+          update({ working: true });
+          timers.forEach(clearTimeout);
+          timers = [];
+        }
         latest.current = result.devices.map(({ hwid, platform, app, created_at }) => ({
           hwid,
           platform,
@@ -115,11 +124,13 @@ export function useConnectionProgress(flow?: ConnectionFlow) {
       timers = [];
       if (document.visibilityState !== 'visible') return;
       if (current.current.store) update({ installed: true, store: false });
-      if (waiting()) timers = [0, 5000, 15000].map((ms) => setTimeout(read, ms));
+      if (waiting() || (current.current.received && !current.current.working))
+        timers = [0, 5000, 15000, 45000, 90000, 180000].map((ms) => setTimeout(read, ms));
       else void read();
     };
-    void read();
-    if (current.current.importing) returned();
+    if (!current.current.received || current.current.working) void read();
+    if (current.current.importing || (current.current.received && !current.current.working))
+      returned();
     document.addEventListener('visibilitychange', returned);
     return () => {
       live = false;
@@ -130,7 +141,7 @@ export function useConnectionProgress(flow?: ConnectionFlow) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   const installed = progress.installed || (flow?.platform === 'ios' && flow.app === 'Happ');
-  const active = progress.received ? 2 : installed ? 1 : 0;
+  const active = progress.working ? 3 : progress.received ? 2 : installed ? 1 : 0;
   return {
     active,
     received: progress.received,
