@@ -594,6 +594,7 @@
       "alreadyInstalled": "{{app}} уже есть? Сразу к шагу 2",
       "chooseIncy": "Нет Happ? Выбрать INCY",
       "receivedSettings": "{{app}} получил настройки",
+      "vpnWorking": "VPN работает — можно пользоваться",
       "copyConnectionLink": "Скопировать мою ссылку для подключения",
       "settingsCopied": "Ссылка скопирована",
       "copyFailed": "Не скопировалось. Нажмите «Добавить в {{app}}».",

@@ -567,6 +567,7 @@
       "alreadyInstalled": "Already have {{app}}? Go to step 2",
       "chooseIncy": "No Happ? Choose INCY",
       "receivedSettings": "{{app}} received the settings",
+      "vpnWorking": "VPN is working — you're all set",
       "copyConnectionLink": "Copy my connection link",
       "settingsCopied": "Link copied",
       "copyFailed": "Could not copy. Tap \"Add to {{app}}\".",
