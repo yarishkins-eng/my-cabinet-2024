@@ -477,7 +477,7 @@ describe('АП-4 PR-2а: маркетолог видит решение до в�
           legacy_enabled: false,
         },
       });
-      const attachment = i18n.t('admin.autoMessages.discount.attachment', { percent: 15 });
+      const attachment = i18n.t('admin.autoMessages.discount.attachment', { percent: 15 }) + '.';
       expect(i18n.exists('admin.autoMessages.discount.attachment')).toBe(true);
       if (id === 'trial-1d') expect(screen.getByText(attachment)).toBeTruthy();
       else expect(screen.queryByText(attachment)).toBeNull();
