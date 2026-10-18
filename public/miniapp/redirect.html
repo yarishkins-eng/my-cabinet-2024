@@ -95,17 +95,17 @@
                 en: {
                     title: `Opening ${app}…`,
                     subtitle: 'If your phone asks, tap "Open".',
-                    error: iosHapp ? 'Happ not installed yet? Go back to Telegram and choose INCY.' : `${app} not installed yet? Go back to Telegram and tap "Install".`,
+                    error: iosHapp ? "Don't have Happ yet? Go back to Telegram and choose INCY." : app === 'the app' ? "Don't have the app yet? Go back to Telegram and install it." : `Don't have ${app} yet? Go back to Telegram and tap "Install".`,
                     btn: `Open ${app}`,
-                    failed: 'Didn’t open?', done: 'Done. Go back to Telegram.', back: 'Back to Telegram',
+                    failed: `Tap "Open ${app}"`, done: 'Done. Go back to Telegram.', back: 'Back to Telegram',
                     noUrl: 'No URL provided'
                 },
                 ru: {
                     title: `Открываем ${app}…`,
                     subtitle: 'Если телефон спросит, нажмите «Открыть».',
-                    error: iosHapp ? 'Happ ещё не установлен? Вернитесь в Telegram и выберите INCY.' : `${app} ещё не установлен? Вернитесь в Telegram и нажмите «Установить».`,
+                    error: iosHapp ? 'Happ ещё нет? Вернитесь в Telegram и выберите INCY.' : app === 'приложение' ? 'Приложения ещё нет? Вернитесь в Telegram и установите его.' : `${app} ещё нет? Вернитесь в Telegram и нажмите «Установить».`,
                     btn: `Открыть ${app}`,
-                    failed: 'Не открылось?', done: 'Готово. Вернитесь в Telegram.', back: 'Вернуться в Telegram',
+                    failed: `Нажмите «Открыть ${app}»`, done: 'Готово. Вернитесь в Telegram.', back: 'Вернуться в Telegram',
                     noUrl: 'URL не указан'
                 }
             };

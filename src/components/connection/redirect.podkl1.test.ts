@@ -44,6 +44,69 @@ beforeEach(() => {
 });
 afterEach(() => vi.useRealTimers());
 describe('real redirect HTML', () => {
+  it.each([
+    [
+      'ru',
+      'iPhone',
+      'incy',
+      'Нажмите «Открыть INCY»',
+      'INCY ещё нет? Вернитесь в Telegram и нажмите «Установить».',
+    ],
+    [
+      'ru',
+      'Android',
+      'happ',
+      'Нажмите «Открыть Happ»',
+      'Happ ещё нет? Вернитесь в Telegram и нажмите «Установить».',
+    ],
+    [
+      'ru',
+      'iPhone',
+      'happ',
+      'Нажмите «Открыть Happ»',
+      'Happ ещё нет? Вернитесь в Telegram и выберите INCY.',
+    ],
+    [
+      'ru',
+      'iPhone',
+      'vless',
+      'Нажмите «Открыть приложение»',
+      'Приложения ещё нет? Вернитесь в Telegram и установите его.',
+    ],
+    [
+      'en',
+      'iPhone',
+      'incy',
+      'Tap "Open INCY"',
+      `Don't have INCY yet? Go back to Telegram and tap "Install".`,
+    ],
+    [
+      'en',
+      'Android',
+      'happ',
+      'Tap "Open Happ"',
+      `Don't have Happ yet? Go back to Telegram and tap "Install".`,
+    ],
+    [
+      'en',
+      'iPhone',
+      'happ',
+      'Tap "Open Happ"',
+      "Don't have Happ yet? Go back to Telegram and choose INCY.",
+    ],
+    [
+      'en',
+      'iPhone',
+      'vless',
+      'Tap "Open the app"',
+      "Don't have the app yet? Go back to Telegram and install it.",
+    ],
+  ])('exact approved fallback: %s / %s / %s', (lang, ua, app, title, hint) => {
+    const page = load({ lang, ua, url: `${app}://import/example` });
+    vi.advanceTimersByTime(3000);
+    expect(page.title()).toBe(title);
+    expect(page.doc.getElementById('errorText')!.textContent).toBe(hint);
+  });
   it.each(['INCY', 'Happ'])('shows Open %s immediately, then fallback at exactly3s', (app) => {
     const page = load({ url: `${app.toLowerCase()}://import/example` });
     expect(page.title()).toBe(`Открываем ${app}…`);
@@ -55,7 +118,7 @@ describe('real redirect HTML', () => {
     expect(page.title()).toBe(`Открываем ${app}…`);
     expect(page.back.hidden).toBe(true);
     vi.advanceTimersByTime(1);
-    expect(page.title()).toBe('Не открылось?');
+    expect(page.title()).toBe(`Нажмите «Открыть ${app}»`);
     expect(page.doc.getElementById('errorText')!.hidden).toBe(false);
     expect(page.back.hidden).toBe(false);
     const marker = new URL(page.back.href).searchParams.get('startapp');
@@ -91,12 +154,12 @@ describe('real redirect HTML', () => {
     let page = load({ url: 'happ://crypt5/payload' });
     vi.advanceTimersByTime(3000);
     expect(page.doc.getElementById('errorText')!.textContent).toBe(
-      'Happ ещё не установлен? Вернитесь в Telegram и выберите INCY.',
+      'Happ ещё нет? Вернитесь в Telegram и выберите INCY.',
     );
     page = load({ url: 'happ://crypt5/payload', ua: 'Android' });
     vi.advanceTimersByTime(3000);
     expect(page.doc.getElementById('errorText')!.textContent).toBe(
-      'Happ ещё не установлен? Вернитесь в Telegram и нажмите «Установить».',
+      'Happ ещё нет? Вернитесь в Telegram и нажмите «Установить».',
     );
   });
   it('changes to Done only after hide/return, including a later manual retry', () => {
@@ -120,7 +183,7 @@ describe('real redirect HTML', () => {
     vi.advanceTimersByTime(4000);
     page.visibility(true);
     page.visibility(false);
-    expect(page.title()).toBe('Не открылось?');
+    expect(page.title()).toBe('Нажмите «Открыть INCY»');
   });
   it('generates a fresh return marker every visit', () => {
     expect(load().back.href).not.toBe(load().back.href);

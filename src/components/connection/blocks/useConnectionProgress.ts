@@ -8,10 +8,18 @@ export interface ConnectionFlow {
   subscriptionId?: number;
   selectIncy: () => void;
 }
+type Device = {
+  hwid: string;
+  platform?: string | null;
+  app?: string | null;
+  created_at?: string | null;
+};
 interface Progress {
   installed?: boolean;
   store?: boolean;
   importing?: boolean;
+  importingAt?: number;
+  tapSnapshot?: Device[];
   received?: boolean;
   baseline?: { hwids: string[]; total: number };
 }
@@ -27,6 +35,8 @@ export function useConnectionProgress(flow?: ConnectionFlow) {
     }
   });
   const current = useRef(progress);
+  const latest = useRef<Device[] | undefined>(undefined);
+  const attempt = useRef(0);
   const [expanded, setExpanded] = useState<number | null>(null);
   const update = (patch: Partial<Progress>) => {
     current.current = { ...current.current, ...patch };
@@ -37,6 +47,12 @@ export function useConnectionProgress(flow?: ConnectionFlow) {
       /* WebView storage may be blocked. */
     }
   };
+  const waiting = () => {
+    const age = Date.now() - (current.current.importingAt ?? NaN);
+    const valid = Number.isFinite(current.current.importingAt) && age >= 0 && age <= 900000;
+    if (current.current.importing && !valid) update({ importing: false });
+    return current.current.importing && valid;
+  };
   useEffect(() => {
     if (!flow) return;
     let live = true;
@@ -45,20 +61,49 @@ export function useConnectionProgress(flow?: ConnectionFlow) {
     const read = async () => {
       if (reading) return;
       reading = true;
-      const importing = current.current.importing;
+      const importing = waiting();
+      const startedAttempt = attempt.current;
       try {
         const result = await subscriptionApi.getDevices(flow.subscriptionId);
-        if (!live || result.panel_ok === false) return;
+        if (!live) return;
+        const active = waiting();
+        if (result.panel_ok === false) return;
+        latest.current = result.devices.map(({ hwid, platform, app, created_at }) => ({
+          hwid,
+          platform,
+          app,
+          created_at,
+        }));
         const baseline = current.current.baseline;
         const snapshot = { hwids: result.devices.map((d) => d.hwid), total: result.total };
-        if (!baseline || !importing) update({ baseline: snapshot });
-        else if (
-          current.current.importing &&
-          (result.total > baseline.total ||
-            snapshot.hwids.some((id) => !baseline.hwids.includes(id)))
-        ) {
-          update({ received: true, installed: true, importing: false });
+        if (!active || !importing || startedAttempt !== attempt.current) {
+          update({ baseline: snapshot, ...(active ? { tapSnapshot: latest.current } : {}) });
+          return;
         }
+        const matches = (d: Device, legacy = false) =>
+          (d.platform ? d.platform.toLowerCase() === flow.platform.toLowerCase() : legacy) &&
+          (d.app ? d.app.toLowerCase() === flow.app.toLowerCase() : legacy);
+        const added = baseline
+          ? result.devices.filter((d) => !baseline.hwids?.includes(d.hwid))
+          : [];
+        const newDevice =
+          !!baseline &&
+          (added.length ? added.some((d) => matches(d, true)) : result.total > baseline.total);
+        const tap = current.current.tapSnapshot;
+        const before = Array.isArray(tap) ? tap.filter((d) => matches(d)) : [];
+        const after = result.devices.filter((d) => matches(d));
+        const previousTime = Date.parse(before[0]?.created_at || '');
+        const nextTime = Date.parse(after[0]?.created_at || '');
+        const repeated =
+          before.length === 1 &&
+          after.length === 1 &&
+          !!before[0].hwid &&
+          before[0].hwid === after[0].hwid &&
+          Number.isFinite(previousTime) &&
+          Number.isFinite(nextTime) &&
+          nextTime > previousTime;
+        if (!baseline) update({ baseline: snapshot });
+        if (newDevice || repeated) update({ received: true, installed: true, importing: false });
       } catch {
         /* A failed panel read cannot prove that settings were received. */
       } finally {
@@ -70,7 +115,7 @@ export function useConnectionProgress(flow?: ConnectionFlow) {
       timers = [];
       if (document.visibilityState !== 'visible') return;
       if (current.current.store) update({ installed: true, store: false });
-      if (current.current.importing) timers = [0, 5000, 15000].map((ms) => setTimeout(read, ms));
+      if (waiting()) timers = [0, 5000, 15000].map((ms) => setTimeout(read, ms));
       else void read();
     };
     void read();
@@ -91,7 +136,13 @@ export function useConnectionProgress(flow?: ConnectionFlow) {
     received: progress.received,
     expanded,
     setExpanded,
-    action: (type: string) => update(type === 'external' ? { store: true } : { importing: true }),
+    action: (type: string) => {
+      if (type === 'external') update({ store: true });
+      else {
+        attempt.current += 1;
+        update({ importing: true, importingAt: Date.now(), tapSnapshot: latest.current });
+      }
+    },
     skip: () => update({ installed: true }),
   };
 }
