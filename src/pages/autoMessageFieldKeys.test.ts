@@ -33,6 +33,7 @@ const FIELD_KEYS: Array<[string, string, string]> = [
   ['valid_hours', 'hours', 'hoursHint'],
   ['trigger_days', 'days', 'daysHint'],
   ['not_connected_after_hours', 'notConnectedHours', 'notConnectedHoursHint'],
+  ['connect_reminder_minutes', 'connectReminderMinutes', 'connectReminderMinutesHint'],
 ];
 
 describe('ключи словаря для полей автосообщений', () => {

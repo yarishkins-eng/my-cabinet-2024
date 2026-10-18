@@ -3992,6 +3992,8 @@
         "textRussianOnly": "You are editing the Russian text. English-speaking clients keep receiving the English version, unchanged.",
         "warnHours": "How far ahead to warn",
         "warnHoursHint": "The bot checks subscriptions once an hour, so the letter goes out at the next check rather than on the exact minute — and the letter itself shows the client their real remaining time, not this number. Less than two hours is not allowed: the check itself takes time, and a one-hour window would miss some clients entirely.",
+        "connectReminderMinutes": "Minutes after a device appears",
+        "connectReminderMinutesHint": "INCY or Happ received settings but VPN is still off. From 5 to 60 minutes; usually 15.",
         "notConnectedHours": "Hours after the trial starts",
         "notConnectedHoursHint": "Counted from the moment the person started the trial. The letter goes out on the next hourly check after that mark, and the person stays in the queue until the trial ends, so nobody is skipped. More than a day is not allowed: too little of the trial would be left for the offer to make sense.",
         "notSending": "Not sending right now",

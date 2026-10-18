@@ -40,6 +40,7 @@ const FIELD_LABELS: Record<Field, string> = {
   valid_hours: 'admin.autoMessages.detail.hours',
   trigger_days: 'admin.autoMessages.detail.days',
   not_connected_after_hours: 'admin.autoMessages.detail.notConnectedHours',
+  connect_reminder_minutes: 'admin.autoMessages.detail.connectReminderMinutes',
   carrier: 'admin.autoMessages.discount.carrier',
   audience: 'admin.autoMessages.discount.audience',
   post_trial_hours: 'admin.autoMessages.discount.postTrialHours',
@@ -51,6 +52,7 @@ const FIELD_HINTS: Partial<Record<Field, string>> = {
   valid_hours: 'admin.autoMessages.detail.hoursHint',
   trigger_days: 'admin.autoMessages.detail.daysHint',
   not_connected_after_hours: 'admin.autoMessages.detail.notConnectedHoursHint',
+  connect_reminder_minutes: 'admin.autoMessages.detail.connectReminderMinutesHint',
   post_trial_hours: 'admin.autoMessages.discount.postTrialHoursHint',
 };
 
@@ -60,6 +62,7 @@ const FIELD_CHOICES: Partial<Record<Field, number[]>> = {
   valid_hours: [6, 12, 24, 48, 72, 168],
   discount_percent: [5, 10, 15, 20, 25, 30, 40, 50],
   not_connected_after_hours: [1, 2, 3, 4, 6, 12, 24],
+  connect_reminder_minutes: [5, 10, 15, 30, 45, 60],
 };
 
 /** Запасные границы. Настоящие приходят с сервера в `limits`. */
@@ -69,9 +72,11 @@ const FALLBACK_RANGE: Partial<Record<Field, [number, number]>> = {
   valid_hours: [1, 168],
   trigger_days: [1, 30],
   not_connected_after_hours: [1, 24],
+  connect_reminder_minutes: [5, 60],
 };
 
 function unitFor(field: Field): string {
+  if (field === 'connect_reminder_minutes') return 'мин';
   if (field === 'discount_percent') return '%';
   if (field === 'trigger_days') return 'дн';
   return 'ч';
