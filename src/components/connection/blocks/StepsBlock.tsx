@@ -45,6 +45,7 @@ export function StepsBlock({
             !flow.received
           );
         const collapsed = completed && flow.expanded !== index;
+        const status = index === 1 ? flow.received : index === 2 && flow.active === 3;
 
         return (
           <div key={index} className="flex gap-3 sm:gap-4">
@@ -108,13 +109,15 @@ export function StepsBlock({
                   {block.customNode}
                 </>
               )}
-              {connectionFlow && index === 1 && flow.received && (
+              {connectionFlow && status && (
                 <p
                   role="status"
                   className="mt-2 rounded-xl border border-success-500/30 bg-success-500/10 p-3 text-sm text-success-400"
                 >
                   <CheckIcon className="mr-2 inline h-4 w-4" />
-                  {t('subscription.connection.receivedSettings', { app: connectionFlow.app })}
+                  {t(`subscription.connection.${index === 2 ? 'vpnWorking' : 'receivedSettings'}`, {
+                    app: connectionFlow.app,
+                  })}
                 </p>
               )}
             </div>

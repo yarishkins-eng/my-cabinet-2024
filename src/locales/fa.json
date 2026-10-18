@@ -426,6 +426,7 @@
       "alreadyInstalled": "{{app}} را دارید؟ به مرحله ۲ بروید",
       "chooseIncy": "Happ ندارید؟ INCY را انتخاب کنید",
       "receivedSettings": "{{app}} تنظیمات را دریافت کرد",
+      "vpnWorking": "VPN کار می‌کند — آمادهٔ استفاده است",
       "copyConnectionLink": "کپی لینک اتصال من",
       "settingsCopied": "لینک کپی شد",
       "copyFailed": "کپی نشد. روی «افزودن به {{app}}» بزنید.",
