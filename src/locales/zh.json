@@ -5121,6 +5121,7 @@
     "abandonKeep": "返回付款",
     "ready": "VPN 已就绪",
     "readyRenewed": "订阅已续订至 {{date}}",
+    "readyUntil": "订阅有效期至 {{date}}",
     "readyText": "时长和设备数量已更新。",
     "connectVpn": "连接 VPN",
     "home": "返回首页",

@@ -5857,6 +5857,7 @@
     "abandonKeep": "Return to payment",
     "ready": "VPN is ready",
     "readyRenewed": "Subscription extended until {{date}}",
+    "readyUntil": "Subscription until {{date}}",
     "readyText": "The term and device limit are updated.",
     "connectVpn": "Connect VPN",
     "home": "Go home",

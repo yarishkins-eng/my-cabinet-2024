@@ -5132,6 +5132,7 @@
     "abandonKeep": "بازگشت به پرداخت",
     "ready": "VPN آماده است",
     "readyRenewed": "اشتراک تا {{date}} تمدید شد",
+    "readyUntil": "اشتراک تا {{date}}",
     "readyText": "مدت و تعداد دستگاه‌ها به‌روز شد.",
     "connectVpn": "اتصال به VPN",
     "home": "صفحه اصلی",
