@@ -112,7 +112,13 @@ describe('DeviceFirstConfigurator responsive and modal contract', () => {
     const russianKeys = Object.keys(locale('ru').deviceFirst).sort();
     expect(Object.keys(locale('en').deviceFirst).sort()).toEqual(russianKeys);
     // Owner 14.10: only ru/en are used; keep fa/zh unchanged for these two new messages.
-    const ruEnOnly = ['pricesRefreshing', 'pricesRefreshError'];
+    const ruEnOnly = [
+      'pricesRefreshing',
+      'pricesRefreshError',
+      'paymentChoice',
+      'paySbp',
+      'payCard',
+    ];
     for (const language of ['zh', 'fa']) {
       expect(Object.keys(locale(language).deviceFirst).sort()).toEqual(
         russianKeys.filter((key) => !ruEnOnly.includes(key)),

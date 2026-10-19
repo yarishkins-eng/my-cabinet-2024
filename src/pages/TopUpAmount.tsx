@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useNavigate, useParams, useSearchParams } from 'react-router';
+import { Navigate, useNavigate, useParams, useSearchParams } from 'react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { motion } from 'framer-motion';
 
@@ -15,7 +15,6 @@ import { Button } from '@/components/primitives/Button';
 import type { PaymentMethod, PaymentMethodOption, TopUpResponse } from '../types';
 import { saveTopUpPendingInfo } from '../utils/topUpStorage';
 import { getSafeRedirectPath, resolveCheckoutReturn } from '../utils/safeRedirect';
-import TopUpOrder from './TopUpOrder';
 import { copyToClipboard } from '@/utils/clipboard';
 import {
   CardIcon,
@@ -159,7 +158,7 @@ export default function TopUpAmount() {
     queryFn: deviceFirstApi.getOptions,
     enabled: hasOrderTarget,
   });
-  const [orderInvoiceTarget, setOrderInvoiceTarget] = useState<string | null>(null);
+  const [orderInvoiceTarget] = useState<string | null>(null);
   const orderInvoiceStarted = hasOrderTarget && orderInvoiceTarget === checkoutReturn;
   // ВК-16 16в-3 (PF): ошибка не разрешает обычный счёт, в том числе при старых cached data.
   const orderUndecided =
@@ -654,25 +653,7 @@ export default function TopUpAmount() {
     orderPeriodDays &&
     orderDevices
   ) {
-    return (
-      <TopUpOrder
-        key={checkoutReturn}
-        onInvoiceStarted={() => setOrderInvoiceTarget(checkoutReturn)}
-        method={method}
-        initialOptionId={pickOptionId(method.options)}
-        tariffName={orderOptions?.tariff?.name ?? null}
-        periodDays={orderPeriodDays}
-        devices={orderDevices}
-        amountKopeks={Math.round(initialAmountRubles * 100)}
-        checkoutReturn={checkoutReturn}
-        requireMethodChoice={
-          searchParams.get('chooseMethod') === '1' ||
-          requestedOptionId === '13' ||
-          (!!requestedOptionId &&
-            !method.options?.some((option) => option.id === requestedOptionId))
-        }
-      />
-    );
+    return <Navigate to={checkoutReturn} replace />;
   }
 
   // 🔴 РЕК-20, заказ владельца 03.09.2026: здесь стоял ряд кнопок с готовыми суммами

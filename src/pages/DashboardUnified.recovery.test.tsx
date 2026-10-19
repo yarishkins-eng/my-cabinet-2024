@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { MemoryRouter } from 'react-router';
 import { PlatformProvider } from '../platform';
@@ -310,7 +310,30 @@ describe('Главная: карточка незавершённого зака
     getOpen = () => Promise.reject(noOpenCheckout404);
     renderHome(new QueryClient({ defaultOptions: { queries: { retry: false } } }));
     fireEvent.click(await screen.findByRole('button', { name: 'home.hero.renew' }));
+    expect(navigate).not.toHaveBeenCalled(); // ОПЛ-1: ждём список, не выбираем старое продление по гонке.
+  });
+  it('ОПЛ-1 renewal waits for deferred list then enters correct single-tariff checkout', async () => {
+    let resolveList!: (value: { subscriptions: never[]; multi_tariff_enabled: boolean }) => void;
+    subscriptionsList = () =>
+      new Promise((r) => {
+        resolveList = r;
+      });
+    getOpen = () => Promise.reject(noOpenCheckout404);
+    renderHome(new QueryClient({ defaultOptions: { queries: { retry: false } } }));
+    const button = await screen.findByRole('button', { name: 'home.hero.renew' });
+    fireEvent.click(button);
+    expect(navigate).not.toHaveBeenCalled();
+    await act(async () => resolveList({ subscriptions: [], multi_tariff_enabled: false }));
+    fireEvent.click(button);
+    expect(navigate).toHaveBeenCalledWith('/subscription/purchase?subscriptionId=42');
+  });
+  it('ОПЛ-1 renewal list error restores previous renewal route', async () => {
+    subscriptionsList = () => Promise.reject(new Error('offline'));
+    getOpen = () => Promise.reject(noOpenCheckout404);
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    renderHome(client);
+    await waitFor(() => expect(client.getQueryState(['subscriptions-list'])?.status).toBe('error'));
+    fireEvent.click(await screen.findByRole('button', { name: 'home.hero.renew' }));
     expect(navigate).toHaveBeenCalledWith('/subscriptions/42/renew');
-    expect(navigate).not.toHaveBeenCalledWith('/subscription/purchase');
   });
 });

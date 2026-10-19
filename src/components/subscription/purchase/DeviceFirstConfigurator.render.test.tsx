@@ -176,7 +176,7 @@ describe('DeviceFirstConfigurator real state rendering', () => {
     const html = render(directConfirmed);
 
     expect(html).not.toContain('role="dialog"');
-    expect(html).toContain('deviceFirst.paymentMethodAmount:450 ₽');
+    expect(html).toContain('deviceFirst.paySbp:450 ₽');
     expect(html).toContain('deviceFirst.changeOptions');
     expect(html).not.toContain('deviceFirst.refreshTitle');
     expect(html).not.toContain('deviceFirst.startNew');

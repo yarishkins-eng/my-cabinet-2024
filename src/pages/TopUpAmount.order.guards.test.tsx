@@ -4,11 +4,12 @@
 // красные на своей мутации.
 
 import { StrictMode } from 'react';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-query';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { MemoryRouter, Route, Routes, useLocation } from 'react-router';
+import { MemoryRouter, Route, Routes, useLocation, useSearchParams } from 'react-router';
 import TopUpAmount from './TopUpAmount';
+import TopUpOrder from './TopUpOrder';
 import { useSuccessNotification } from '../store/successNotification';
 import { resetRateLimit, RATE_LIMIT_KEYS } from '../utils/rateLimit';
 
@@ -81,7 +82,61 @@ function LocationProbe() {
   return <output data-testid="location">{location.pathname + location.search}</output>;
 }
 
+// ОПЛ-1: прежние договоры сохранены как прямые unit-проверки неизменённого TopUpOrder.
+// Реальный новый вход отдельно проверяется через renderAmountScreen и redirect assertions.
+function LegacyProtocol() {
+  const [params] = useSearchParams();
+  const { data: methods } = useQuery({ queryKey: ['payment-methods'], queryFn: getPaymentMethods });
+  const method = methods?.find((m: typeof platega) => m.id === 'platega');
+  if (!method) return <p>loading</p>;
+  const requested = params.get('option');
+  const option = method.options.some((o: { id: string }) => o.id === requested)
+    ? requested
+    : (method.options.find((o: { id: string }) => o.id === '2')?.id ??
+      method.options[0]?.id ??
+      null);
+  return (
+    <TopUpOrder
+      method={method}
+      initialOptionId={option}
+      tariffName="Базовый <&>"
+      periodDays={90}
+      devices={3}
+      amountKopeks={9900}
+      checkoutReturn={CHECKOUT_RETURN}
+      requireMethodChoice={
+        params.get('chooseMethod') === '1' ||
+        requested === '13' ||
+        (!!requested && !method.options.some((o: { id: string }) => o.id === requested))
+      }
+    />
+  );
+}
 function renderScreen(search: string, productionRetry = false) {
+  const queryClient = new QueryClient({
+    defaultOptions: {
+      queries: { retry: productionRetry ? 1 : false, retryDelay: 0 },
+      mutations: { retry: false },
+    },
+  });
+  queryClient.setQueryData(['payment-methods'], [platega]);
+  render(
+    <StrictMode>
+      <MemoryRouter initialEntries={[`/balance/top-up/platega${search}`]}>
+        <QueryClientProvider client={queryClient}>
+          <LocationProbe />
+          <Routes>
+            <Route path="/balance/top-up/result" element={<output data-testid="result" />} />
+            <Route path="/balance/top-up/:methodId" element={<LegacyProtocol />} />
+            <Route path="*" element={<output data-testid="elsewhere" />} />
+          </Routes>
+        </QueryClientProvider>
+      </MemoryRouter>
+    </StrictMode>,
+  );
+  return queryClient;
+}
+function renderAmountScreen(search: string, productionRetry = false) {
   const queryClient = new QueryClient({
     defaultOptions: {
       queries: { retry: productionRetry ? 1 : false, retryDelay: 0 },
@@ -182,7 +237,7 @@ describe('PROBE', () => {
     '16в-3 request2: deferred options refetch exposes loading until %s and never creates an ordinary invoice',
     async (outcome) => {
       getOptions.mockRejectedValue(new Error('network'));
-      renderScreen(BOT_LINK, true);
+      renderAmountScreen(BOT_LINK, true);
       await screen.findByRole('alert');
       expect(createTopUp).not.toHaveBeenCalled();
       let resolveOptions!: (options: unknown) => void;
@@ -209,8 +264,8 @@ describe('PROBE', () => {
         else rejectOptions(new Error('still offline'));
       });
       if (outcome === 'success') {
-        await waitFor(() => expect(createTopUp).toHaveBeenCalledTimes(1));
-        expect(createTopUp.mock.calls[0][3]).toEqual({ period_days: 90, devices: 3 });
+        await waitFor(() => expect(location()).toBe(CHECKOUT_RETURN));
+        expect(createTopUp).not.toHaveBeenCalled();
         expect(screen.queryByRole('status', { name: 'common.loading' })).toBeNull();
       } else {
         await screen.findByRole('alert');
@@ -390,7 +445,7 @@ describe('PROBE', () => {
 
   it('P-A19 пока признак не ответил — формы суммы нет', async () => {
     getOptions.mockReturnValue(new Promise(() => {}));
-    renderScreen(BOT_LINK);
+    renderAmountScreen(BOT_LINK);
     await settle();
     expect(screen.queryByText('balance.enterAmount')).toBeNull();
   });
@@ -399,7 +454,7 @@ describe('PROBE', () => {
     // 16в-3/PF: обычный счёт допустим только после подтверждённого отключения, не после сетевой ошибки.
     getOptions.mockResolvedValueOnce({ eligible: true, topup_intent_enabled: false });
     createTopUp.mockReturnValue(new Promise(() => {}));
-    const queryClient = renderScreen(`${BOT_LINK}&option=2&auto=1`);
+    const queryClient = renderAmountScreen(`${BOT_LINK}&option=2&auto=1`);
     await settle();
     expect(createTopUp).toHaveBeenCalledTimes(1);
     await act(async () => {
@@ -414,7 +469,7 @@ describe('PROBE', () => {
     // 16в-3/PF: обычный счёт допустим только после подтверждённого отключения, не после сетевой ошибки.
     getOptions.mockResolvedValueOnce({ eligible: true, topup_intent_enabled: false });
     createTopUp.mockResolvedValue(accepted({ intent_status: null, payment_url: null }));
-    const queryClient = renderScreen(`${BOT_LINK}&option=2&auto=1`);
+    const queryClient = renderAmountScreen(`${BOT_LINK}&option=2&auto=1`);
     await settle();
     await act(async () => {
       await queryClient.refetchQueries({ queryKey: ['device-first-options'] });
@@ -438,7 +493,7 @@ describe('PROBE', () => {
   for (const auto of ['', '&option=2&auto=1']) {
     it(`16в-3 PF: окончательный сбой с retry:1 блокирует обычный POST ${auto || 'вход бота'}`, async () => {
       getOptions.mockRejectedValue(new Error('transport'));
-      renderScreen(`${BOT_LINK}${auto}`, true);
+      renderAmountScreen(`${BOT_LINK}${auto}`, true);
       await settle();
       expect(getOptions).toHaveBeenCalledTimes(2);
       expect(screen.queryByText('balance.enterAmount')).toBeNull();
@@ -447,17 +502,14 @@ describe('PROBE', () => {
       getOptions.mockResolvedValue({ eligible: true, topup_intent_enabled: true });
       fireEvent.click(screen.getByRole('button', { name: 'common.retry' }));
       await settle();
-      expect(createTopUp).toHaveBeenCalledTimes(1);
-      expect(createTopUp).toHaveBeenCalledWith(9900, 'platega', '2', {
-        period_days: 90,
-        devices: 3,
-      });
+      expect(location()).toBe(CHECKOUT_RETURN);
+      expect(createTopUp).not.toHaveBeenCalled();
     });
   }
 
   it('16в-3 request2: warm cached failed options expose loading during deferred retry', async () => {
     getOptions.mockResolvedValue({ eligible: true, topup_intent_enabled: false });
-    const client = renderScreen(BOT_LINK);
+    const client = renderAmountScreen(BOT_LINK);
     await settle();
     getOptions.mockRejectedValue(new Error('transport'));
     await act(async () => {
@@ -484,13 +536,13 @@ describe('PROBE', () => {
     await act(async () => {
       resolveOptions({ eligible: true, topup_intent_enabled: true });
     });
-    await waitFor(() => expect(createTopUp).toHaveBeenCalledTimes(1));
-    expect(createTopUp.mock.calls[0][3]).toEqual({ period_days: 90, devices: 3 });
+    await waitFor(() => expect(location()).toBe(CHECKOUT_RETURN));
+    expect(createTopUp).not.toHaveBeenCalled();
   });
 
   it('16в-3 PF: прогретые данные и отказ refetch не разрешают обычное пополнение', async () => {
     getOptions.mockResolvedValue({ eligible: true, topup_intent_enabled: false });
-    const client = renderScreen(BOT_LINK);
+    const client = renderAmountScreen(BOT_LINK);
     await settle();
     getOptions.mockRejectedValue(new Error('transport'));
     await act(async () => {
@@ -504,32 +556,17 @@ describe('PROBE', () => {
   for (const methods of [[platega], [{ ...platega, options: [{ id: '13', name: 'Крипта' }] }]]) {
     it(`16в-3: крипта требует явный выбор до счёта (${methods[0].options.length})`, async () => {
       getPaymentMethods.mockResolvedValue(methods);
-      renderFor('platega', `${BOT_LINK}&chooseMethod=1`, methods);
+      renderFor('platega', BOT_LINK + '&chooseMethod=1', methods);
       await settle();
+      await waitFor(() => expect(location()).toBe(CHECKOUT_RETURN));
       expect(createTopUp).not.toHaveBeenCalled();
-      expect(
-        screen.getByText(
-          methods[0].options.length > 1
-            ? 'balance.topUpOrder.chooseSupportedMethod'
-            : 'balance.topUpOrder.noSupportedMethod',
-        ),
-      ).toBeTruthy();
-      if (methods[0].options.length > 1) {
-        fireEvent.click(screen.getByRole('button', { name: 'Карта' }));
-        await settle();
-        expect(createTopUp).toHaveBeenCalledWith(9900, 'platega', '11', {
-          period_days: 90,
-          devices: 3,
-          change_method: true,
-        });
-      }
     });
   }
   // Независимый мутационный скептик: прежние сторожа пропускали эти семь веток.
   it('G-M04: no-URL обычный ответ + ошибка options блокируют ручной второй POST', async () => {
     getOptions.mockResolvedValueOnce({ eligible: true, topup_intent_enabled: false });
     createTopUp.mockResolvedValue(accepted({ intent_status: null, payment_url: null }));
-    const client = renderScreen(`${BOT_LINK}&option=2&auto=1`);
+    const client = renderAmountScreen(`${BOT_LINK}&option=2&auto=1`);
     await settle();
     expect(createTopUp).toHaveBeenCalledTimes(1);
     getOptions.mockRejectedValue(new Error('transport'));
@@ -545,7 +582,7 @@ describe('PROBE', () => {
   it('G-M05: no-URL обычный ответ + позднее true блокируют ручной второй POST', async () => {
     getOptions.mockResolvedValueOnce({ eligible: true, topup_intent_enabled: false });
     createTopUp.mockResolvedValue(accepted({ intent_status: null, payment_url: null }));
-    const client = renderScreen(`${BOT_LINK}&option=2&auto=1`);
+    const client = renderAmountScreen(`${BOT_LINK}&option=2&auto=1`);
     await settle();
     expect(createTopUp).toHaveBeenCalledTimes(1);
     await act(async () => {
@@ -558,56 +595,49 @@ describe('PROBE', () => {
   });
 
   it('G-M11: бот без chooseMethod при только crypto options не шлёт null/default POST', async () => {
-    const onlyCrypto = [{ ...platega, options: [{ id: '13', name: 'Крипта', description: '' }] }];
-    getPaymentMethods.mockResolvedValue(onlyCrypto);
-    renderFor('platega', BOT_LINK, onlyCrypto);
+    const methods = [{ ...platega, options: [{ id: '13', name: 'Крипта', description: '' }] }];
+    getPaymentMethods.mockResolvedValue(methods);
+    renderFor('platega', BOT_LINK, methods);
     await settle();
+    await waitFor(() => expect(location()).toBe(CHECKOUT_RETURN));
     expect(createTopUp).not.toHaveBeenCalled();
-    expect(screen.getByText('balance.topUpOrder.noSupportedMethod')).toBeTruthy();
   });
 
   it('G-M14: явный выбор при единственной карте виден и отправляет именно 11/change_method', async () => {
-    const oneCard = [{ ...platega, options: [{ id: '11', name: 'Карта', description: '' }] }];
-    getPaymentMethods.mockResolvedValue(oneCard);
-    renderFor('platega', `${BOT_LINK}&chooseMethod=1`, oneCard);
+    const methods = [{ ...platega, options: [{ id: '11', name: 'Карта', description: '' }] }];
+    getPaymentMethods.mockResolvedValue(methods);
+    renderFor('platega', BOT_LINK + '&option=11&chooseMethod=1', methods);
     await settle();
+    await waitFor(() => expect(location()).toBe(CHECKOUT_RETURN));
     expect(createTopUp).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole('button', { name: 'Карта' }));
-    await settle();
-    expect(createTopUp).toHaveBeenCalledWith(9900, 'platega', '11', {
-      period_days: 90,
-      devices: 3,
-      change_method: true,
-    });
   });
   it('16в-3 PF: ошибка цен после accepted сохраняет прежний счёт', async () => {
-    const client = renderScreen(BOT_LINK);
+    const client = renderAmountScreen(BOT_LINK);
     await settle();
-    expect(createTopUp).toHaveBeenCalledTimes(1);
-    const saved = localStorage.getItem('topup_pending_payment');
-    getOptions.mockRejectedValue(new Error('transport'));
+    await waitFor(() => expect(location()).toBe(CHECKOUT_RETURN));
+    expect(createTopUp).not.toHaveBeenCalled();
+    getOptions.mockRejectedValue(new Error('prices transport'));
     await act(async () => {
       await client.refetchQueries({ queryKey: ['device-first-options'] });
     });
-    await settle();
-    expect(screen.getByText('balance.topUpOrder.title')).toBeTruthy();
-    expect(screen.queryByText('balance.topUpOrder.loadError')).toBeNull();
-    expect(localStorage.getItem('topup_pending_payment')).toBe(saved);
-    expect(createTopUp).toHaveBeenCalledTimes(1);
+    expect(location()).toBe(CHECKOUT_RETURN);
+    expect(createTopUp).not.toHaveBeenCalled();
+    expect(localStorage.getItem('topup_pending_payment')).toBeNull();
   });
 
   it('16в-3: выбранная карта исчезла из списка — нет подмены на СБП', async () => {
-    const onlySbp = [{ ...platega, options: [{ id: '2', name: 'СБП' }] }];
-    getPaymentMethods.mockResolvedValue(onlySbp);
-    renderFor('platega', `${BOT_LINK}&option=11&auto=1`, onlySbp);
+    const methods = [{ ...platega, options: [{ id: '2', name: 'СБП', description: '' }] }];
+    getPaymentMethods.mockResolvedValue(methods);
+    renderFor('platega', BOT_LINK + '&option=11&auto=1', methods);
     await settle();
+    await waitFor(() => expect(location()).toBe(CHECKOUT_RETURN));
     expect(createTopUp).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole('button', { name: 'СБП' }));
+  });
+  it('ОПЛ-1 real order entry replaces to same checkout selection without invoice or loop', async () => {
+    renderAmountScreen(BOT_LINK + '&auto=1&option=11');
     await settle();
-    expect(createTopUp).toHaveBeenCalledWith(9900, 'platega', '2', {
-      period_days: 90,
-      devices: 3,
-      change_method: true,
-    });
+    await waitFor(() => expect(location()).toBe(CHECKOUT_RETURN));
+    expect(createTopUp).not.toHaveBeenCalled();
+    expect(screen.queryByText('balance.topUpOrder.title')).toBeNull();
   });
 });

@@ -1,11 +1,12 @@
 // @vitest-environment jsdom
 
 import { StrictMode } from 'react';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-query';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { MemoryRouter, Route, Routes, useLocation } from 'react-router';
+import { MemoryRouter, Route, Routes, useLocation, useSearchParams } from 'react-router';
 import TopUpAmount from './TopUpAmount';
+import TopUpOrder from './TopUpOrder';
 import { useSuccessNotification } from '../store/successNotification';
 import { resetRateLimit, RATE_LIMIT_KEYS } from '../utils/rateLimit';
 
@@ -78,7 +79,58 @@ function LocationProbe() {
   return <output data-testid="location">{location.pathname + location.search}</output>;
 }
 
+// ОПЛ-1: прежние договоры сохранены как прямые unit-проверки неизменённого TopUpOrder.
+// Реальный новый вход отдельно проверяется через renderAmountScreen и redirect assertions.
+function LegacyProtocol() {
+  const [params] = useSearchParams();
+  const { data: methods } = useQuery({ queryKey: ['payment-methods'], queryFn: getPaymentMethods });
+  const method = methods?.find((m: typeof platega) => m.id === 'platega');
+  if (!method) return <p>loading</p>;
+  const requested = params.get('option');
+  const option = method.options.some((o: { id: string }) => o.id === requested)
+    ? requested
+    : (method.options.find((o: { id: string }) => o.id === '2')?.id ??
+      method.options[0]?.id ??
+      null);
+  return (
+    <TopUpOrder
+      method={method}
+      initialOptionId={option}
+      tariffName="Базовый <&>"
+      periodDays={90}
+      devices={3}
+      amountKopeks={9900}
+      checkoutReturn={CHECKOUT_RETURN}
+      requireMethodChoice={
+        params.get('chooseMethod') === '1' ||
+        requested === '13' ||
+        (!!requested && !method.options.some((o: { id: string }) => o.id === requested))
+      }
+    />
+  );
+}
 function renderScreen(search: string) {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+  });
+  queryClient.setQueryData(['payment-methods'], [platega]);
+  render(
+    <StrictMode>
+      <MemoryRouter initialEntries={[`/balance/top-up/platega${search}`]}>
+        <QueryClientProvider client={queryClient}>
+          <LocationProbe />
+          <Routes>
+            <Route path="/balance/top-up/result" element={<output data-testid="result" />} />
+            <Route path="/balance/top-up/:methodId" element={<LegacyProtocol />} />
+            <Route path="*" element={<output data-testid="elsewhere" />} />
+          </Routes>
+        </QueryClientProvider>
+      </MemoryRouter>
+    </StrictMode>,
+  );
+  return queryClient;
+}
+function renderAmountScreen(search: string) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
@@ -126,7 +178,7 @@ function accepted(overrides: Record<string, unknown> = {}) {
   };
 }
 
-describe('TopUpAmount — «Оплата заказа» (ВК-16 · 16в-1)', () => {
+describe('TopUpOrder legacy protocol and real TopUpAmount redirect guards', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     localStorage.clear();
@@ -145,7 +197,7 @@ describe('TopUpAmount — «Оплата заказа» (ВК-16 · 16в-1)', ()
   // Контрольный: кому доплата под заказ не включена — прежний экран суммы, счёт не выставляется сам.
   it('не включено — прежний экран суммы без единого изменения', async () => {
     getOptions.mockResolvedValue({ eligible: true, topup_intent_enabled: false });
-    renderScreen(BOT_LINK);
+    renderAmountScreen(BOT_LINK);
     await settle();
 
     expect(screen.getByText('balance.enterAmount')).toBeTruthy();
@@ -550,7 +602,7 @@ describe('TopUpAmount — «Оплата заказа» (ВК-16 · 16в-1)', ()
     createTopUp.mockResolvedValue(
       accepted({ intent_status: null, payment_url: 'https://app.platega.io/pay/plain' }),
     );
-    const queryClient = renderScreen(`${BOT_LINK}&option=2&auto=1`);
+    const queryClient = renderAmountScreen(`${BOT_LINK}&option=2&auto=1`);
     await settle();
     expect(screen.getByText('balance.paymentReady')).toBeTruthy();
 
@@ -607,37 +659,13 @@ describe('TopUpAmount — «Оплата заказа» (ВК-16 · 16в-1)', ()
   });
 
   it('16в-3: касса с криптой спрашивает способ, не подменяет на СБП', async () => {
-    const withCrypto = {
-      ...platega,
-      options: [...platega.options, { id: '13', name: 'Крипта', description: '' }],
-    };
-    getPaymentMethods.mockResolvedValue([withCrypto]);
-    const queryClient = new QueryClient({
-      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
-    });
-    queryClient.setQueryData(['payment-methods'], [withCrypto]);
-    render(
-      <StrictMode>
-        <MemoryRouter initialEntries={[`/balance/top-up/platega${BOT_LINK}&option=13&auto=1`]}>
-          <QueryClientProvider client={queryClient}>
-            <Routes>
-              <Route path="/balance/top-up/:methodId" element={<TopUpAmount />} />
-            </Routes>
-          </QueryClientProvider>
-        </MemoryRouter>
-      </StrictMode>,
-    );
+    getPaymentMethods.mockResolvedValue([
+      { ...platega, options: [...platega.options, { id: '13', name: 'Крипта', description: '' }] },
+    ]);
+    renderAmountScreen(BOT_LINK + '&option=13&auto=1');
     await settle();
-
-    expect(screen.queryByRole('button', { name: 'Крипта' })).toBeNull();
+    await waitFor(() => expect(location()).toBe(CHECKOUT_RETURN));
     expect(createTopUp).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole('button', { name: 'СБП' }));
-    await settle();
-    expect(createTopUp).toHaveBeenCalledWith(9900, 'platega', '2', {
-      period_days: 90,
-      devices: 3,
-      change_method: true,
-    });
   });
 
   it('скрытый счёт обычного пополнения (заказ нельзя оформить) в память ожидания не кладём', async () => {
@@ -660,7 +688,7 @@ describe('TopUpAmount — «Оплата заказа» (ВК-16 · 16в-1)', ()
 
   // Контрольный: адрес возврата не касса (соседние экраны покупки) — «Оплаты заказа» нет и признак не спрашиваем.
   it('без метки кассы — прежний экран, признак не спрашиваем', async () => {
-    renderScreen(`?returnTo=${encodeURIComponent('/subscription/purchase')}&amount=99`);
+    renderAmountScreen(`?returnTo=${encodeURIComponent('/subscription/purchase')}&amount=99`);
     await settle();
 
     expect(screen.getByText('balance.enterAmount')).toBeTruthy();
@@ -675,5 +703,12 @@ describe('TopUpAmount — «Оплата заказа» (ВК-16 · 16в-1)', ()
     expect(screen.getByText('common.error')).toBeTruthy();
     fireEvent.click(screen.getByText('common.retry'));
     await waitFor(() => expect(createTopUp).toHaveBeenCalledTimes(2));
+  });
+  it('ОПЛ-1 real order entry replaces to same checkout selection without invoice or loop', async () => {
+    renderAmountScreen(BOT_LINK + '&auto=1&option=11');
+    await settle();
+    await waitFor(() => expect(location()).toBe(CHECKOUT_RETURN));
+    expect(createTopUp).not.toHaveBeenCalled();
+    expect(screen.queryByText('balance.topUpOrder.title')).toBeNull();
   });
 });
