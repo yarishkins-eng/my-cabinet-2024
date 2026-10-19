@@ -2700,7 +2700,14 @@ export function DeviceFirstConfigurator({
                   })
                 : t('deviceFirst.ready')
             }
-            text={t('deviceFirst.readyText')}
+            text={
+              checkout.current_subscription_is_trial !== false &&
+              formatMoscowDate(checkout.estimated_end_at, i18n?.resolvedLanguage) !== null
+                ? t('deviceFirst.readyUntil', {
+                    date: formatCheckoutEndDate(checkout.estimated_end_at, i18n?.resolvedLanguage),
+                  })
+                : t('deviceFirst.readyText')
+            }
           />
           <button
             type="button"

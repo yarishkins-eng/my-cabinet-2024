@@ -324,11 +324,36 @@ describe('DeviceFirstConfigurator real state rendering', () => {
     const html = render({ ...checkout('ready'), estimated_end_at: '2026-08-29T22:30:00Z' });
     expect(html).toContain('deviceFirst.readyRenewed:30 авг. 2026');
     expect(html).not.toContain('deviceFirst.ready</');
+    expect(html).toContain('deviceFirst.readyText');
+    expect(html).not.toContain('deviceFirst.readyUntil');
   });
 
-  it.each([true, null])('keeps first-purchase readiness for trial=%s', (isTrial) => {
-    const html = render({ ...checkout('ready'), current_subscription_is_trial: isTrial });
+  it.each([true, null, undefined])('shows first-purchase expiry for trial=%s', (isTrial) => {
+    const html = render({
+      ...checkout('ready'),
+      current_subscription_is_trial: isTrial,
+      estimated_end_at: '2026-08-29T22:30:00Z',
+    });
     expect(html).toContain('deviceFirst.ready</');
+    expect(html).toContain('deviceFirst.readyUntil:30 авг. 2026 (МСК)');
     expect(html).not.toContain('deviceFirst.readyRenewed');
+    expect(html).not.toContain('deviceFirst.readyText');
   });
+
+  it.each([true, null, undefined])(
+    'keeps the fallback without a valid first-purchase date for trial=%s',
+    (isTrial) => {
+      for (const end of ['', 'invalid', null, undefined]) {
+        const html = render({
+          ...checkout('ready'),
+          current_subscription_is_trial: isTrial,
+          estimated_end_at: end as unknown as string,
+        });
+        expect(html).toContain('deviceFirst.ready</');
+        expect(html).toContain('deviceFirst.readyText');
+        expect(html).not.toContain('deviceFirst.readyUntil');
+        expect(html).not.toContain('—');
+      }
+    },
+  );
 });

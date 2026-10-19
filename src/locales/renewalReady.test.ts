@@ -45,4 +45,25 @@ describe('VK-5 renewal readiness translations', () => {
     expect(messages.ready).toBe(title);
     expect(messages.readyText).toBe(text);
   });
+
+  it.each(Object.entries(locales))(
+    'interpolates the first-purchase date in %s',
+    async (language, locale) => {
+      expect(locale.deviceFirst.readyUntil).toContain('{{date}}');
+      const translator = i18next.createInstance();
+      await translator.init({
+        lng: language,
+        resources: { [language]: { translation: locale } },
+        interpolation: { escapeValue: false },
+      });
+      const date = formatMoscowDate('2026-08-29T22:30:00Z', language);
+      expect(date).not.toBeNull();
+      const rendered = translator.t('deviceFirst.readyUntil', { date });
+      expect(rendered).toContain(date);
+      expect(rendered).not.toContain('{{');
+      expect(rendered.match(/\((?:МСК|MSK)\)/g)).toHaveLength(1);
+      if (language === 'ru') expect(rendered).toBe('Подписка до 30 авг. 2026 (МСК)');
+      if (language === 'en') expect(rendered).toBe('Subscription until 30.08.2026 (MSK)');
+    },
+  );
 });
