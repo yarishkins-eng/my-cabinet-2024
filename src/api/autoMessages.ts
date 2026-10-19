@@ -14,6 +14,7 @@ export interface AutoMessageParams {
   trigger_days?: number;
   /** Через сколько часов ПОСЛЕ начала пробного написать тому, кто не подключился. */
   not_connected_after_hours?: number;
+  connect_reminder_minutes?: number;
   carrier?: number;
   audience?: number;
   post_trial_hours?: number;
@@ -148,6 +149,7 @@ export interface AutoMessagePatch extends AutoMessageParams {
   valid_hours?: number;
   trigger_days?: number;
   not_connected_after_hours?: number;
+  connect_reminder_minutes?: number;
 }
 
 export const GROUP_TITLES: Record<AutoMessageGroup, string> = {
