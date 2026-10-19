@@ -920,6 +920,88 @@ describe('АП4.PR4: согласованные состояния и корот
     },
   );
 
+  const allRuleCases = [true, false].flatMap((enabled) =>
+    [true, false].flatMap((legacy) =>
+      [null, 'Пока только тестовым аккаунтам'].flatMap((note) =>
+        [
+          undefined,
+          '',
+          '  ',
+          'Пробный скоро истекает',
+          'Пробный закончится завтра',
+          'Пробный закончится через 2 дня',
+        ].map((title) => ({ enabled, legacy, note, title })),
+      ),
+    ),
+  );
+  it.each(allRuleCases)(
+    'вариантА: $enabled / $legacy / $note / $title',
+    async ({ enabled, legacy, note, title }) => {
+      const { i18n } = await show({
+        id: 'trial-discount',
+        discount_context: {
+          ...context,
+          enabled,
+          legacy_enabled: legacy,
+          rollout_note: note,
+          carrier_title: title,
+        },
+      });
+      const expected = enabled && legacy && Boolean(note || title?.trim());
+      const text = i18n.t(`admin.autoMessages.discount.${note ? 'bothEnabled' : 'alsoEnabled'}`, {
+        title,
+      });
+      expect(Boolean(screen.queryByText(text))).toBe(expected);
+      expect(
+        Boolean(
+          screen.queryByRole('link', { name: i18n.t('admin.autoMessages.discount.configureNew') }),
+        ),
+      ).toBe(expected);
+    },
+  );
+  it.each([
+    'Пробный скоро истекает',
+    'Пробный закончится завтра',
+    'Пробный закончится через 2 дня',
+  ])('English variantA uses the actual carrier %s', async (title) => {
+    const { i18n } = await show(
+      {
+        id: 'trial-discount',
+        discount_context: {
+          ...context,
+          enabled: true,
+          legacy_enabled: true,
+          rollout_note: null,
+          carrier_title: title,
+        },
+      },
+      'en',
+    );
+    expect(screen.getByText(`The new discount is on too — in “${title}”.`)).toBeTruthy();
+    expect(
+      screen
+        .getByRole('link', { name: i18n.t('admin.autoMessages.discount.configureNew') })
+        .getAttribute('href'),
+    ).toBe('/admin/auto-messages/trial-ending-discount');
+  });
+  it.each(['ru', 'en'])(
+    'carrier attachment has a period before configure (%s)',
+    async (language) => {
+      const { i18n } = await show(
+        { id: 'trial-1d', discount_context: { ...context, rollout_note: null } },
+        language,
+      );
+      const link = screen.getByRole('link', {
+        name: i18n.t('admin.autoMessages.discount.configure'),
+      });
+      expect(link.closest('p')!.textContent).toBe(
+        i18n.t('admin.autoMessages.discount.attachment', { percent: context.percent }) +
+          '. ' +
+          i18n.t('admin.autoMessages.discount.configure'),
+      );
+    },
+  );
+
   it('выключение носителя содержит его настоящее название, одной фразой', async () => {
     const title = 'Пробный закончится завтра';
     const { i18n } = await show(
