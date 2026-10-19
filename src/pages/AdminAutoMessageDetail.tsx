@@ -527,15 +527,29 @@ function AdminAutoMessageDetailCard() {
         )}
         {context?.enabled === true &&
           (carriesDiscount ||
-            (data.id === 'trial-discount' && context.legacy_enabled && context.rollout_note)) && (
+            (data.id === 'trial-discount' &&
+              context.legacy_enabled &&
+              (context.rollout_note || context.carrier_title?.trim()))) && (
             <p
               role={carriesDiscount ? undefined : 'status'}
               className={`mt-3 text-sm ${carriesDiscount ? 'text-dark-200' : 'text-warning-300'}`}
             >
-              {dt(carriesDiscount ? 'attachment' : 'bothEnabled', { percent: context.percent })}
+              {dt(
+                carriesDiscount
+                  ? 'attachment'
+                  : context.rollout_note
+                    ? 'bothEnabled'
+                    : 'alsoEnabled',
+                {
+                  percent: context.percent,
+                  title: context.carrier_title,
+                },
+              )}
               {carriesDiscount && context.rollout_note
                 ? ` · ${dt('standsNote').toLocaleLowerCase()}.`
-                : ''}{' '}
+                : carriesDiscount
+                  ? '.'
+                  : ''}{' '}
               <Link
                 className="inline-flex min-h-[44px] items-center text-accent-300 underline"
                 to="/admin/auto-messages/trial-ending-discount"

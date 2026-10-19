@@ -3946,6 +3946,7 @@
         "configure": "Configure discount",
         "replacesLegacy": "The discount before the trial ends replaces it; settings are preserved.",
         "bothEnabled": "Both discounts are enabled. Keep this one on while the new one is only for test accounts.",
+        "alsoEnabled": "The new discount is on too — in “{{title}}”.",
         "discountOff": "Turn off the discount? Discounts already issued will last until they expire.",
         "carrierOff": "Turn off “{{title}}”? Its discount will not be sent either.",
         "autoTail": "Automatic price after the text",

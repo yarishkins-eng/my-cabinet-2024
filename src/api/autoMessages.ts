@@ -41,6 +41,7 @@ export interface AutoMessageItem {
   choices?: Record<string, Array<{ value: number; label: string }>>;
   discount_context?: {
     carrier_id: string;
+    carrier_title?: string | null;
     percent: number;
     enabled: boolean;
     legacy_enabled: boolean;
