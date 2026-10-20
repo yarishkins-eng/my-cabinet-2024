@@ -805,6 +805,10 @@ describe('ОПЛ-1 single summary payment protocol', () => {
       );
       expect(openLink).not.toHaveBeenCalled();
       expect(loadTopUpPendingInfo()).toBeNull();
+      if (!['restricted', 'account_erasure'].includes(reason)) {
+        expect(screen.getByText('balance.topUpResult.intent.reasons.unavailable')).toBeTruthy();
+        expect(screen.queryByText('deviceFirst.unavailable')).toBeNull();
+      }
       expect(!!screen.queryByRole('button', { name: 'balance.topUpOrder.writeSupport' })).toBe(
         ['restricted', 'account_erasure'].includes(reason),
       );
@@ -943,11 +947,11 @@ describe('ОПЛ-1 single summary payment protocol', () => {
     );
     inline();
     await tap();
-    await screen.findByText('deviceFirst.unavailable');
+    await screen.findByText('balance.topUpResult.intent.reasons.unavailable');
     fireEvent.click(screen.getByRole('button', { name: 'deviceFirst.changeOptions' }));
     fireEvent.click(await screen.findByRole('button', { name: 'deviceFirst.review' }));
     await pick();
-    expect(screen.queryByText('deviceFirst.unavailable')).toBeNull();
+    expect(screen.queryByText('balance.topUpResult.intent.reasons.unavailable')).toBeNull();
   });
   it('plain full-price alternative immediately opens bank after selection', async () => {
     vi.mocked(deviceFirstApi.payDirect).mockResolvedValue({

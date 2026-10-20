@@ -4242,16 +4242,43 @@ describe('DeviceFirstConfigurator interaction safety', () => {
     expect(url.searchParams.has('amount')).toBe(false); // Без суммы legacy fallback не возвращается редиректом к себе.
   });
   // Независимый мутационный скептик: прежние сторожа пропускали эти семь веток.
-  it('G-M32: неизвестный provider code при включённом intent несёт chooseMethod=1', async () => {
+  it('G-M32: pending methods show loading without empty methods or a plain top-up fallback', async () => {
     vi.mocked(deviceFirstApi.paymentMethods).mockReturnValue(new Promise(() => {}));
     getBalancePaymentMethods.mockResolvedValue(topUpMethodsResponse);
     renderConfigurator({ options: { ...options, topup_intent_enabled: true } });
     fireEvent.click(screen.getByRole('button', { name: 'deviceFirst.review' }));
-    fireEvent.click(await screen.findByRole('button', { name: 'deviceFirst.needTopup' }));
+    await screen.findByText('deviceFirst.paymentChoice');
+    expect(await screen.findByText('deviceFirst.paymentMethodsLoading')).toBeTruthy();
+    expect(screen.queryByText('deviceFirst.noMethods')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'deviceFirst.needTopup' })).toBeNull();
+    expect(createTopUp).not.toHaveBeenCalled();
+  });
+
+  it('OPL-1 methods failure offers retry without empty methods or a plain top-up fallback', async () => {
+    vi.mocked(deviceFirstApi.paymentMethods).mockRejectedValue(new Error('offline'));
+    getBalancePaymentMethods.mockResolvedValue(topUpMethodsResponse);
+    renderConfigurator({ options: { ...options, topup_intent_enabled: true } });
+    fireEvent.click(screen.getByRole('button', { name: 'deviceFirst.review' }));
+    expect(await screen.findByText('deviceFirst.errorPaymentMethodsLoad')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'deviceFirst.retry' })).toBeTruthy();
+    expect(screen.queryByText('deviceFirst.noMethods')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'deviceFirst.needTopup' })).toBeNull();
+    expect(screen.queryByText('deviceFirst.paymentMethodsLoading')).toBeNull();
+  });
+
+  it('OPL-1 methods successful empty list preserves the explicit plain top-up fallback', async () => {
+    vi.mocked(deviceFirstApi.paymentMethods).mockResolvedValue({ methods: [] });
+    getBalancePaymentMethods.mockResolvedValue(topUpMethodsResponse);
+    renderConfigurator({ options: { ...options, topup_intent_enabled: true } });
+    fireEvent.click(screen.getByRole('button', { name: 'deviceFirst.review' }));
+    const fallback = await screen.findByRole('button', { name: 'deviceFirst.needTopup' });
+    expect(screen.getAllByText('deviceFirst.noMethods').length).toBeGreaterThan(0);
+    expect(screen.queryByText('deviceFirst.paymentMethodsLoading')).toBeNull();
+    fireEvent.click(fallback);
     const url = new URL(screen.getByTestId('location').textContent!, 'http://test');
-    expect(url.searchParams.has('option')).toBe(false);
-    expect(url.searchParams.has('auto')).toBe(false);
+    expect(url.pathname).toBe('/balance/top-up/platega');
     expect(url.searchParams.get('chooseMethod')).toBe('1');
-    expect(url.searchParams.has('amount')).toBe(false); // Без суммы legacy fallback не возвращается редиректом к себе.
+    expect(url.searchParams.has('amount')).toBe(false);
+    expect(createTopUp).not.toHaveBeenCalled();
   });
 });

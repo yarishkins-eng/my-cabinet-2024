@@ -1788,7 +1788,7 @@ export function DeviceFirstConfigurator({
   const paymentChoices = (topup: boolean) => (
     <div className="grid gap-2 [&_button]:min-h-11">
       <p className="text-sm text-dark-300">{t('deviceFirst.paymentChoice')}</p>
-      {!moneyMethods.length && (
+      {methods.isSuccess && !moneyMethods.length && (
         <>
           <p role="status">{t('deviceFirst.noMethods')}</p>
           <Button onClick={() => navigate(checkoutTopUpHref)}>{t('deviceFirst.needTopup')}</Button>
@@ -1837,7 +1837,7 @@ export function DeviceFirstConfigurator({
   const topUpNotice = blockedTopUp
     ? supportTopUp
       ? `balance.topUpResult.intent.reasons.${topUpAnswer?.intent_reason}`
-      : 'deviceFirst.unavailable'
+      : 'balance.topUpResult.intent.reasons.unavailable'
     : `balance.topUpOrder.${statusKeys[orderStatus ?? ''] ?? 'onReview'}`;
   const topUpOutcome =
     topUpAnswer &&
@@ -2409,7 +2409,7 @@ export function DeviceFirstConfigurator({
                       действие, способы оплаты остаются настоящими кнопками под ней. Порядок
                       важен физически: на телефоне до нижних кнопок надо доскроллить. */}
                   {inlineTopUp ? (topUpOutcome ?? paymentChoices(true)) : topUpAction}
-                  {methods.isLoading && !primaryTopUp ? (
+                  {methods.isLoading ? (
                     <p role="status" className="text-sm text-dark-400">
                       {t('deviceFirst.paymentMethodsLoading')}
                     </p>
