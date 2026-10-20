@@ -12,6 +12,13 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useSearchParams } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { balanceApi } from '@/api/balance';
+import type { TopUpResponse } from '@/types';
+import {
+  loadConfirmedPurchase,
+  saveConfirmedPurchase,
+  saveTopUpPendingInfo,
+} from '@/utils/topUpStorage';
+import { useCloseOnSuccessNotification } from '@/store/successNotification';
 import { usePromoDiscount } from '@/hooks/usePromoDiscount';
 import { personalDiscount, formatCheckoutMoney } from '@/utils/checkoutDiscount';
 import { formatMoscowDate } from '@/utils/moscowDate';
@@ -120,10 +127,12 @@ export function DeviceFirstConfigurator({
   const [repriced, setRepriced] = useState(false);
   const [discountExpired, setDiscountExpired] = useState(false);
   const [priceRefresh, setPriceRefresh] = useState<'loading' | 'error' | null>(null);
+  const [freshBalance, setFreshBalance] = useState<number>();
   const [freshMatrix, setFreshMatrix] = useState<DeviceFirstOptions['price_matrix']>();
   useEffect(() => {
     setFreshMatrix(undefined);
-  }, [options.price_matrix]);
+    setFreshBalance(undefined);
+  }, [options.price_matrix, options.balance_kopeks]);
   const [actionError, setActionError] = useState<unknown>(null);
   const [confirmAbandon, setConfirmAbandon] = useState(false);
   // 🔴 Три состояния, а не два. Раньше отказ писал `false` в состояние, которое и так
@@ -547,7 +556,7 @@ export function DeviceFirstConfigurator({
   const confirmTotalKopeks =
     resumedConfirmation?.tariff_total_kopeks ?? price?.price_kopeks ?? null;
   const confirmBalanceKopeks =
-    options.balance_kopeks ?? resumedConfirmation?.balance_kopeks ?? null;
+    freshBalance ?? options.balance_kopeks ?? resumedConfirmation?.balance_kopeks ?? null;
   // The server rejects an unknown selection with invalid_selection before any
   // resume, so the payment CTA exists only while the selection is priced.
   const confirmSelectionAvailable = Boolean(priceFor(confirmPeriodDays, confirmDeviceLimit));
@@ -741,7 +750,7 @@ export function DeviceFirstConfigurator({
       devices: String(confirmDeviceLimit),
     });
     const params = new URLSearchParams({ returnTo: `/subscription/purchase?${target}` });
-    if (topUpAmountKnown && topUpChargeKopeks > 0) {
+    if (!options.topup_intent_enabled && topUpAmountKnown && topUpChargeKopeks > 0) {
       params.set('amount', String(topUpChargeKopeks / 100));
     }
     if (
@@ -827,6 +836,7 @@ export function DeviceFirstConfigurator({
       if (!Array.isArray(fresh.price_matrix)) throw new Error('Price matrix unavailable');
       queryClient.setQueryData(['device-first-options'], fresh);
       setFreshMatrix(fresh.price_matrix);
+      setFreshBalance(fresh.balance_kopeks);
       setPriceRefresh(null);
     } catch {
       setPriceRefresh('error');
@@ -1630,10 +1640,11 @@ export function DeviceFirstConfigurator({
         type="button"
         disabled={
           payMutation.isPending ||
+          topUpBusy ||
           (chatChoiceHeld && heldChatMethod?.key === methodKeyToRender && !heldChatMethodAvailable)
         }
         onClick={() => {
-          payMutation.mutate({
+          payOnce({
             fundingMode: 'platega',
             selectedMethodKey: methodKeyToRender,
             openBank,
@@ -1649,6 +1660,259 @@ export function DeviceFirstConfigurator({
       </button>
     );
 
+  const [topUpAnswer, setTopUpAnswer] = useState<TopUpResponse | null>(null);
+  const [topUpBusy, setTopUpBusy] = useState(false);
+  const [topUpError, setTopUpError] = useState<string | null>(null);
+  const topUpLock = useRef(false);
+  const topUpLeft = useRef(false);
+  const payOnce = (args: Parameters<typeof payMutation.mutate>[0]) => {
+    if (topUpLock.current) return;
+    topUpLock.current = true;
+    payMutation.mutate(args, { onSettled: () => (topUpLock.current = false) });
+  };
+  const topUpPayment = useRef<string | null>(null);
+  const topUpMethod = useRef<number | null>(null);
+  const topUpEpoch = useRef(0);
+  useEffect(() => {
+    setTopUpAnswer(null);
+    setTopUpError(null);
+    topUpPayment.current = null;
+    topUpLeft.current = false;
+    return () => {
+      topUpEpoch.current += 1;
+    };
+  }, [confirmPeriodDays, confirmDeviceLimit, confirmation]);
+  const checkoutReturn = `/subscription/purchase?from=checkout&period=${confirmPeriodDays}&devices=${confirmDeviceLimit}`;
+  const topUpResult = useCallback(() => {
+    if (topUpPayment.current)
+      navigate(`/balance/top-up/result?returnTo=${encodeURIComponent(checkoutReturn)}`, {
+        replace: true,
+      });
+  }, [navigate, checkoutReturn]);
+  useEffect(() => {
+    const visible = () => {
+      if (document.visibilityState === 'visible' && topUpLeft.current) topUpResult();
+    };
+    document.addEventListener('visibilitychange', visible);
+    return () => document.removeEventListener('visibilitychange', visible);
+  }, [topUpResult]);
+  useCloseOnSuccessNotification(topUpResult);
+  const requestTopUp = async (
+    providerCode: number,
+    confirmedAt = loadConfirmedPurchase(confirmPeriodDays, confirmDeviceLimit),
+  ) => {
+    if (topUpLock.current) return;
+    topUpLock.current = true;
+    setTopUpBusy(true);
+    setTopUpError(null);
+    setTopUpAnswer(null);
+    topUpMethod.current = providerCode;
+    const epoch = topUpEpoch.current;
+    topUpPayment.current = null;
+    topUpLeft.current = false;
+    try {
+      const data = await balanceApi.createTopUp(
+        topUpChargeKopeks,
+        'platega',
+        String(providerCode),
+        {
+          period_days: confirmPeriodDays,
+          devices: confirmDeviceLimit,
+          change_method: true,
+          ...(confirmedAt ? { confirmed_purchase_at: confirmedAt } : {}),
+        },
+      );
+      if (epoch !== topUpEpoch.current) return;
+      if (
+        data.intent_status === 'already_fulfilled' &&
+        confirmedAt &&
+        data.purchased_at === confirmedAt
+      ) {
+        setTopUpAnswer({ ...data, intent_status: 'confirm_rejected' });
+        return;
+      }
+      const remember = () => {
+        if (!data.payment_id || data.amount_kopeks <= 0) return;
+        topUpPayment.current = data.payment_id;
+        saveTopUpPendingInfo({
+          amount_kopeks: data.amount_kopeks,
+          method_id: 'platega',
+          method_name: checkoutTopUpProvider?.name ?? 'Platega',
+          payment_id: data.payment_id,
+          created_at: Date.now(),
+          return_to: checkoutReturn,
+        });
+      };
+      if (data.intent_status === 'already_paid') {
+        remember();
+        topUpResult();
+        return;
+      }
+      if (data.intent_status === 'accepted' || data.intent_status === 'already_paying') {
+        if (data.amount_kopeks !== topUpChargeKopeks || data.price_kopeks !== confirmTotalKopeks) {
+          await handlePayError({ response: { data: { detail: { code: 'reprice_required' } } } });
+          return;
+        }
+        if (!data.payment_url || !data.payment_id) {
+          setTopUpError(t('deviceFirst.errorProviderNoInvoice'));
+          return;
+        }
+        remember();
+        topUpLeft.current = true;
+        openLink(data.payment_url);
+      } else if (data.intent_status === 'balance_covers') {
+        await refreshPrices();
+      } else if (data.intent_status === 'invoice_not_created') {
+        setTopUpError(t('deviceFirst.errorProviderNoInvoice'));
+      }
+      setTopUpAnswer(data);
+    } catch {
+      if (epoch === topUpEpoch.current) setTopUpError(t('common.error'));
+    } finally {
+      topUpLock.current = false;
+      setTopUpBusy(false);
+    }
+  };
+  const inlineTopUp =
+    primaryTopUp &&
+    options.topup_intent_enabled === true &&
+    topUpAmountKnown &&
+    fixtureCheckout === undefined;
+  const orderStatus = topUpAnswer?.intent_status;
+  const blockedTopUp = orderStatus === 'ordinary';
+  const supportTopUp =
+    blockedTopUp && ['restricted', 'account_erasure'].includes(topUpAnswer?.intent_reason ?? '');
+  const moneyMethods = (methods.data?.methods ?? [])
+    .filter((method) => method.provider_code !== 13)
+    .sort((a, b) => Number(b.provider_code === 2) - Number(a.provider_code === 2));
+  const paymentChoices = (topup: boolean) => (
+    <div className="grid gap-2 [&_button]:min-h-11">
+      <p className="text-sm text-dark-300">{t('deviceFirst.paymentChoice')}</p>
+      {methods.isSuccess && !moneyMethods.length && (
+        <>
+          <p role="status">{t('deviceFirst.noMethods')}</p>
+          <Button onClick={() => navigate(checkoutTopUpHref)}>{t('deviceFirst.needTopup')}</Button>
+        </>
+      )}
+      {moneyMethods.map((method) => (
+        <Button
+          key={method.key}
+          fullWidth
+          size="lg"
+          variant={method.provider_code === 2 ? 'primary' : 'outline'}
+          disabled={
+            topUpBusy ||
+            payMutation.isPending ||
+            (chatChoiceHeld && heldChatMethod?.key === method.key && !heldChatMethodAvailable)
+          }
+          onClick={() =>
+            topup
+              ? void requestTopUp(method.provider_code)
+              : payOnce({
+                  fundingMode: 'platega',
+                  selectedMethodKey: method.key,
+                  openBank: true,
+                })
+          }
+        >
+          {t(method.provider_code === 2 ? 'deviceFirst.paySbp' : 'deviceFirst.payCard', {
+            amount: formatPrice(topup ? topUpChargeKopeks : confirmTotalKopeks!),
+          })}
+        </Button>
+      ))}
+      {topup && topUpBusy && <p role="status">{t('balance.topUpOrder.preparing')}</p>}
+      {topup && topUpPayment.current && (
+        <Button variant="ghost" onClick={topUpResult}>
+          {t('balance.topUpOrder.paidAlready')}
+        </Button>
+      )}
+      {topup && topUpError && <p role="alert">{topUpError}</p>}
+    </div>
+  );
+  const statusKeys: Record<string, string> = {
+    confirm_rejected: 'confirmRejected',
+    already_fulfilled: 'fulfilledRecent',
+    open_order: 'openOrder',
+  };
+  const topUpNotice = blockedTopUp
+    ? supportTopUp
+      ? `balance.topUpResult.intent.reasons.${topUpAnswer?.intent_reason}`
+      : 'balance.topUpResult.intent.reasons.unavailable'
+    : `balance.topUpOrder.${statusKeys[orderStatus ?? ''] ?? 'onReview'}`;
+  const topUpOutcome =
+    topUpAnswer &&
+    !['accepted', 'already_paying', 'balance_covers', 'invoice_not_created'].includes(
+      orderStatus ?? '',
+    ) ? (
+      <div className="space-y-3 [&_button]:min-h-11" role="status">
+        <p>{t(topUpNotice)}</p>
+        {orderStatus === 'confirm_rejected' ? (
+          <Button
+            onClick={() => {
+              setTopUpAnswer(null);
+              setConfirmation(false);
+            }}
+          >
+            {t('balance.topUpOrder.backToOrder')}
+          </Button>
+        ) : orderStatus === 'already_fulfilled' ? (
+          <>
+            {topUpAnswer.subscription_end_date && (
+              <p>
+                {t('balance.topUpOrder.fulfilledUntil', {
+                  date: formatMoscowDate(topUpAnswer.subscription_end_date, i18n.language),
+                })}
+              </p>
+            )}
+            <p>
+              {t('balance.topUpOrder.morePeriodQuestion', {
+                what: `${confirmPeriodText} · ${deviceTitle}`,
+                price: formatPrice(topUpAnswer.price_kopeks ?? confirmTotalKopeks!),
+              })}
+            </p>
+            <Button fullWidth variant="secondary" onClick={() => navigate('/', { replace: true })}>
+              {t('balance.topUpOrder.morePeriodNo')}
+            </Button>
+            {topUpAnswer.purchased_at && (
+              <Button
+                fullWidth
+                variant="secondary"
+                disabled={topUpBusy}
+                onClick={() => {
+                  saveConfirmedPurchase(
+                    confirmPeriodDays,
+                    confirmDeviceLimit,
+                    topUpAnswer.purchased_at!,
+                  );
+                  void requestTopUp(topUpMethod.current!, topUpAnswer.purchased_at!);
+                }}
+              >
+                {t('balance.topUpOrder.morePeriodYes')}
+              </Button>
+            )}
+          </>
+        ) : supportTopUp || orderStatus === 'order_on_review' ? (
+          <Button onClick={() => navigate('/support')}>
+            {t('balance.topUpOrder.writeSupport')}
+          </Button>
+        ) : (
+          orderStatus === 'open_order' && (
+            <Button
+              onClick={() =>
+                navigate(
+                  topUpAnswer.checkout_public_id
+                    ? `/subscription/purchase?checkout=${encodeURIComponent(topUpAnswer.checkout_public_id)}`
+                    : checkoutReturn,
+                  { replace: true },
+                )
+              }
+            >
+              {t('balance.topUpOrder.toMyOrder')}
+            </Button>
+          )
+        )}
+      </div>
+    ) : null;
   const topUpAction = primaryTopUp ? (
     <button
       type="button"
@@ -2133,8 +2397,8 @@ export function DeviceFirstConfigurator({
               ) : walletCoversTotal && !primaryTopUp ? (
                 <button
                   type="button"
-                  disabled={payMutation.isPending}
-                  onClick={() => payMutation.mutate({ fundingMode: 'wallet' })}
+                  disabled={payMutation.isPending || topUpBusy}
+                  onClick={() => payOnce({ fundingMode: 'wallet' })}
                   className={`w-full rounded-2xl bg-accent-500 px-5 py-3.5 font-semibold text-white disabled:opacity-50 ${choiceClass}`}
                 >
                   {t('deviceFirst.payAndOrder', { amount: formatPrice(confirmTotalKopeks) })}
@@ -2144,8 +2408,8 @@ export function DeviceFirstConfigurator({
                   {/* 🔴 Этап Б-2, ветка частичного баланса: доплата — ПЕРВОЕ и акцентное
                       действие, способы оплаты остаются настоящими кнопками под ней. Порядок
                       важен физически: на телефоне до нижних кнопок надо доскроллить. */}
-                  {topUpAction}
-                  {methods.isLoading && !primaryTopUp ? (
+                  {inlineTopUp ? (topUpOutcome ?? paymentChoices(true)) : topUpAction}
+                  {methods.isLoading ? (
                     <p role="status" className="text-sm text-dark-400">
                       {t('deviceFirst.paymentMethodsLoading')}
                     </p>
@@ -2172,11 +2436,7 @@ export function DeviceFirstConfigurator({
                   ) : primaryTopUp &&
                     (methods.isLoading || !!methods.data?.methods.length) ? null : methods.data
                       ?.methods.length ? (
-                    <div className="grid gap-2">
-                      {methods.data.methods.map((method) =>
-                        renderPaymentMethodButton(method.key, method.key === 'sbp', true),
-                      )}
-                    </div>
+                    paymentChoices(false)
                   ) : (
                     <div className="space-y-2">
                       <p role="status" className="text-sm text-warning-400">
@@ -2250,7 +2510,10 @@ export function DeviceFirstConfigurator({
               !selectionUnavailable &&
               methods.isSuccess &&
               methods.data?.methods.length ? (
-                <details key={confirmTotalKopeks} open={!!errorMessage || undefined}>
+                <details
+                  key={confirmTotalKopeks}
+                  open={blockedTopUp || !!errorMessage || undefined}
+                >
                   <summary
                     className={`inline-flex min-h-11 cursor-pointer items-center py-2 text-xs text-dark-300 ${choiceClass}`}
                   >
@@ -2258,7 +2521,7 @@ export function DeviceFirstConfigurator({
                   </summary>
                   <div className="grid gap-2">
                     {methods.data.methods.map((method) =>
-                      renderPaymentMethodButton(method.key, false),
+                      renderPaymentMethodButton(method.key, false, true),
                     )}
                   </div>
                 </details>

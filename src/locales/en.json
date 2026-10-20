@@ -5779,6 +5779,9 @@
     }
   },
   "deviceFirst": {
+    "paymentChoice": "Payment method",
+    "paySbp": "🏦 SBP (QR) · {{amount}}",
+    "payCard": "💳 Bank card · {{amount}}",
     "orderTitle": "Your order",
     "recentPurchaseQuestion": "You made a purchase in the last hour. Pay for another period?",
     "description": "Choose a period, then the number of devices.",

@@ -6354,6 +6354,9 @@
     }
   },
   "deviceFirst": {
+    "paymentChoice": "Способ оплаты",
+    "paySbp": "🏦 СБП (QR) · {{amount}}",
+    "payCard": "💳 Карта банка · {{amount}}",
     "orderTitle": "Ваш заказ",
     "recentPurchaseQuestion": "За последний час уже была покупка. Оплатить ещё период?",
     "description": "Выберите срок, затем количество устройств.",

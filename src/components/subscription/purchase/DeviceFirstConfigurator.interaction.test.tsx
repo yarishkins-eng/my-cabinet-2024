@@ -37,14 +37,15 @@ vi.mock('@/api/deviceFirst', () => ({
 // и его модуль тянет за собой настоящий `i18n` — а он в тестовой среде не поднимается.
 // Мок держит запрос под контролем: по умолчанию сервер молчит, значит сумма остаётся сырой
 // разницей, а автосоздание счёта выключено. Тест, которому нужен минимум, подменяет ответ сам.
-const { getBalancePaymentMethods } = vi.hoisted(() => ({
+const { getBalancePaymentMethods, createTopUp } = vi.hoisted(() => ({
   getBalancePaymentMethods: vi.fn(),
+  createTopUp: vi.fn(),
 }));
 vi.mock('@/api/promo', () => ({
   promoApi: { getActiveDiscount: vi.fn().mockResolvedValue(null) },
 }));
 vi.mock('@/api/balance', () => ({
-  balanceApi: { getPaymentMethods: getBalancePaymentMethods },
+  balanceApi: { getPaymentMethods: getBalancePaymentMethods, createTopUp },
 }));
 // 🔴 Пункт 1 реза 22.08.2026. `hideBackButton`/`showBackButton` больше не нужны: экран
 // не подменяется, поэтому кнопку «Назад» гасить не от чего. Вместо них — `openLink`
@@ -277,7 +278,9 @@ async function peekDirectButton(amount = '450 ₽', index = 0, method?: string) 
       expect(
         screen.queryByText('deviceFirst.payFullPrice', { selector: 'summary' }) ||
           screen.queryAllByRole('button', {
-            name: new RegExp(`^deviceFirst\\.paymentMethodAmount:${amount}:`),
+            name: new RegExp(
+              `^deviceFirst\\.(?:paymentMethodAmount:${amount}:|pay(?:Sbp|Card):${amount})`,
+            ),
           }).length,
       ).toBeTruthy();
     },
@@ -287,8 +290,11 @@ async function peekDirectButton(amount = '450 ₽', index = 0, method?: string) 
   const scope = disclosure ? within(disclosure) : screen;
   const buttons = await scope.findAllByRole('button', {
     name: new RegExp(
-      `^deviceFirst\\.paymentMethodAmount:${amount}:` +
-        (typeof method !== 'undefined' ? `deviceFirst\\.${method}$` : ''),
+      method === 'crypto'
+        ? `^deviceFirst\\.paymentMethodAmount:${amount}:deviceFirst\\.crypto$`
+        : `^deviceFirst\\.(?:paymentMethodAmount:${amount}:` +
+            (method ? `deviceFirst\\.${method}$` : '') +
+            `|pay${method === 'cards' ? 'Card' : method === 'sbp' ? 'Sbp' : '(?:Sbp|Card)'}:${amount}$)`,
     ),
   });
   expect(buttons[index]).toBeTruthy();
@@ -299,8 +305,11 @@ function directMethodButtons(amount = '450 ₽', method?: string) {
   openFullPrice();
   return screen.getAllByRole('button', {
     name: new RegExp(
-      `^deviceFirst\\.paymentMethodAmount:${amount}:` +
-        (typeof method !== 'undefined' ? `deviceFirst\\.${method}$` : ''),
+      method === 'crypto'
+        ? `^deviceFirst\\.paymentMethodAmount:${amount}:deviceFirst\\.crypto$`
+        : `^deviceFirst\\.(?:paymentMethodAmount:${amount}:` +
+            (method ? `deviceFirst\\.${method}$` : '') +
+            `|pay${method === 'cards' ? 'Card' : method === 'sbp' ? 'Sbp' : '(?:Sbp|Card)'}:${amount}$)`,
     ),
   });
 }
@@ -1104,7 +1113,7 @@ describe('DeviceFirstConfigurator interaction safety', () => {
     // Уход не начат ни одним из трёх способов.
     expect(assign).not.toHaveBeenCalled();
     expect(replace).not.toHaveBeenCalled();
-    expect(openLink).not.toHaveBeenCalled();
+    expect(openLink).toHaveBeenCalledTimes(1); // ОПЛ-1: первый явный выбор сразу открыл банк; нового открытия при позднем no-URL нет.
   });
 
   it('shows the payment CTA even when the pending-payment read fails outright', async () => {
@@ -1240,7 +1249,7 @@ describe('DeviceFirstConfigurator interaction safety', () => {
     expect(screen.queryByText('deviceFirst.invoiceReadyText')).toBeNull();
     expect(screen.queryByText('deviceFirst.leavingForProvider')).toBeNull();
     expect(assign).not.toHaveBeenCalled();
-    expect(openLink).not.toHaveBeenCalled();
+    expect(openLink).toHaveBeenCalledTimes(1); // ОПЛ-1: первый явный выбор сразу открыл банк; нового открытия при позднем no-URL нет.
     // Выход с экрана при этом остаётся.
     expect(screen.getByRole('button', { name: 'deviceFirst.changeOptions' })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'deviceFirst.cancel' })).toBeTruthy();
@@ -4196,19 +4205,21 @@ describe('DeviceFirstConfigurator interaction safety', () => {
       initialPath: '/subscription/purchase?period=30&devices=2&method=cards_ru&autostart=1',
     });
     const topup = await screen.findByRole('button', {
-      name: 'deviceFirst.payExternalAndOrder:350 ₽',
+      name: 'deviceFirst.payCard:350 ₽',
     });
-    expect(topup.className).toContain('bg-accent-500');
+    expect(topup.className).toContain('border');
     for (const button of directMethodButtons('450 ₽')) {
       expect(button.closest('details')).toBeTruthy();
     }
     expect(screen.getByText('deviceFirst.topUpAutoHint')).toBeTruthy();
     fireEvent.click(topup);
     await waitFor(() =>
-      expect(screen.getByTestId('location').textContent).toContain('/balance/top-up/platega'),
+      expect(createTopUp).toHaveBeenCalledWith(35000, 'platega', '11', {
+        period_days: 30,
+        devices: 2,
+        change_method: true,
+      }),
     );
-    const url = new URL(screen.getByTestId('location').textContent!, 'http://test');
-    expect(url.searchParams.get('option')).toBe('11');
   });
 
   it('16в-3: из крипты идёт явный выбор способа, option13 не отправляется', async () => {
@@ -4220,9 +4231,7 @@ describe('DeviceFirstConfigurator interaction safety', () => {
       options: { ...options, topup_intent_enabled: true },
       initialPath: '/subscription/purchase?period=30&devices=2&method=crypto&autostart=1',
     });
-    fireEvent.click(
-      await screen.findByRole('button', { name: 'deviceFirst.payExternalAndOrder:350 ₽' }),
-    );
+    fireEvent.click(await screen.findByRole('button', { name: 'deviceFirst.needTopup' }));
     await waitFor(() =>
       expect(screen.getByTestId('location').textContent).toContain('/balance/top-up/platega'),
     );
@@ -4230,19 +4239,46 @@ describe('DeviceFirstConfigurator interaction safety', () => {
     expect(url.searchParams.has('option')).toBe(false);
     expect(url.searchParams.has('auto')).toBe(false);
     expect(url.searchParams.get('chooseMethod')).toBe('1');
+    expect(url.searchParams.has('amount')).toBe(false); // Без суммы legacy fallback не возвращается редиректом к себе.
   });
   // Независимый мутационный скептик: прежние сторожа пропускали эти семь веток.
-  it('G-M32: неизвестный provider code при включённом intent несёт chooseMethod=1', async () => {
+  it('G-M32: pending methods show loading without empty methods or a plain top-up fallback', async () => {
     vi.mocked(deviceFirstApi.paymentMethods).mockReturnValue(new Promise(() => {}));
     getBalancePaymentMethods.mockResolvedValue(topUpMethodsResponse);
     renderConfigurator({ options: { ...options, topup_intent_enabled: true } });
     fireEvent.click(screen.getByRole('button', { name: 'deviceFirst.review' }));
-    fireEvent.click(
-      await screen.findByRole('button', { name: 'deviceFirst.payExternalAndOrder:350 ₽' }),
-    );
+    await screen.findByText('deviceFirst.paymentChoice');
+    expect(await screen.findByText('deviceFirst.paymentMethodsLoading')).toBeTruthy();
+    expect(screen.queryByText('deviceFirst.noMethods')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'deviceFirst.needTopup' })).toBeNull();
+    expect(createTopUp).not.toHaveBeenCalled();
+  });
+
+  it('OPL-1 methods failure offers retry without empty methods or a plain top-up fallback', async () => {
+    vi.mocked(deviceFirstApi.paymentMethods).mockRejectedValue(new Error('offline'));
+    getBalancePaymentMethods.mockResolvedValue(topUpMethodsResponse);
+    renderConfigurator({ options: { ...options, topup_intent_enabled: true } });
+    fireEvent.click(screen.getByRole('button', { name: 'deviceFirst.review' }));
+    expect(await screen.findByText('deviceFirst.errorPaymentMethodsLoad')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'deviceFirst.retry' })).toBeTruthy();
+    expect(screen.queryByText('deviceFirst.noMethods')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'deviceFirst.needTopup' })).toBeNull();
+    expect(screen.queryByText('deviceFirst.paymentMethodsLoading')).toBeNull();
+  });
+
+  it('OPL-1 methods successful empty list preserves the explicit plain top-up fallback', async () => {
+    vi.mocked(deviceFirstApi.paymentMethods).mockResolvedValue({ methods: [] });
+    getBalancePaymentMethods.mockResolvedValue(topUpMethodsResponse);
+    renderConfigurator({ options: { ...options, topup_intent_enabled: true } });
+    fireEvent.click(screen.getByRole('button', { name: 'deviceFirst.review' }));
+    const fallback = await screen.findByRole('button', { name: 'deviceFirst.needTopup' });
+    expect(screen.getAllByText('deviceFirst.noMethods').length).toBeGreaterThan(0);
+    expect(screen.queryByText('deviceFirst.paymentMethodsLoading')).toBeNull();
+    fireEvent.click(fallback);
     const url = new URL(screen.getByTestId('location').textContent!, 'http://test');
-    expect(url.searchParams.has('option')).toBe(false);
-    expect(url.searchParams.has('auto')).toBe(false);
+    expect(url.pathname).toBe('/balance/top-up/platega');
     expect(url.searchParams.get('chooseMethod')).toBe('1');
+    expect(url.searchParams.has('amount')).toBe(false);
+    expect(createTopUp).not.toHaveBeenCalled();
   });
 });

@@ -129,7 +129,7 @@ export default function DashboardUnified() {
     : null;
 
   // Multi-tariff: список подписок (управление через /subscriptions).
-  const { data: multiSubData } = useQuery({
+  const { data: multiSubData, isPending: subscriptionsPending } = useQuery({
     queryKey: ['subscriptions-list'],
     queryFn: () => subscriptionApi.getSubscriptions(),
     staleTime: 60_000,
@@ -325,7 +325,8 @@ export default function DashboardUnified() {
       if (showDeviceHint) dismissDeviceHint();
       navigate(`/connection?sub=${subscriptionId ?? ''}`);
     },
-    onSell: () =>
+    onSell: () => {
+      if (!deviceFirstRecovery && state.sellZone.kind === 'renew' && subscriptionsPending) return;
       navigate(
         deviceFirstRecovery
           ? `/subscription/purchase?checkout=${encodeURIComponent(deviceFirstRecovery.id)}`
@@ -334,7 +335,8 @@ export default function DashboardUnified() {
               ? `/subscription/purchase?subscriptionId=${subscriptionId}`
               : `/subscriptions/${subscriptionId}/renew`
             : '/subscription/purchase',
-      ),
+      );
+    },
     // Докупка устройств/гигабайтов — инлайн-шторки (lazy), открываются прямо на экране.
     onAddDevice: () => setShowDeviceTopup(true),
     onTopupTraffic: () => setShowTrafficTopup(true),

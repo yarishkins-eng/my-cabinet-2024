@@ -36,13 +36,14 @@ vi.mock('@/api/deviceFirst', () => ({
     resumeInvoice: vi.fn(),
   },
 }));
-const { getActiveDiscount, getPaymentMethods, openLink } = vi.hoisted(() => ({
+const { getActiveDiscount, getPaymentMethods, createTopUp, openLink } = vi.hoisted(() => ({
   getActiveDiscount: vi.fn(),
   getPaymentMethods: vi.fn(),
+  createTopUp: vi.fn(),
   openLink: vi.fn(),
 }));
 vi.mock('@/api/promo', () => ({ promoApi: { getActiveDiscount } }));
-vi.mock('@/api/balance', () => ({ balanceApi: { getPaymentMethods } }));
+vi.mock('@/api/balance', () => ({ balanceApi: { getPaymentMethods, createTopUp } }));
 vi.mock('@/platform', () => ({
   usePlatform: () => ({ openLink, haptic: { impact: vi.fn() } }),
 }));
@@ -143,7 +144,7 @@ function directButton(rubles: number, method = 'sbp') {
   }
   return screen.getByRole('button', {
     name: new RegExp(
-      `${method === 'sbp' ? (language.language === 'ru' ? 'СБП' : 'SBP') : language.t('deviceFirst.cards')}.*${rubles} ₽`,
+      `${method === 'sbp' ? (language.language === 'ru' ? 'СБП' : 'SBP') : language.language === 'ru' ? '(?:Карта банка|Карта|Картой)' : '(?:Bank card|Card)'}.*${rubles} ₽`,
     ),
   });
 }
@@ -824,16 +825,14 @@ describe('Owner compact checkout and surviving MX2/MX4 guards', () => {
     expect(screen.getByText('Остаток 0,90 ₽ останется на балансе')).toBeTruthy();
     expect(screen.queryByText(/^Баланс$/)).toBeNull();
     expect(screen.queryByText(/^Не хватает$/)).toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: 'Оплатить 120 ₽' }));
-    const target = new URL(
-      screen.getByTestId('checkout-location').textContent!,
-      'https://local.test',
+    fireEvent.click(screen.getByRole('button', { name: '🏦 СБП (QR) · 120 ₽' }));
+    await waitFor(() =>
+      expect(createTopUp).toHaveBeenCalledWith(12000, 'platega', '2', {
+        period_days: 30,
+        devices: 2,
+        change_method: true,
+      }),
     );
-    expect(target.pathname).toBe('/balance/top-up/platega');
-    expect(target.searchParams.get('amount')).toBe('120');
-    const returned = new URL(target.searchParams.get('returnTo')!, 'https://local.test');
-    expect(returned.searchParams.get('period')).toBe('30');
-    expect(returned.searchParams.get('devices')).toBe('2');
     expect(deviceFirstApi.payDirect).not.toHaveBeenCalled();
   });
 
@@ -865,8 +864,8 @@ describe('Owner compact checkout and surviving MX2/MX4 guards', () => {
     expect(screen.queryByText(/^Скидка/)).toBeNull();
     expect(screen.queryByText(/^С баланса$/)).toBeNull();
     expect(rowValue(/^К оплате$/)).toBe('149 ₽');
-    expect(screen.getByRole('button', { name: 'СБП · 149 ₽' })).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'Карта · 149 ₽' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: '🏦 СБП (QR) · 149 ₽' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: '💳 Карта банка · 149 ₽' })).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'Оплатить 149 ₽' })).toBeNull();
     expect(screen.getByText('Подписка оформится сама после оплаты')).toBeTruthy();
     expect(screen.queryByText(ru.deviceFirst.payFullPrice)).toBeNull();
@@ -880,8 +879,8 @@ describe('Owner compact checkout and surviving MX2/MX4 guards', () => {
     });
     mount(options({ topup_intent_enabled: true, promo_offer: applied }));
     await review();
-    const sbp = screen.getByRole('button', { name: 'СБП · 134 ₽' });
-    const card = screen.getByRole('button', { name: 'Карта · 134 ₽' });
+    const sbp = screen.getByRole('button', { name: '🏦 СБП (QR) · 134 ₽' });
+    const card = screen.getByRole('button', { name: '💳 Карта банка · 134 ₽' });
     expect(sbp.className).toContain('bg-accent-500');
     expect(card.classList.contains('bg-accent-500')).toBe(false);
     expect(screen.queryByRole('button', { name: 'Оплатить 134 ₽' })).toBeNull();
@@ -915,7 +914,7 @@ describe('Owner compact checkout and surviving MX2/MX4 guards', () => {
     expect(screen.queryByText(ru.deviceFirst.topUpAutoHint)).toBeNull();
   });
 
-  it('choosing crypto with a known positive amount still opens an automatic order', async () => {
+  it('crypto is excluded from one-screen cash methods without starting an invoice', async () => {
     getPaymentMethods.mockResolvedValue([
       { id: 'platega', is_available: true, min_amount_kopeks: 100 },
     ]);
@@ -929,13 +928,9 @@ describe('Owner compact checkout and surviving MX2/MX4 guards', () => {
     await review();
     expect(screen.queryByText(ru.deviceFirst.topUpAutoHint)).toBeTruthy();
     expect(screen.queryByText(ru.deviceFirst.topUpShortageHint)).toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: 'Оплатить 84 ₽' }));
-    const href = screen.getByTestId('checkout-location').textContent!;
-    const params = new URL(href, 'https://example.test').searchParams;
-    expect(params.get('amount')).toBe('84');
-    expect(params.get('chooseMethod')).toBe('1');
-    expect(params.has('auto')).toBe(false);
-    expect(params.get('returnTo')).toBe('/subscription/purchase?from=checkout&period=30&devices=2');
+    expect(screen.getByText(ru.deviceFirst.noMethods)).toBeTruthy();
+    expect(createTopUp).not.toHaveBeenCalled();
+    expect(screen.queryByRole('button', { name: /Крипта.*84/ })).toBeNull();
     expect(deviceFirstApi.payDirect).not.toHaveBeenCalled();
   });
 
@@ -951,7 +946,7 @@ describe('Owner compact checkout and surviving MX2/MX4 guards', () => {
     expect(rowValue(/^Сверх цены на баланс$/)).toBe('66 ₽');
     expect(rowValue(/^К оплате$/)).toBe('200 ₽');
     expect(screen.getByText('Остаток 116 ₽ останется на балансе')).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'Оплатить 200 ₽' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: '🏦 СБП (QR) · 200 ₽' })).toBeTruthy();
   });
 });
 
@@ -999,8 +994,8 @@ describe('Second owner decision: immediate methods and fresh prices', () => {
       expect(rowValue(/^К оплате$/)).toBe('134 ₽');
       expect(screen.queryByText(/^С баланса$/)).toBeNull();
       expect(screen.queryByText(ru.deviceFirst.payFullPrice)).toBeNull();
-      const sbp = screen.getByRole('button', { name: 'СБП · 134 ₽' });
-      expect(screen.getByRole('button', { name: 'Карта · 134 ₽' })).toBeTruthy();
+      const sbp = screen.getByRole('button', { name: '🏦 СБП (QR) · 134 ₽' });
+      expect(screen.getByRole('button', { name: '💳 Карта банка · 134 ₽' })).toBeTruthy();
       expect(screen.queryByRole('button', { name: 'Оплатить 134 ₽' })).toBeNull();
       expect(deviceFirstApi.payDirect).not.toHaveBeenCalled();
       expect(openLink).not.toHaveBeenCalled();
@@ -1028,10 +1023,10 @@ describe('Second owner decision: immediate methods and fresh prices', () => {
     );
     await review();
     expect(rowValue(/^К оплате$/)).toBe('134,10 ₽');
-    expect(screen.getByRole('button', { name: 'СБП · 134,10 ₽' })).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'Карта · 134,10 ₽' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: '🏦 СБП (QR) · 134,10 ₽' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: '💳 Карта банка · 134,10 ₽' })).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'Оплатить 134 ₽' })).toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: 'СБП · 134,10 ₽' }));
+    fireEvent.click(screen.getByRole('button', { name: '🏦 СБП (QR) · 134,10 ₽' }));
     await waitFor(() =>
       expect(deviceFirstApi.payDirect).toHaveBeenCalledExactlyOnceWith({
         period_days: 30,
@@ -1088,19 +1083,19 @@ describe('Second owner decision: immediate methods and fresh prices', () => {
     vi.mocked(deviceFirstApi.payDirect).mockRejectedValueOnce(expired);
     mount(options({ promo_offer: applied }));
     await review();
-    fireEvent.click(screen.getByRole('button', { name: 'СБП · 134 ₽' }));
+    fireEvent.click(screen.getByRole('button', { name: '🏦 СБП (QR) · 134 ₽' }));
     await screen.findByText(ru.deviceFirst.pricesRefreshing);
     expect(screen.getByText(ru.deviceFirst.discountExpired)).toBeTruthy();
     expect(screen.queryByText('134 ₽')).toBeNull();
     expect(screen.queryByText(/^К оплате$/)).toBeNull();
     expect(screen.queryByRole('button', { name: /СБП|Карта|Оплатить/ })).toBeNull();
     await act(async () => release(fresh()));
-    await screen.findByRole('button', { name: 'СБП · 149 ₽' });
-    expect(screen.getByRole('button', { name: 'Карта · 149 ₽' })).toBeTruthy();
+    await screen.findByRole('button', { name: '🏦 СБП (QR) · 149 ₽' });
+    expect(screen.getByRole('button', { name: '💳 Карта банка · 149 ₽' })).toBeTruthy();
     expect(screen.queryByText('134 ₽')).toBeNull();
     expect(screen.getByText('1 мес. · 2 устройства — 149 ₽')).toBeTruthy();
     expect(deviceFirstApi.payDirect).toHaveBeenCalledTimes(1);
-    fireEvent.click(screen.getByRole('button', { name: 'СБП · 149 ₽' }));
+    fireEvent.click(screen.getByRole('button', { name: '🏦 СБП (QR) · 149 ₽' }));
     await waitFor(() => expect(deviceFirstApi.payDirect).toHaveBeenCalledTimes(2));
     expect(deviceFirstApi.payDirect).toHaveBeenLastCalledWith({
       period_days: 30,
@@ -1128,7 +1123,7 @@ describe('Second owner decision: immediate methods and fresh prices', () => {
         queryClient.setQueryData(['device-first-options'], prior),
       );
       await review();
-      fireEvent.click(screen.getByRole('button', { name: 'СБП · 134 ₽' }));
+      fireEvent.click(screen.getByRole('button', { name: '🏦 СБП (QR) · 134 ₽' }));
       const failure = await screen.findByRole('alert');
       expect(failure.textContent).toContain(ru.deviceFirst.pricesRefreshError);
       expect(screen.queryByText('134 ₽')).toBeNull();
@@ -1138,7 +1133,7 @@ describe('Second owner decision: immediate methods and fresh prices', () => {
       expect(client.getQueryData(['device-first-options'])).toEqual(prior);
       expect(client.getQueryState(['device-first-options'])?.status).toBe('success');
       fireEvent.click(within(failure).getByRole('button', { name: ru.deviceFirst.retry }));
-      await screen.findByRole('button', { name: 'СБП · 149 ₽' });
+      await screen.findByRole('button', { name: '🏦 СБП (QR) · 149 ₽' });
       expect(deviceFirstApi.getOptions).toHaveBeenCalledTimes(2);
       expect(deviceFirstApi.payDirect).toHaveBeenCalledTimes(1);
       expect(openLink).not.toHaveBeenCalled();
@@ -1164,15 +1159,15 @@ describe('Second owner decision: immediate methods and fresh prices', () => {
         .catch(() => undefined);
     });
     await review();
-    fireEvent.click(screen.getByRole('button', { name: 'СБП · 134 ₽' }));
-    await screen.findByRole('button', { name: 'СБП · 149 ₽' });
+    fireEvent.click(screen.getByRole('button', { name: '🏦 СБП (QR) · 134 ₽' }));
+    await screen.findByRole('button', { name: '🏦 СБП (QR) · 149 ₽' });
     expect(aborted).toHaveBeenCalledTimes(1);
     expect(deviceFirstApi.getOptions).toHaveBeenCalledTimes(1);
     await act(async () => staleRelease(options()));
     expect(client.getQueryData<DeviceFirstOptions>(['device-first-options'])?.price_matrix).toEqual(
       fresh().price_matrix,
     );
-    expect(screen.queryByRole('button', { name: 'СБП · 134 ₽' })).toBeNull();
+    expect(screen.queryByRole('button', { name: '🏦 СБП (QR) · 134 ₽' })).toBeNull();
     expect(deviceFirstApi.payDirect).toHaveBeenCalledTimes(1);
   });
 
@@ -1185,8 +1180,8 @@ describe('Second owner decision: immediate methods and fresh prices', () => {
       await review();
       expect(rowValue(/^К оплате$/)).toBe('134 ₽');
       expect(screen.queryByText(/^С баланса$/)).toBeNull();
-      expect(screen.getByRole('button', { name: 'СБП · 134 ₽' })).toBeTruthy();
-      expect(screen.getByRole('button', { name: 'Карта · 134 ₽' })).toBeTruthy();
+      expect(screen.getByRole('button', { name: '🏦 СБП (QR) · 134 ₽' })).toBeTruthy();
+      expect(screen.getByRole('button', { name: '💳 Карта банка · 134 ₽' })).toBeTruthy();
       expect(screen.getByText(ru.deviceFirst.topUpAutoHint)).toBeTruthy();
       expect(screen.queryByText(ru.deviceFirst.topUpShortageHint)).toBeNull();
       expect(screen.queryByText(/^К оплате —$/)).toBeNull();
@@ -1208,7 +1203,7 @@ describe('Second owner decision: immediate methods and fresh prices', () => {
     expect(
       screen.getByRole('heading', { name: 'Premium · 2 → 3 устройства · 1 мес.' }),
     ).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: 'СБП · 199 ₽' }));
+    fireEvent.click(screen.getByRole('button', { name: '🏦 СБП (QR) · 199 ₽' }));
     await waitFor(() =>
       expect(deviceFirstApi.payDirect).toHaveBeenCalledExactlyOnceWith({
         period_days: 30,
